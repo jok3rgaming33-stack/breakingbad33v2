@@ -199,7 +199,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
             </div>
             <h3 className="text-2xl font-bold text-balance">Commande validée</h3>
             <p className="text-sm text-muted-foreground text-pretty">
-              Ta commande a été transmise. Un message a été généré dans la messagerie interne (à venir).
+              Ta commande a été transmise au vendeur. Un fil de discussion a été créé dans la messagerie interne pour le suivi.
             </p>
             <button
               type="button"
