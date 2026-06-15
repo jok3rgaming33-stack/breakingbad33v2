@@ -96,7 +96,7 @@ export async function updateThreadStatus(threadId: number, status: string) {
   return { ok: true }
 }
 
-// Vue client : ses fils filtrés par pseudo
+// Vue client : ses fils filtrés par pseudo (compat héritée)
 export async function getThreadsForCustomer(customerName: string) {
   const name = customerName?.trim()
   if (!name) return []
@@ -104,6 +104,17 @@ export async function getThreadsForCustomer(customerName: string) {
     .select()
     .from(orderThreads)
     .where(eq(orderThreads.customerName, name))
+    .orderBy(desc(orderThreads.updatedAt))
+}
+
+// Vue client : ses fils filtrés par clé secrète (identifiant stable, multi-appareils)
+export async function getThreadsForToken(customerToken: string) {
+  const token = customerToken?.trim()
+  if (!token) return []
+  return db
+    .select()
+    .from(orderThreads)
+    .where(eq(orderThreads.customerToken, token))
     .orderBy(desc(orderThreads.updatedAt))
 }
 

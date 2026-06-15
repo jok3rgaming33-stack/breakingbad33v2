@@ -1,0 +1,59 @@
+"use server"
+
+import { db } from "@/lib/db"
+import { users, orderThreads } from "@/lib/db/schema"
+import { eq } from "drizzle-orm"
+import { isClosedStatus } from "@/lib/order-status"
+import { computeLoyaltyPoints } from "@/lib/loyalty"
+
+// Crée (ou réenregistre) un compte anonyme : associe une clé secrète à un pseudo.
+// Idempotent : si la clé existe déjà, on conserve le pseudo d'origine.
+export async function createAccount(token: string, pseudo: string) {
+  const t = token?.trim()
+  const p = pseudo?.trim()
+  if (!t || t.length < 20 || !p) return { ok: false as const, error: "Paramètres invalides." }
+
+  const existing = await db.select().from(users).where(eq(users.token, t)).limit(1)
+  if (existing.length > 0) {
+    return { ok: true as const, pseudo: existing[0].pseudo }
+  }
+
+  await db.insert(users).values({ token: t, pseudo: p })
+  return { ok: true as const, pseudo: p }
+}
+
+// Récupère le compte associé à une clé secrète (connexion d'un client existant).
+export async function getAccount(token: string) {
+  const t = token?.trim()
+  if (!t) return null
+  const rows = await db.select().from(users).where(eq(users.token, t)).limit(1)
+  return rows[0] ?? null
+}
+
+// Garantit qu'un compte existe pour cette clé (migration des anciens comptes
+// créés uniquement en localStorage avant l'introduction de la table users).
+export async function ensureAccount(token: string, fallbackPseudo: string) {
+  const account = await getAccount(token)
+  if (account) return { ok: true as const, pseudo: account.pseudo, created: false }
+  const res = await createAccount(token, fallbackPseudo)
+  if (!res.ok) return { ok: false as const, error: res.error }
+  return { ok: true as const, pseudo: res.pseudo, created: true }
+}
+
+// Statistiques réelles du client, calculées depuis ses commandes (clé secrète).
+export async function getCustomerStats(token: string) {
+  const t = token?.trim()
+  if (!t) return { points: 0, active: 0, past: 0 }
+
+  const rows = await db.select().from(orderThreads).where(eq(orderThreads.customerToken, t))
+
+  let points = 0
+  let active = 0
+  let past = 0
+  for (const row of rows) {
+    points += computeLoyaltyPoints(row.total ?? 0)
+    if (isClosedStatus(row.status)) past += 1
+    else active += 1
+  }
+  return { points, active, past }
+}

@@ -1,8 +1,10 @@
 "use client"
 
-import { X, LogOut } from "lucide-react"
+import { useEffect, useState } from "react"
+import { X, LogOut, Loader2 } from "lucide-react"
+import { getCustomerStats } from "@/app/actions/account"
 
-type UserData = { pseudo?: string } | null
+type UserData = { pseudo?: string; token?: string } | null
 
 type UserDashboardModalProps = {
   isOpen: boolean
@@ -12,7 +14,20 @@ type UserDashboardModalProps = {
 }
 
 export function UserDashboardModal({ isOpen, onClose, userData, onLogout }: UserDashboardModalProps) {
+  const token = userData?.token ?? ""
+  const [stats, setStats] = useState<{ points: number; active: number; past: number } | null>(null)
+
+  useEffect(() => {
+    if (!isOpen || !token) return
+    setStats(null)
+    getCustomerStats(token)
+      .then((s) => setStats(s))
+      .catch(() => setStats({ points: 0, active: 0, past: 0 }))
+  }, [isOpen, token])
+
   if (!isOpen) return null
+
+  const spinner = <Loader2 className="mx-auto h-5 w-5 animate-spin" aria-hidden="true" />
 
   return (
     <div
@@ -41,15 +56,15 @@ export function UserDashboardModal({ isOpen, onClose, userData, onLogout }: User
 
         <div className="mb-6 grid grid-cols-3 gap-4 text-center">
           <div className="rounded-2xl bg-background/40 p-4">
-            <div className="text-2xl font-bold text-accent">248</div>
+            <div className="text-2xl font-bold text-accent">{stats ? stats.points : spinner}</div>
             <div className="mt-1 text-xs text-muted-foreground">Points</div>
           </div>
           <div className="rounded-2xl bg-background/40 p-4">
-            <div className="text-2xl font-bold text-primary">1</div>
+            <div className="text-2xl font-bold text-primary">{stats ? stats.active : spinner}</div>
             <div className="mt-1 text-xs text-muted-foreground">En cours</div>
           </div>
           <div className="rounded-2xl bg-background/40 p-4">
-            <div className="text-2xl font-bold text-muted-foreground">14</div>
+            <div className="text-2xl font-bold text-muted-foreground">{stats ? stats.past : spinner}</div>
             <div className="mt-1 text-xs text-muted-foreground">Passées</div>
           </div>
         </div>

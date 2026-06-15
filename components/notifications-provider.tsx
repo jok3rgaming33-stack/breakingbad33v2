@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useCallback, useEffect, useRef, useState } from "react"
-import { getThreadsForCustomer } from "@/app/actions/messaging"
+import { getThreadsForToken } from "@/app/actions/messaging"
 import { normalizeStatus, statusMeta, type OrderStatusKey } from "@/lib/order-status"
 
 export type OrderNotification = {
@@ -43,10 +43,12 @@ function readJSON<T>(key: string, fallback: T): T {
 
 export function NotificationsProvider({
   pseudo,
+  token,
   enabled = true,
   children,
 }: {
   pseudo?: string
+  token?: string
   enabled?: boolean
   children: React.ReactNode
 }) {
@@ -65,10 +67,10 @@ export function NotificationsProvider({
   }, [pseudo])
 
   const poll = useCallback(async () => {
-    if (!pseudo) return
+    if (!pseudo || !token) return
     let threads: Array<{ id: number; status: string }> = []
     try {
-      threads = (await getThreadsForCustomer(pseudo)) as Array<{ id: number; status: string }>
+      threads = (await getThreadsForToken(token)) as Array<{ id: number; status: string }>
     } catch {
       return
     }
@@ -104,11 +106,11 @@ export function NotificationsProvider({
       })
     }
     if (pseudo) localStorage.setItem(seenKey(pseudo), JSON.stringify(seen))
-  }, [pseudo])
+  }, [pseudo, token])
 
   // Sondage périodique
   useEffect(() => {
-    if (!enabled || !pseudo) return
+    if (!enabled || !pseudo || !token) return
     poll()
     const interval = setInterval(poll, POLL_MS)
     // Re-sonde quand l'onglet reprend le focus
@@ -120,7 +122,7 @@ export function NotificationsProvider({
       clearInterval(interval)
       document.removeEventListener("visibilitychange", onVisible)
     }
-  }, [enabled, pseudo, poll])
+  }, [enabled, pseudo, token, poll])
 
   const markAllRead = useCallback(() => {
     setNotifications((prev) => {

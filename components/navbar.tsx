@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useCart } from "@/components/cart-provider"
 import { NotificationBell } from "@/components/notification-bell"
-import { Menu, ShoppingCart, X, ShieldCheck } from "lucide-react"
+import { Menu, ShoppingCart, X, ShieldCheck, LogOut } from "lucide-react"
 import Image from "next/image"
 
 const NAV_ITEMS = [
@@ -24,6 +24,7 @@ type NavbarProps = {
 
 export function Navbar({
   isLoggedIn,
+  onLogout,
   onOpenLoyalty,
   onOpenOrders,
   onOpenDelivery,
@@ -107,6 +108,18 @@ export function Navbar({
             </div>
           </button>
 
+          {/* Déconnexion (client connecté, desktop) */}
+          {isLoggedIn && !isAdmin && (
+            <button
+              onClick={() => onLogout?.()}
+              className="hidden items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/70 transition-colors hover:border-white/20 hover:text-white lg:flex"
+              aria-label="Se déconnecter"
+            >
+              <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
+              Déconnexion
+            </button>
+          )}
+
           {/* Mobile Menu Button */}
           <button
             onClick={() => setOpen(!open)}
@@ -139,6 +152,19 @@ export function Navbar({
                 <ShieldCheck className="h-4 w-4" aria-hidden="true" />
                 Panel Admin
               </a>
+            )}
+            {isLoggedIn && !isAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onLogout?.()
+                }}
+                className="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+                Déconnexion
+              </button>
             )}
           </div>
         </nav>

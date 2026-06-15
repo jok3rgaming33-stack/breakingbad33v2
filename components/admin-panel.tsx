@@ -6,7 +6,8 @@ import { VendorInbox } from "@/components/vendor-inbox"
 import { AdminOrdersRecap } from "@/components/admin-orders-recap"
 import { AdminMap } from "@/components/admin-map"
 import { adminLogout } from "@/app/actions/admin-auth"
-import { MessageSquare, Map, ListOrdered, TrendingUp, LogOut, Construction } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, TrendingUp, LogOut, Construction, Eye } from "lucide-react"
+import Link from "next/link"
 
 type TabId = "messagerie" | "carte" | "commandes" | "profits"
 
@@ -33,15 +34,26 @@ export function AdminPanel({ initialThreads }: { initialThreads: OrderThread[] }
             <h1 className="text-xl font-bold">Panel Administrateur</h1>
             <p className="text-xs text-muted-foreground">Connecté en tant que Heisenberg</p>
           </div>
-          <form action={adminLogout}>
-            <button
-              type="submit"
-              className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+          <div className="flex items-center gap-2">
+            <Link
+              href="/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
             >
-              <LogOut className="h-4 w-4" aria-hidden="true" />
-              Déconnexion
-            </button>
-          </form>
+              <Eye className="h-4 w-4" aria-hidden="true" />
+              Voir le site
+            </Link>
+            <form action={adminLogout}>
+              <button
+                type="submit"
+                className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+              >
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+                Déconnexion
+              </button>
+            </form>
+          </div>
         </div>
       </header>
 

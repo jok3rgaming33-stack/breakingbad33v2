@@ -21,13 +21,15 @@ export default function Home() {
   const [isOrdersOpen, setIsOrdersOpen] = useState(false)
   const [isDeliveryOpen, setIsDeliveryOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
-  const [userData, setUserData] = useState<{ pseudo?: string } | null>(null)
+  const [userData, setUserData] = useState<{ pseudo?: string; token?: string } | null>(null)
 
-  const handleLoginSuccess = () => {
+  const handleLoginSuccess = (opts?: { openOrders?: boolean }) => {
     setIsAuthenticated(true)
-    const pseudo = localStorage.getItem("userPseudo")
-    if (pseudo) setUserData({ pseudo })
+    const pseudo = localStorage.getItem("userPseudo") ?? undefined
+    const token = localStorage.getItem("authToken") ?? undefined
+    setUserData({ pseudo, token })
     setIsAdmin(localStorage.getItem("isAdmin") === "1")
+    if (opts?.openOrders) setIsOrdersOpen(true)
   }
 
   const handleLogout = () => {
@@ -42,7 +44,11 @@ export default function Home() {
 
   return (
     <CartProvider>
-      <NotificationsProvider pseudo={userData?.pseudo} enabled={isAuthenticated && !isAdmin}>
+      <NotificationsProvider
+        pseudo={userData?.pseudo}
+        token={userData?.token}
+        enabled={isAuthenticated && !isAdmin}
+      >
       <Navbar
         isLoggedIn={isAuthenticated}
         onLogout={handleLogout}

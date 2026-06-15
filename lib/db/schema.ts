@@ -1,5 +1,12 @@
 import { pgTable, serial, text, integer, doublePrecision, timestamp } from "drizzle-orm/pg-core"
 
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  token: text("token").notNull().unique(),
+  pseudo: text("pseudo").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const orderThreads = pgTable("order_threads", {
   id: serial("id").primaryKey(),
   customerName: text("customer_name").notNull(),
@@ -26,5 +33,6 @@ export const threadMessages = pgTable("thread_messages", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+export type User = typeof users.$inferSelect
 export type OrderThread = typeof orderThreads.$inferSelect
 export type ThreadMessage = typeof threadMessages.$inferSelect

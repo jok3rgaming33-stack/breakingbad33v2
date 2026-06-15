@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react"
 import { X, ArrowLeft, Package, Send, Loader2 } from "lucide-react"
-import { getThreadsForCustomer, getThread, addMessage } from "@/app/actions/messaging"
+import { getThreadsForToken, getThread, addMessage } from "@/app/actions/messaging"
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
 
-type UserData = { pseudo?: string } | null
+type UserData = { pseudo?: string; token?: string } | null
 
 type MyOrdersModalProps = {
   isOpen: boolean
@@ -39,7 +39,7 @@ function formatDate(d: Date | string) {
 }
 
 export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps) {
-  const name = userData?.pseudo ?? ""
+  const token = userData?.token ?? ""
   const [threads, setThreads] = useState<Thread[]>([])
   const [tab, setTab] = useState<"active" | "past">("active")
   const [loadingList, setLoadingList] = useState(false)
@@ -49,15 +49,15 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
   const [reply, setReply] = useState("")
   const [sending, setSending] = useState(false)
 
-  // Charge la liste des commandes du client à l'ouverture
+  // Charge la liste des commandes du client à l'ouverture (par clé secrète)
   useEffect(() => {
-    if (!isOpen || !name) return
+    if (!isOpen || !token) return
     setLoadingList(true)
-    getThreadsForCustomer(name)
+    getThreadsForToken(token)
       .then((data) => setThreads(data as Thread[]))
       .catch(() => setThreads([]))
       .finally(() => setLoadingList(false))
-  }, [isOpen, name])
+  }, [isOpen, token])
 
   const openThread = async (thread: Thread) => {
     setSelected(thread)
