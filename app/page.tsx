@@ -5,6 +5,9 @@ import { CartProvider } from "@/components/cart-provider"
 import { Navbar } from "@/components/navbar"
 import { LoginPage } from "@/components/login-page"
 import { UserDashboardModal } from "@/components/user-dashboard-modal"
+import { Hero } from "@/components/hero"
+import { FeaturedProducts } from "@/components/featured-products"
+import { NewArrivals } from "@/components/new-arrivals"
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -37,16 +40,10 @@ export default function Home() {
         {!isAuthenticated ? (
           <LoginPage onSuccess={handleLoginSuccess} />
         ) : (
-          <div className="flex min-h-screen items-center justify-center bg-background pt-16 text-foreground">
-            <div className="text-center">
-              <h1 className="mb-4 text-4xl font-bold text-balance">Bienvenue sur BreakingBad33</h1>
-              <button
-                onClick={() => setIsDashboardOpen(true)}
-                className="rounded-2xl bg-accent px-8 py-3 font-semibold text-accent-foreground transition-colors hover:brightness-110"
-              >
-                Ouvrir mon Dashboard
-              </button>
-            </div>
+          <div className="bg-background text-foreground">
+            <Hero />
+            <FeaturedProducts />
+            <NewArrivals />
           </div>
         )}
       </main>
