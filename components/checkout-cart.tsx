@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useCart } from "@/components/cart-provider"
+import { createOrderThread } from "@/app/actions/messaging"
 import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus } from "lucide-react"
 
 type UserData = { pseudo?: string } | null
@@ -46,6 +47,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
   const [resolvedLabel, setResolvedLabel] = useState<string | null>(null)
   const [placed, setPlaced] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const name = userData?.pseudo ?? "Invité"
 
@@ -92,8 +95,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     !!date &&
     (isMeetup ? !!meetupHour : !!address.trim() && !!slot && distanceKm != null)
 
-  const handleValidate = () => {
-    if (!canValidate) return
+  const handleValidate = async () => {
+    if (!canValidate || submitting) return
 
     const lines = items.map((i) => `• ${i.qty}x ${i.title} — ${i.price * i.qty}€`).join("\n")
     const mode = isMeetup
@@ -118,10 +121,25 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       .filter(Boolean)
       .join("\n")
 
-    // Le système de messagerie interne sera développé ultérieurement
-    console.log("[v0] Commande validée:\n" + message)
-    onOrderPlaced?.(message)
-    setPlaced(true)
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      await createOrderThread({
+        customerName: name,
+        summary: message,
+        total,
+        fulfillment: isMeetup ? "meetup" : "livraison",
+        scheduledDate: date,
+        scheduledSlot: isMeetup ? meetupHour : slot,
+      })
+      onOrderPlaced?.(message)
+      setPlaced(true)
+    } catch (err) {
+      console.log("[v0] Erreur validation commande:", err)
+      setSubmitError("Impossible d'envoyer la commande. Réessaie dans un instant.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleClose = () => {
@@ -421,11 +439,13 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
               <button
                 type="button"
                 onClick={handleValidate}
-                disabled={!canValidate}
-                className="w-full rounded-2xl bg-accent py-4 font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={!canValidate || submitting}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-4 font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Valider ma commande
+                {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                {submitting ? "Envoi en cours..." : "Valider ma commande"}
               </button>
+              {submitError && <p className="mt-2 text-center text-xs text-destructive">{submitError}</p>}
               {!canValidate && items.length > 0 && (
                 <p className="mt-2 text-center text-xs text-muted-foreground">
                   Renseigne {isMeetup ? "l'heure de retrait et la date" : "l'adresse, le créneau et la date"} pour valider.
