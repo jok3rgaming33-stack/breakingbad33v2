@@ -4,6 +4,8 @@ import { db } from "@/lib/db"
 import { orderThreads, threadMessages } from "@/lib/db/schema"
 import { and, desc, eq, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
+import { normalizeStatus } from "@/lib/order-status"
+import { computeLoyaltyPoints } from "@/lib/loyalty"
 
 export type NewOrderInput = {
   customerName: string
@@ -85,14 +87,34 @@ export async function addMessage(threadId: number, sender: "client" | "vendeur",
   return { ok: true }
 }
 
-// Met à jour le statut d'un fil (nouveau / en cours / traité)
+// Met à jour le statut d'un fil. Lorsque la commande passe à "livree", on envoie
+// automatiquement un message de confirmation (une seule fois) ; c'est aussi le
+// moment où les points de fidélité sont considérés comme crédités (voir getCustomerStats).
 export async function updateThreadStatus(threadId: number, status: string) {
+  const [current] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
+  if (!current) return { ok: false }
+
+  const wasDelivered = normalizeStatus(current.status) === "livree"
+  const nowDelivered = normalizeStatus(status) === "livree"
+
   await db
     .update(orderThreads)
     .set({ status, updatedAt: sql`now()` })
     .where(eq(orderThreads.id, threadId))
+
+  // Message automatique de livraison, uniquement à la première bascule vers "livree"
+  if (nowDelivered && !wasDelivered) {
+    const mode = current.fulfillment === "meetup" ? "en meet-up" : "en livraison"
+    const points = computeLoyaltyPoints(current.total ?? 0)
+    const body =
+      `Ta commande t'a bien été livrée (${mode}). Merci pour ta confiance !` +
+      (points > 0 ? ` ${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités sur ton compte.` : "")
+    await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
+  }
+
   revalidatePath("/messagerie")
   revalidatePath(`/messagerie/${threadId}`)
+  revalidatePath("/admin")
   return { ok: true }
 }
 

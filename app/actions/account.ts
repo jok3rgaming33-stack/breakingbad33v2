@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import { users, orderThreads } from "@/lib/db/schema"
 import { eq, desc, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import { isClosedStatus } from "@/lib/order-status"
+import { isClosedStatus, normalizeStatus } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 
 // Crée (ou réenregistre) un compte anonyme : associe une clé secrète à un pseudo.
@@ -52,7 +52,10 @@ export async function getCustomerStats(token: string) {
   let active = 0
   let past = 0
   for (const row of rows) {
-    points += computeLoyaltyPoints(row.total ?? 0)
+    // Les points ne sont crédités QU'À la livraison (statut "livree").
+    if (normalizeStatus(row.status) === "livree") {
+      points += computeLoyaltyPoints(row.total ?? 0)
+    }
     if (isClosedStatus(row.status)) past += 1
     else active += 1
   }

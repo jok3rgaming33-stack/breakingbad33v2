@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { CartProvider } from "@/components/cart-provider"
 import { NotificationsProvider } from "@/components/notifications-provider"
 import { Navbar } from "@/components/navbar"
@@ -22,6 +23,25 @@ export default function Home() {
   const [isDeliveryOpen, setIsDeliveryOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [userData, setUserData] = useState<{ pseudo?: string; token?: string } | null>(null)
+
+  // Si l'admin est connecté (cookie de session), le bouton "Voir le site" doit
+  // afficher la boutique au lieu de l'écran de connexion. On vérifie la session
+  // côté serveur au montage et on bascule en aperçu admin le cas échéant.
+  useEffect(() => {
+    let cancelled = false
+    if (localStorage.getItem("authToken")) return
+    isAdminAuthenticated()
+      .then((ok) => {
+        if (cancelled || !ok) return
+        setIsAuthenticated(true)
+        setIsAdmin(true)
+        setUserData({ pseudo: "Heisenberg" })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleLoginSuccess = (opts?: { openOrders?: boolean }) => {
     setIsAuthenticated(true)
