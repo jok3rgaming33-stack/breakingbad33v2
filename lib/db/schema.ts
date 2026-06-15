@@ -1,11 +1,16 @@
-import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core"
+import { pgTable, serial, text, integer, doublePrecision, timestamp } from "drizzle-orm/pg-core"
 
 export const orderThreads = pgTable("order_threads", {
   id: serial("id").primaryKey(),
   customerName: text("customer_name").notNull(),
+  customerToken: text("customer_token"),
   summary: text("summary").notNull(),
+  products: text("products"),
   total: integer("total").notNull().default(0),
   fulfillment: text("fulfillment").notNull().default("livraison"),
+  address: text("address"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
   scheduledDate: text("scheduled_date"),
   scheduledSlot: text("scheduled_slot"),
   status: text("status").notNull().default("nouveau"),

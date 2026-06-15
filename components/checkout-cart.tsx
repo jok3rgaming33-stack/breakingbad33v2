@@ -45,6 +45,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
 
   const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "done" | "error" | "notfound">("idle")
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [resolvedLabel, setResolvedLabel] = useState<string | null>(null)
   const [placed, setPlaced] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -75,17 +76,25 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       const data = await res.json()
       if (res.ok && data.found) {
         setDistanceKm(Number(data.distanceKm))
+        setCoords(
+          typeof data.lat === "number" && typeof data.lng === "number"
+            ? { lat: data.lat, lng: data.lng }
+            : null,
+        )
         setResolvedLabel(data.label ?? null)
         setGeoStatus("done")
       } else if (res.ok && data.found === false) {
         setDistanceKm(null)
+        setCoords(null)
         setGeoStatus("notfound")
       } else {
         setDistanceKm(null)
+        setCoords(null)
         setGeoStatus("error")
       }
     } catch {
       setDistanceKm(null)
+      setCoords(null)
       setGeoStatus("error")
     }
   }
@@ -99,6 +108,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     if (!canValidate || submitting) return
 
     const lines = items.map((i) => `• ${i.qty}x ${i.title} — ${i.price * i.qty}€`).join("\n")
+    const productsShort = items.map((i) => `${i.qty}x ${i.title}`).join(", ")
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") ?? undefined : undefined
     const mode = isMeetup
       ? `Retrait sur place (meet-up) à ${meetupHour}`
       : `Livraison à ${address} — créneau ${slot} (frais ${deliveryFee}€)`
@@ -126,9 +137,14 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     try {
       await createOrderThread({
         customerName: name,
+        customerToken: token,
         summary: message,
+        products: productsShort,
         total,
         fulfillment: isMeetup ? "meetup" : "livraison",
+        address: isMeetup ? undefined : resolvedLabel ?? address,
+        lat: isMeetup ? null : coords?.lat ?? null,
+        lng: isMeetup ? null : coords?.lng ?? null,
         scheduledDate: date,
         scheduledSlot: isMeetup ? meetupHour : slot,
       })
@@ -157,6 +173,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     setIsMeetup(false)
     setMeetupHour("")
     setDistanceKm(null)
+    setCoords(null)
     setGeoStatus("idle")
     setPlaced(false)
     onClose()
@@ -296,6 +313,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     setAddress(e.target.value)
                     setGeoStatus("idle")
                     setDistanceKm(null)
+                    setCoords(null)
                     setResolvedLabel(null)
                   }}
                   onBlur={checkAddress}

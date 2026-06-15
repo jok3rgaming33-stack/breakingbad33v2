@@ -151,8 +151,9 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
       localStorage.setItem("authToken", token)
       localStorage.setItem("userPseudo", res.pseudo)
       localStorage.setItem("isAdmin", "1")
-      setGeneratedPseudo(res.pseudo)
-      setIsLoggedIn(true)
+      // L'admin ne passe pas de commande : on l'envoie directement vers le panel,
+      // sans afficher le tableau de bord client (points / suivi de commandes).
+      window.location.href = "/admin"
       return
     }
 

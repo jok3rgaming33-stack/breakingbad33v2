@@ -7,9 +7,14 @@ import { revalidatePath } from "next/cache"
 
 export type NewOrderInput = {
   customerName: string
+  customerToken?: string
   summary: string
+  products?: string
   total: number
   fulfillment: "livraison" | "meetup"
+  address?: string
+  lat?: number | null
+  lng?: number | null
   scheduledDate?: string
   scheduledSlot?: string
 }
@@ -21,9 +26,14 @@ export async function createOrderThread(input: NewOrderInput) {
     .insert(orderThreads)
     .values({
       customerName: name,
+      customerToken: input.customerToken?.trim() || null,
       summary: input.summary,
+      products: input.products?.trim() || null,
       total: input.total,
       fulfillment: input.fulfillment,
+      address: input.address?.trim() || null,
+      lat: input.lat ?? null,
+      lng: input.lng ?? null,
       scheduledDate: input.scheduledDate ?? null,
       scheduledSlot: input.scheduledSlot ?? null,
       status: "en_attente",

@@ -3,6 +3,8 @@
 import { useState } from "react"
 import type { OrderThread } from "@/lib/db/schema"
 import { VendorInbox } from "@/components/vendor-inbox"
+import { AdminOrdersRecap } from "@/components/admin-orders-recap"
+import { AdminMap } from "@/components/admin-map"
 import { adminLogout } from "@/app/actions/admin-auth"
 import { MessageSquare, Map, ListOrdered, TrendingUp, LogOut, Construction } from "lucide-react"
 
@@ -15,9 +17,7 @@ const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "profits", label: "Profits", icon: TrendingUp },
 ]
 
-const COMING_SOON: Record<Exclude<TabId, "messagerie">, { title: string; desc: string }> = {
-  carte: { title: "Carte interactive", desc: "Visualisation géographique des livraisons et meet-ups. En cours de développement." },
-  commandes: { title: "Récapitulatif des commandes", desc: "Liste détaillée et filtrable de toutes les commandes. En cours de développement." },
+const COMING_SOON: Record<"profits", { title: string; desc: string }> = {
   profits: { title: "Récapitulatif des profits", desc: "Suivi des revenus, marges et statistiques de vente. En cours de développement." },
 }
 
@@ -68,11 +68,15 @@ export function AdminPanel({ initialThreads }: { initialThreads: OrderThread[] }
         {/* Content */}
         {tab === "messagerie" ? (
           <VendorInbox initialThreads={initialThreads} />
+        ) : tab === "commandes" ? (
+          <AdminOrdersRecap threads={initialThreads} />
+        ) : tab === "carte" ? (
+          <AdminMap threads={initialThreads} />
         ) : (
           <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border bg-card px-6 py-20 text-center">
             <Construction className="mb-4 h-12 w-12 text-accent" aria-hidden="true" />
-            <h2 className="mb-2 text-2xl font-bold text-balance">{COMING_SOON[tab].title}</h2>
-            <p className="max-w-md text-pretty text-muted-foreground">{COMING_SOON[tab].desc}</p>
+            <h2 className="mb-2 text-2xl font-bold text-balance">{COMING_SOON.profits.title}</h2>
+            <p className="max-w-md text-pretty text-muted-foreground">{COMING_SOON.profits.desc}</p>
           </div>
         )}
       </div>
