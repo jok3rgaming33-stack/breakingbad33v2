@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react"
 import { X, ArrowLeft, Package, Send, Loader2 } from "lucide-react"
 import { getThreadsForCustomer, getThread, addMessage } from "@/app/actions/messaging"
-import { getStatusMeta, isPastStatus } from "@/lib/order-status"
 
 type UserData = { pseudo?: string } | null
 
@@ -34,6 +33,12 @@ type Message = {
   createdAt: Date | string
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  nouveau: "Nouveau",
+  "en cours": "En cours",
+  traité: "Traité",
+}
+
 function formatDate(d: Date | string) {
   return new Date(d).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
 }
@@ -41,7 +46,6 @@ function formatDate(d: Date | string) {
 export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps) {
   const name = userData?.pseudo ?? ""
   const [threads, setThreads] = useState<Thread[]>([])
-  const [tab, setTab] = useState<"en_cours" | "passees">("en_cours")
   const [loadingList, setLoadingList] = useState(false)
   const [selected, setSelected] = useState<Thread | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -88,13 +92,8 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
     setSelected(null)
     setMessages([])
     setReply("")
-    setTab("en_cours")
     onClose()
   }
-
-  const currentThreads = threads.filter((t) => !isPastStatus(t.status))
-  const pastThreads = threads.filter((t) => isPastStatus(t.status))
-  const shownThreads = tab === "en_cours" ? currentThreads : pastThreads
 
   if (!isOpen) return null
 
@@ -136,89 +135,45 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
 
         {/* Liste des commandes */}
         {!selected && (
-          <>
-            {/* Onglets */}
-            <div className="flex gap-2 border-b border-border px-6 pt-4">
-              <button
-                type="button"
-                onClick={() => setTab("en_cours")}
-                className={`-mb-px border-b-2 px-1 pb-3 text-sm font-medium transition-colors ${
-                  tab === "en_cours"
-                    ? "border-accent text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                En cours{currentThreads.length > 0 ? ` (${currentThreads.length})` : ""}
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("passees")}
-                className={`-mb-px border-b-2 px-1 pb-3 text-sm font-medium transition-colors ${
-                  tab === "passees"
-                    ? "border-accent text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Mes commandes passées{pastThreads.length > 0 ? ` (${pastThreads.length})` : ""}
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6">
-              {loadingList ? (
-                <div className="flex items-center justify-center py-12 text-muted-foreground">
-                  <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
-                </div>
-              ) : shownThreads.length === 0 ? (
-                <div className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
-                  <Package className="h-10 w-10" aria-hidden="true" />
-                  <p className="text-sm">
-                    {tab === "en_cours" ? "Aucune commande en cours." : "Aucune commande passée."}
-                  </p>
-                </div>
-              ) : (
-                <ul className="flex flex-col gap-3">
-                  {shownThreads.map((t) => {
-                    const meta = getStatusMeta(t.status)
-                    return (
-                      <li key={t.id}>
-                        <button
-                          type="button"
-                          onClick={() => openThread(t)}
-                          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 p-4 text-left transition-colors hover:border-accent"
-                        >
-                          <div>
-                            <div className="font-semibold">Commande #{t.id}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {formatDate(t.createdAt)} · {t.total}€
-                            </div>
-                          </div>
-                          <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${meta.badge}`}>
-                            {meta.label}
-                          </span>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </div>
-          </>
+          <div className="flex-1 overflow-y-auto p-6">
+            {loadingList ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
+              </div>
+            ) : threads.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
+                <Package className="h-10 w-10" aria-hidden="true" />
+                <p className="text-sm">Aucune commande pour le moment.</p>
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {threads.map((t) => (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      onClick={() => openThread(t)}
+                      className="flex w-full items-center justify-between rounded-2xl border border-border bg-background/60 p-4 text-left transition-colors hover:border-accent"
+                    >
+                      <div>
+                        <div className="font-semibold">Commande #{t.id}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatDate(t.createdAt)} · {t.total}€
+                        </div>
+                      </div>
+                      <span className="rounded-full bg-accent/15 px-3 py-1 text-xs font-medium text-accent">
+                        {STATUS_LABEL[t.status] ?? t.status}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
 
         {/* Détail d'un fil */}
         {selected && (
           <>
-            {/* Statut courant de la commande */}
-            <div className="flex items-center gap-2 border-b border-border bg-background/40 px-6 py-3">
-              <span className="text-xs text-muted-foreground">Statut :</span>
-              <span
-                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${getStatusMeta(selected.status).badge}`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${getStatusMeta(selected.status).dot}`} aria-hidden="true" />
-                {getStatusMeta(selected.status).label}
-              </span>
-            </div>
-
             <div className="flex-1 overflow-y-auto p-6">
               {loadingThread ? (
                 <div className="flex items-center justify-center py-12 text-muted-foreground">

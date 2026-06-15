@@ -64,10 +64,9 @@ export async function addMessage(threadId: number, sender: "client" | "vendeur",
   if (!text) return { ok: false }
 
   await db.insert(threadMessages).values({ threadId, sender, body: text })
-  // On ne touche pas au statut : il est piloté explicitement par le vendeur
   await db
     .update(orderThreads)
-    .set({ updatedAt: sql`now()` })
+    .set({ updatedAt: sql`now()`, status: sender === "vendeur" ? "en cours" : orderThreads.status })
     .where(eq(orderThreads.id, threadId))
 
   revalidatePath("/messagerie")
