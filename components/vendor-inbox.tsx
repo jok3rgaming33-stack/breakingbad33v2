@@ -3,15 +3,8 @@
 import { useState, useTransition } from "react"
 import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
 import { getThread, addMessage, updateThreadStatus } from "@/app/actions/messaging"
-import { Inbox, Send, Loader2, Truck, Store, RefreshCw } from "lucide-react"
-
-const STATUS_OPTIONS = ["nouveau", "en cours", "traité"] as const
-
-const STATUS_STYLES: Record<string, string> = {
-  nouveau: "bg-primary/20 text-primary",
-  "en cours": "bg-accent/20 text-accent",
-  traité: "bg-muted text-muted-foreground",
-}
+import { getStatusMeta, ORDER_STATUSES, PENDING_STATUS } from "@/lib/order-status"
+import { Inbox, Send, Loader2, Truck, Store } from "lucide-react"
 
 function formatDate(value: Date | string) {
   const d = new Date(value)
@@ -44,9 +37,6 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
       await addMessage(selectedId, "vendeur", body)
       const data = await getThread(selectedId)
       setMessages(data?.messages ?? [])
-      setThreads((prev) =>
-        prev.map((t) => (t.id === selectedId ? { ...t, status: t.status === "nouveau" ? "en cours" : t.status } : t)),
-      )
     })
   }
 
@@ -83,8 +73,8 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm font-medium">{t.customerName}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLES[t.status] ?? ""}`}>
-                      {t.status}
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${getStatusMeta(t.status).badge}`}>
+                      {getStatusMeta(t.status).label}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -120,20 +110,29 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
                   {selected.scheduledSlot ? ` · ${selected.scheduledSlot}` : ""}
                 </p>
               </div>
-              <div className="ml-auto flex items-center gap-1">
-                {STATUS_OPTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => changeStatus(s)}
-                    disabled={isPending}
-                    className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase transition-colors disabled:opacity-50 ${
-                      selected.status === s ? STATUS_STYLES[s] : "bg-secondary text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
+              <div className="ml-auto flex items-center gap-2">
+                <span
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold ${getStatusMeta(selected.status).badge}`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${getStatusMeta(selected.status).dot}`} aria-hidden="true" />
+                  {getStatusMeta(selected.status).label}
+                </span>
+                <select
+                  value={ORDER_STATUSES.some((s) => s.key === selected.status) ? selected.status : ""}
+                  onChange={(e) => changeStatus(e.target.value)}
+                  disabled={isPending}
+                  aria-label="Changer le statut de la commande"
+                  className="rounded-full border border-input bg-background px-3 py-1.5 text-xs font-medium outline-none transition-colors focus:border-accent disabled:opacity-50"
+                >
+                  <option value="" disabled>
+                    {PENDING_STATUS.label}
+                  </option>
+                  {ORDER_STATUSES.map((s) => (
+                    <option key={s.key} value={s.key}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 

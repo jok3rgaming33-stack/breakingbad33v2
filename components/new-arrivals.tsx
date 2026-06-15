@@ -5,6 +5,8 @@ import { useCart } from "@/components/cart-provider"
 import { Sparkles, X as CloseIcon } from "lucide-react"
 import Image from "next/image"
 
+type Tier = { qty: number; price: number }
+
 type Arrival = {
   title: string
   price: number
@@ -13,6 +15,16 @@ type Arrival = {
   symbol: string
   number: string
   description: string
+  tiers: Tier[]
+}
+
+// Paliers provisoires — tarifs réels à affiner ultérieurement
+function provisionalTiers(unit: number): Tier[] {
+  return [
+    { qty: 1, price: unit },
+    { qty: 5, price: unit * 5 },
+    { qty: 10, price: unit * 10 },
+  ]
 }
 
 const ARRIVALS: Arrival[] = [
@@ -23,7 +35,8 @@ const ARRIVALS: Arrival[] = [
     alt: "Composé atmosphérique", 
     symbol: "Cl", 
     number: "17",
-    description: "Catalyseur gazeux pour réactions en phase volatile."
+    description: "Catalyseur gazeux pour réactions en phase volatile.",
+    tiers: provisionalTiers(35),
   },
   { 
     title: "iron", 
@@ -32,7 +45,8 @@ const ARRIVALS: Arrival[] = [
     alt: "Base métallique", 
     symbol: "Fe", 
     number: "26",
-    description: "Base structurelle renforcée pour synthèse complexe."
+    description: "Base structurelle renforcée pour synthèse complexe.",
+    tiers: provisionalTiers(45),
   },
   { 
     title: "K", 
@@ -41,7 +55,8 @@ const ARRIVALS: Arrival[] = [
     alt: "Réactif alcalin", 
     symbol: "K", 
     number: "19",
-    description: "Agent de réactivité pure, hautement instable."
+    description: "Agent de réactivité pure, hautement instable.",
+    tiers: provisionalTiers(55),
   },
   { 
     title: "spee", 
@@ -50,7 +65,8 @@ const ARRIVALS: Arrival[] = [
     alt: "Accélérateur", 
     symbol: "Sp", 
     number: "08",
-    description: "Accélérateur de processus moléculaire rapide."
+    description: "Accélérateur de processus moléculaire rapide.",
+    tiers: provisionalTiers(65),
   },
   { 
     title: "water", 
@@ -59,18 +75,21 @@ const ARRIVALS: Arrival[] = [
     alt: "Solvant purifié", 
     symbol: "H2O", 
     number: "00",
-    description: "Solvant universel de haute pureté analytique."
+    description: "Solvant universel de haute pureté analytique.",
+    tiers: provisionalTiers(20),
   },
 ]
 
 export function NewArrivals() {
   const { addToCart } = useCart()
   const [selectedArrival, setSelectedArrival] = useState<Arrival | null>(null)
+  const [tierIndex, setTierIndex] = useState(0)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
 
   const openModal = (arrival: Arrival) => {
     setSelectedArrival(arrival)
+    setTierIndex(0)
     setIsModalOpen(true)
     setIsAnimating(true)
   }
@@ -153,14 +172,34 @@ export function NewArrivals() {
             <div className="relative z-20 w-full md:w-1/2 p-12 flex flex-col justify-center">
               <span className="text-[#3e6757] font-mono text-xs tracking-[0.2em] uppercase mb-2">Code {selectedArrival.number}</span>
               <h3 className="text-4xl font-bold text-white mb-4">{selectedArrival.title}</h3>
-              <p className="text-zinc-400 leading-relaxed mb-8">
+              <p className="text-zinc-400 leading-relaxed mb-6">
                 {selectedArrival.description}
               </p>
-              
-              <div className="text-2xl font-semibold text-white mb-6">{selectedArrival.price}€</div>
 
-              <button 
-                onClick={() => { addToCart(selectedArrival.title, selectedArrival.price); closeModal() }}
+              {/* Sélecteur quantité / prix (tarifs provisoires) */}
+              <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.2em] text-[#3e6757]">
+                Quantité
+              </label>
+              <select
+                value={tierIndex}
+                onChange={(e) => setTierIndex(Number(e.target.value))}
+                className="mb-6 w-full rounded-2xl border border-white/10 bg-[#050505] px-4 py-3 text-sm text-white outline-none transition-colors focus:border-[#3e6757]"
+              >
+                {selectedArrival.tiers.map((tier, i) => (
+                  <option key={tier.qty} value={i} className="bg-[#0a0a0a]">
+                    {tier.qty} {tier.qty > 1 ? "unités" : "unité"} — {tier.price}€
+                  </option>
+                ))}
+              </select>
+
+              <div className="text-2xl font-semibold text-white mb-6">{selectedArrival.tiers[tierIndex].price}€</div>
+
+              <button
+                onClick={() => {
+                  const tier = selectedArrival.tiers[tierIndex]
+                  addToCart(`${selectedArrival.title} ×${tier.qty}`, tier.price)
+                  closeModal()
+                }}
                 className="w-full bg-[#3e6757] hover:bg-[#3e6757]/80 py-4 rounded-full text-white text-sm font-bold tracking-widest uppercase transition-all"
               >
                 Ajouter au Laboratoire

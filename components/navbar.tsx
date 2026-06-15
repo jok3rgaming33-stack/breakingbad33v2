@@ -6,20 +6,19 @@ import { ChevronDown, Menu, ShoppingCart, X, ShieldCheck } from "lucide-react"
 import Image from "next/image"
 
 const NAV_ITEMS = [
-  { label: "Engagement qualité" },
-  { label: "Livraison/Meet-up" },
+  { label: "Livraison/Meet-up", action: "delivery" as const },
   { label: "Mes commandes", action: "orders" as const },
   { label: "Espace fidélité", action: "loyalty" as const },
-  { label: "Conditions de vente" },
 ]
 
 type NavbarProps = {
   onOpenLoyalty?: () => void
   onOpenOrders?: () => void
+  onOpenDelivery?: () => void
   isAdmin?: boolean
 }
 
-export function Navbar({ onOpenLoyalty, onOpenOrders, isAdmin }: NavbarProps) {
+export function Navbar({ onOpenLoyalty, onOpenOrders, onOpenDelivery, isAdmin }: NavbarProps) {
   const { count, openCart } = useCart()
   const [open, setOpen] = useState(false)
 
@@ -32,6 +31,10 @@ export function Navbar({ onOpenLoyalty, onOpenOrders, isAdmin }: NavbarProps) {
       e.preventDefault()
       setOpen(false)
       onOpenOrders?.()
+    } else if (item.action === "delivery") {
+      e.preventDefault()
+      setOpen(false)
+      onOpenDelivery?.()
     }
   }
 

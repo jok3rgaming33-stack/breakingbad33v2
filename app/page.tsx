@@ -7,6 +7,7 @@ import { LoginPage } from "@/components/login-page"
 import { UserDashboardModal } from "@/components/user-dashboard-modal"
 import { LoyaltyModal } from "@/components/loyalty-modal"
 import { MyOrdersModal } from "@/components/my-orders-modal"
+import { DeliveryModal } from "@/components/delivery-modal"
 import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
 import { FeaturedProducts } from "@/components/featured-products"
@@ -17,6 +18,7 @@ export default function Home() {
   const [isDashboardOpen, setIsDashboardOpen] = useState(false)
   const [isLoyaltyOpen, setIsLoyaltyOpen] = useState(false)
   const [isOrdersOpen, setIsOrdersOpen] = useState(false)
+  const [isDeliveryOpen, setIsDeliveryOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [userData, setUserData] = useState<{ pseudo?: string } | null>(null)
 
@@ -45,6 +47,7 @@ export default function Home() {
         onOpenDashboard={() => setIsDashboardOpen(true)}
         onOpenLoyalty={() => setIsLoyaltyOpen(true)}
         onOpenOrders={() => setIsOrdersOpen(true)}
+        onOpenDelivery={() => setIsDeliveryOpen(true)}
         isAdmin={isAdmin}
       />
 
@@ -70,6 +73,8 @@ export default function Home() {
       <LoyaltyModal isOpen={isLoyaltyOpen} onClose={() => setIsLoyaltyOpen(false)} userData={userData} />
 
       <MyOrdersModal isOpen={isOrdersOpen} onClose={() => setIsOrdersOpen(false)} userData={userData} />
+
+      <DeliveryModal isOpen={isDeliveryOpen} onClose={() => setIsDeliveryOpen(false)} />
 
       {isAuthenticated && <CheckoutCart userData={userData} />}
     </CartProvider>
