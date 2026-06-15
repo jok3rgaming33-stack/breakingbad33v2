@@ -4,13 +4,28 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import type { OrderThread } from "@/lib/db/schema"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { isClosedStatus } from "@/lib/order-status"
-import { Map as MapIcon, MapPinOff, Route, RotateCcw, Truck, Store } from "lucide-react"
+import { Map as MapIcon, MapPinOff, Route, RotateCcw, Truck, Store, Loader2, Clock } from "lucide-react"
 import "leaflet/dist/leaflet.css"
 
 // Point de départ par défaut (modifiable en cliquant sur la carte)
 const DEFAULT_ORIGIN = { lat: 44.841575, lng: -0.581069 }
 
+// Serveur de routage routier public (OSRM). Le service "trip" optimise l'ordre
+// des arrêts (problème du voyageur de commerce) ET renvoie un tracé qui suit
+// réellement les routes — pas une ligne droite à vol d'oiseau.
+const OSRM_BASE = "https://router.project-osrm.org"
+
 type Located = OrderThread & { lat: number; lng: number }
+type LatLng = { lat: number; lng: number }
+
+type Routing = {
+  ordered: Located[]
+  geometry: [number, number][] // tracé routier [lat, lng]
+  distanceKm: number
+  durationMin: number
+  legKm: Record<number, number> // distance routière de l'arrêt précédent à cet arrêt
+  mode: "road" | "approx"
+}
 
 function escapeHtml(value: string) {
   return value
@@ -20,8 +35,9 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;")
 }
 
-// Distance approximative entre deux points (km), formule de Haversine
-function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+// Distance approximative entre deux points (km), formule de Haversine.
+// Utilisée uniquement en repli si le serveur de routage est indisponible.
+function haversineKm(a: LatLng, b: LatLng) {
   const R = 6371
   const dLat = ((b.lat - a.lat) * Math.PI) / 180
   const dLng = ((b.lng - a.lng) * Math.PI) / 180
@@ -53,8 +69,8 @@ function urgency(diff: number | null) {
   return { color: "#22c55e", label: `Dans ${diff} jours (J+${diff})`, short: `J+${diff}` }
 }
 
-// Optimisation gloutonne (plus proche voisin) depuis le point de départ
-function optimizeRoute(start: { lat: number; lng: number }, points: Located[]): Located[] {
+// Repli : ordre glouton (plus proche voisin) à vol d'oiseau si le routage échoue
+function greedyOrder(start: LatLng, points: Located[]): Located[] {
   const remaining = [...points]
   const ordered: Located[] = []
   let current = { lat: start.lat, lng: start.lng }
@@ -73,6 +89,73 @@ function optimizeRoute(start: { lat: number; lng: number }, points: Located[]): 
     current = { lat: next.lat, lng: next.lng }
   }
   return ordered
+}
+
+// Construit un repli (ordre glouton + tracé en ligne droite) si OSRM échoue.
+function buildApproxRouting(start: LatLng, points: Located[]): Routing {
+  const ordered = greedyOrder(start, points)
+  const geometry: [number, number][] = [
+    [start.lat, start.lng],
+    ...ordered.map((t) => [t.lat, t.lng] as [number, number]),
+  ]
+  const legKm: Record<number, number> = {}
+  let prev: LatLng = start
+  let distanceKm = 0
+  for (const t of ordered) {
+    const d = haversineKm(prev, { lat: t.lat, lng: t.lng })
+    legKm[t.id] = d
+    distanceKm += d
+    prev = { lat: t.lat, lng: t.lng }
+  }
+  return { ordered, geometry, distanceKm, durationMin: 0, legKm, mode: "approx" }
+}
+
+// Appelle OSRM "trip" pour optimiser l'ordre + obtenir le tracé routier.
+async function fetchOptimizedTrip(
+  start: LatLng,
+  points: Located[],
+  signal: AbortSignal,
+): Promise<Routing | null> {
+  const coords = [start, ...points.map((p) => ({ lat: p.lat, lng: p.lng }))]
+  const coordStr = coords.map((c) => `${c.lng},${c.lat}`).join(";")
+  const url = `${OSRM_BASE}/trip/v1/driving/${coordStr}?source=first&roundtrip=false&geometries=geojson&overview=full`
+
+  const res = await fetch(url, { signal })
+  if (!res.ok) return null
+  const data = await res.json()
+  if (data.code !== "Ok" || !data.trips?.[0] || !Array.isArray(data.waypoints)) return null
+
+  const trip = data.trips[0]
+  const waypoints = data.waypoints as Array<{ waypoint_index: number }>
+
+  // Réordonne les arrêts selon leur position optimisée dans la tournée.
+  // waypoints[0] est le départ (waypoint_index 0), waypoints[i+1] -> points[i].
+  const withIndex = points.map((p, i) => ({ p, wp: waypoints[i + 1]?.waypoint_index ?? i + 1 }))
+  withIndex.sort((a, b) => a.wp - b.wp)
+  const ordered = withIndex.map((x) => x.p)
+
+  // Distance routière de chaque tronçon (leg[k] = position k -> k+1).
+  const legs = (trip.legs ?? []) as Array<{ distance: number }>
+  const legKm: Record<number, number> = {}
+  ordered.forEach((t, idx) => {
+    const leg = legs[idx]
+    if (leg) legKm[t.id] = leg.distance / 1000
+  })
+
+  const geometry: [number, number][] = (trip.geometry?.coordinates ?? []).map(
+    ([lng, lat]: [number, number]) => [lat, lng] as [number, number],
+  )
+
+  return {
+    ordered,
+    geometry: geometry.length
+      ? geometry
+      : [[start.lat, start.lng], ...ordered.map((t) => [t.lat, t.lng] as [number, number])],
+    distanceKm: (trip.distance ?? 0) / 1000,
+    durationMin: (trip.duration ?? 0) / 60,
+    legKm,
+    mode: "road",
+  }
 }
 
 export function AdminMap({ threads }: { threads: OrderThread[] }) {
@@ -113,25 +196,64 @@ export function AdminMap({ threads }: { threads: OrderThread[] }) {
     return counts
   }, [threads])
 
-  // Itinéraire optimisé sur les commandes sélectionnées
   const selectedLocated = useMemo(
     () => located.filter((t) => selectedIds.has(t.id)),
     [located, selectedIds],
   )
-  const route = useMemo(
-    () => optimizeRoute(departure, selectedLocated),
+
+  // Itinéraire routier (optimisé via OSRM, repli en ligne droite si indisponible)
+  const [routing, setRouting] = useState<Routing>({
+    ordered: [],
+    geometry: [],
+    distanceKm: 0,
+    durationMin: 0,
+    legKm: {},
+    mode: "road",
+  })
+  const [routeLoading, setRouteLoading] = useState(false)
+
+  // Clé stable pour ne relancer le calcul que si le départ ou la sélection change
+  const routeKey = useMemo(
+    () =>
+      `${departure.lat.toFixed(5)},${departure.lng.toFixed(5)}|${selectedLocated
+        .map((t) => t.id)
+        .join(",")}`,
     [departure, selectedLocated],
   )
-  const totalDistance = useMemo(() => {
-    if (route.length === 0) return 0
-    let total = 0
-    let prev = departure
-    for (const stop of route) {
-      total += haversineKm(prev, { lat: stop.lat, lng: stop.lng })
-      prev = { lat: stop.lat, lng: stop.lng }
+
+  useEffect(() => {
+    if (selectedLocated.length === 0) {
+      setRouting({ ordered: [], geometry: [], distanceKm: 0, durationMin: 0, legKm: {}, mode: "road" })
+      setRouteLoading(false)
+      return
     }
-    return total
-  }, [route, departure])
+
+    const controller = new AbortController()
+    setRouteLoading(true)
+    // Petit délai anti-rebond pour éviter de spammer le serveur pendant un glisser
+    const timer = setTimeout(async () => {
+      try {
+        const trip = await fetchOptimizedTrip(departure, selectedLocated, controller.signal)
+        if (controller.signal.aborted) return
+        setRouting(trip ?? buildApproxRouting(departure, selectedLocated))
+      } catch (err) {
+        if ((err as { name?: string })?.name === "AbortError") return
+        // Repli silencieux : on conserve une tournée utilisable hors-ligne
+        setRouting(buildApproxRouting(departure, selectedLocated))
+      } finally {
+        if (!controller.signal.aborted) setRouteLoading(false)
+      }
+    }, 350)
+
+    return () => {
+      controller.abort()
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeKey])
+
+  const route = routing.ordered
+  const totalDistance = routing.distanceKm
 
   // Position de chaque commande dans la tournée (id -> n°)
   const orderIndex = useMemo(() => {
@@ -199,24 +321,6 @@ export function AdminMap({ threads }: { threads: OrderThread[] }) {
 
     overlay.clearLayers()
 
-    // Zone de livraison (10 km autour du départ)
-    L.circle([departure.lat, departure.lng], {
-      radius: 10000,
-      color: "#3e6757",
-      weight: 1.5,
-      fillColor: "#3e6757",
-      fillOpacity: 0.05,
-    }).addTo(overlay)
-
-    // Tracé de l'itinéraire optimisé
-    if (route.length > 0) {
-      const path: [number, number][] = [
-        [departure.lat, departure.lng],
-        ...route.map((t) => [t.lat, t.lng] as [number, number]),
-      ]
-      L.polyline(path, { color: "#2563eb", weight: 3, opacity: 0.7, dashArray: "6 6" }).addTo(overlay)
-    }
-
     // Marqueur du point de départ (déplaçable)
     const departureMarker = L.marker([departure.lat, departure.lng], {
       draggable: true,
@@ -233,6 +337,16 @@ export function AdminMap({ threads }: { threads: OrderThread[] }) {
       const pos = departureMarker.getLatLng()
       setDeparture({ lat: pos.lat, lng: pos.lng })
     })
+
+    // Tracé de l'itinéraire (suit les routes si routage réussi)
+    if (routing.geometry.length > 1) {
+      L.polyline(routing.geometry, {
+        color: "#2563eb",
+        weight: 4,
+        opacity: 0.8,
+        dashArray: routing.mode === "approx" ? "6 8" : undefined,
+      }).addTo(overlay)
+    }
 
     // Marqueurs des commandes
     for (const t of located) {
@@ -276,7 +390,7 @@ export function AdminMap({ threads }: { threads: OrderThread[] }) {
       map.fitBounds(pts, { padding: [40, 40], maxZoom: 14 })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, located, selectedIds, departure, route, orderIndex, orderCountByClient])
+  }, [ready, located, selectedIds, departure, routing, orderIndex, orderCountByClient])
 
   const unlocatedCount = threads.filter((t) => !isClosedStatus(t.status)).length - located.length
   const deliveredCount = threads.filter((t) => isClosedStatus(t.status)).length
@@ -289,6 +403,15 @@ export function AdminMap({ threads }: { threads: OrderThread[] }) {
     { color: "#9ca3af", label: "Sans date" },
   ]
 
+  const durationLabel = useMemo(() => {
+    const min = Math.round(routing.durationMin)
+    if (min <= 0) return null
+    if (min < 60) return `${min} min`
+    const h = Math.floor(min / 60)
+    const m = min % 60
+    return m ? `${h} h ${m} min` : `${h} h`
+  }, [routing.durationMin])
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -300,7 +423,7 @@ export function AdminMap({ threads }: { threads: OrderThread[] }) {
             <h2 className="text-lg font-bold">Tournée de livraison</h2>
             <p className="text-xs text-muted-foreground">
               Clique sur la carte (ou glisse le point rouge) pour définir ton point de départ, puis choisis les
-              commandes à assurer.
+              commandes à assurer. L&apos;itinéraire est calculé par la route.
             </p>
           </div>
         </div>
@@ -333,10 +456,23 @@ export function AdminMap({ threads }: { threads: OrderThread[] }) {
             <div className="flex items-center gap-2">
               <Route className="h-4 w-4 text-accent" aria-hidden="true" />
               <h3 className="text-sm font-semibold">Itinéraire optimisé</h3>
+              {routeLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-hidden="true" />}
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {route.length} arrêt{route.length > 1 ? "s" : ""} · ~{totalDistance.toFixed(1)} km
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+              <span>
+                {route.length} arrêt{route.length > 1 ? "s" : ""} · ~{totalDistance.toFixed(1)} km par la route
+              </span>
+              {durationLabel && (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" aria-hidden="true" /> {durationLabel}
+                </span>
+              )}
             </p>
+            {routing.mode === "approx" && route.length > 0 && (
+              <p className="mt-1 text-[11px] text-amber-500">
+                Routage indisponible : estimation à vol d&apos;oiseau affichée.
+              </p>
+            )}
             <div className="mt-2 flex gap-2">
               <button
                 type="button"
@@ -373,7 +509,7 @@ export function AdminMap({ threads }: { threads: OrderThread[] }) {
               const u = urgency(dayDiff(t.scheduledDate))
               const selected = selectedIds.has(t.id)
               const n = orderIndex.get(t.id)
-              const dist = haversineKm(departure, { lat: t.lat, lng: t.lng })
+              const legDist = routing.legKm[t.id]
               return (
                 <li key={t.id}>
                   <label
@@ -409,8 +545,12 @@ export function AdminMap({ threads }: { threads: OrderThread[] }) {
                           {u.short}
                         </span>
                         <span>{t.total ?? 0}€</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{dist.toFixed(1)} km</span>
+                        {selected && legDist != null && (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span>{legDist.toFixed(1)} km</span>
+                          </>
+                        )}
                       </span>
                     </span>
                   </label>
