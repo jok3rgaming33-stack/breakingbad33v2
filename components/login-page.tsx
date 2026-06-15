@@ -170,8 +170,39 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
     setIsLoggedIn(true)
   }
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
+  const [copiedField, setCopiedField] = useState<"pseudo" | "key" | null>(null)
+
+  const copyToClipboard = async (text: string, field: "pseudo" | "key") => {
+    let success = false
+    // 1) API Clipboard moderne (peut être bloquée dans une iframe / hors HTTPS)
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+        success = true
+      }
+    } catch {
+      success = false
+    }
+    // 2) Repli universel via un textarea temporaire + execCommand
+    if (!success) {
+      try {
+        const textarea = document.createElement("textarea")
+        textarea.value = text
+        textarea.setAttribute("readonly", "")
+        textarea.style.position = "fixed"
+        textarea.style.top = "-9999px"
+        document.body.appendChild(textarea)
+        textarea.select()
+        success = document.execCommand("copy")
+        document.body.removeChild(textarea)
+      } catch {
+        success = false
+      }
+    }
+    if (success) {
+      setCopiedField(field)
+      window.setTimeout(() => setCopiedField(null), 2000)
+    }
   }
 
   // Dashboard affiché juste après la connexion
@@ -314,11 +345,22 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
               <div className="flex items-center justify-between rounded-2xl border border-border bg-background/60 px-5 py-4">
                 <span className="font-mono text-2xl font-bold">{generatedPseudo}</span>
                 <button
-                  onClick={() => copyToClipboard(generatedPseudo)}
+                  type="button"
+                  onClick={() => copyToClipboard(generatedPseudo, "pseudo")}
+                  aria-label="Copier le pseudo"
                   className="flex items-center gap-2 rounded-xl bg-secondary px-4 py-2 text-sm text-secondary-foreground transition-colors hover:bg-muted"
                 >
-                  <Copy className="h-4 w-4" aria-hidden="true" />
-                  Copier
+                  {copiedField === "pseudo" ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      Copié !
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4" aria-hidden="true" />
+                      Copier
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -328,11 +370,22 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
               <div className="flex items-center justify-between rounded-2xl border border-destructive/50 bg-background/60 px-5 py-4">
                 <span className="flex-1 break-all pr-4 font-mono text-xs text-destructive">{generatedKey}</span>
                 <button
-                  onClick={() => copyToClipboard(generatedKey)}
+                  type="button"
+                  onClick={() => copyToClipboard(generatedKey, "key")}
+                  aria-label="Copier la clé secrète"
                   className="flex flex-shrink-0 items-center gap-2 rounded-xl bg-secondary px-4 py-2 text-sm text-secondary-foreground transition-colors hover:bg-muted"
                 >
-                  <Copy className="h-4 w-4" aria-hidden="true" />
-                  Copier
+                  {copiedField === "key" ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      Copié !
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4" aria-hidden="true" />
+                      Copier
+                    </>
+                  )}
                 </button>
               </div>
               <p className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
