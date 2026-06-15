@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BreakingBad33 Premium</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+body{font-family:Inter,sans-serif;background:#050505;color:#fff;overflow-x:hidden}
+.hero-bg{
+background:
+linear-gradient(to bottom,rgba(0,0,0,.55),rgba(0,0,0,.82)),
+url('https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=2200') center/cover;
+}
+.smoke{
+position:absolute;inset:0;pointer-events:none;
+background:
+radial-gradient(circle at 55% 35%, rgba(34,255,170,.12), transparent 25%),
+radial-gradient(circle at 60% 20%, rgba(34,255,170,.08), transparent 18%);
+filter: blur(35px);
+}
+.card{background:#111;border:1px solid #1b1b1b;transition:.35s}
+.card:hover{transform:translateY(-6px);box-shadow:0 25px 60px rgba(0,0,0,.5)}
+.logo-br{
+background:linear-gradient(135deg,#2bdc8f,#1d7d56);
+box-shadow:0 0 30px rgba(34,255,170,.25);
+}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(100px);transition:.3s}
+.toast.show{transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<header class="fixed top-0 w-full h-14 border-b border-white/5 bg-black/50 backdrop-blur z-50">
+<div class="max-w-6xl mx-auto h-full px-6 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="relative logo-br w-7 h-7 rounded flex items-center justify-center font-bold text-white text-sm">
+Br
+<span class="absolute top-0.5 right-1 text-[8px]">35</span>
+</div>
+<div class="font-bold">eakingBad<span class="text-emerald-400">33</span></div>
+</div>
+
+<nav class="hidden md:flex gap-8 text-[11px] text-zinc-400 uppercase">
+<span>Amount ▼</span>
+<span>Drivins</span>
+<span>Services</span>
+<span>Ocairs</span>
+<span>Contact</span>
+<span>Shop</span>
+</nav>
+
+<div class="flex items-center gap-5">
+<div class="relative">
+🛒
+<span id="cart" class="absolute -top-2 -right-2 text-[10px] bg-emerald-400 text-black rounded-full w-4 h-4 flex items-center justify-center">0</span>
+</div>
+<button class="bg-zinc-800 border border-zinc-700 rounded-full px-4 py-2 text-[11px] font-semibold">SHOP U RIO</button>
+</div>
+</div>
+</header>
+
+<section class="hero-bg relative min-h-[92vh] flex items-center justify-center text-center">
+<div class="smoke"></div>
+
+<div class="relative z-10">
+<div class="flex items-center justify-center gap-3">
+<div class="relative logo-br w-20 h-20 rounded-md flex items-center justify-center text-5xl font-bold">
+Br
+<span class="absolute top-2 right-2 text-sm">35</span>
+</div>
+
+<div class="text-left leading-none">
+<div class="text-7xl md:text-8xl font-black tracking-tight">eaking</div>
+<div class="text-7xl md:text-8xl font-black tracking-tight">Bad<span class="text-emerald-400">33</span></div>
+</div>
+</div>
+
+<p class="mt-6 text-zinc-300">
+Situation unique pour booster votre business.
+<span class="text-white">Athoentic. Premium. Iconic.</span>
+</p>
+
+<div class="mt-8 flex justify-center gap-4">
+<button class="bg-orange-500 hover:bg-orange-400 px-8 py-3 rounded-full font-bold">SHOP NOW →</button>
+<button class="border border-white/20 bg-black/20 px-8 py-3 rounded-full font-semibold">WATCH TRAILER</button>
+</div>
+</div>
+</section>
+
+<main class="max-w-5xl mx-auto px-6 pb-24">
+
+<div class="flex justify-between items-end mb-6">
+<div>
+<div class="text-emerald-400 text-[11px] font-bold uppercase tracking-widest">Featured For Fans</div>
+<h2 class="text-5xl font-bold mt-2">Featured Products</h2>
+</div>
+<div class="text-zinc-500 text-xs">VIEW ALL US →</div>
+</div>
+
+<div class="grid md:grid-cols-3 gap-5">
+
+<div class="card rounded-3xl overflow-hidden">
+<img src="https://images.unsplash.com/photo-1532634993-15f421e42ec0?q=80&w=1200" class="h-56 w-full object-cover">
+<div class="p-5">
+<h3 class="font-bold">Breaking Bad Chemistry Set</h3>
+<p class="text-zinc-500 text-xs mt-2">Walter White lab inspired premium collector set.</p>
+<div class="flex justify-between items-center mt-5">
+<div class="text-4xl font-bold">$390</div>
+<button class="add bg-orange-500 rounded-full px-4 py-2 text-xs font-bold">ADD TO CART</button>
+</div>
+</div>
+</div>
+
+<div class="card rounded-3xl overflow-hidden">
+<img src="https://images.unsplash.com/photo-1466692476868-aef1dfb1e735?q=80&w=1200" class="h-56 w-full object-cover">
+<div class="p-5">
+<h3 class="font-bold">Heisenberg Signature T‑Shirt</h3>
+<p class="text-zinc-500 text-xs mt-2">Soft premium cotton inspired by the desert bloom.</p>
+<div class="flex justify-between items-center mt-5">
+<div class="text-4xl font-bold">$49</div>
+<button class="add bg-orange-500 rounded-full px-4 py-2 text-xs font-bold">ADD TO CART</button>
+</div>
+</div>
+</div>
+
+<div class="card rounded-3xl overflow-hidden">
+<img src="https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1200" class="h-56 w-full object-cover">
+<div class="p-5">
+<h3 class="font-bold">RV Model Kit</h3>
+<p class="text-zinc-500 text-xs mt-2">Highly detailed collectible mobile lab.</p>
+<div class="flex justify-between items-center mt-5">
+<div class="text-4xl font-bold">$125</div>
+<button class="add bg-orange-500 rounded-full px-4 py-2 text-xs font-bold">ADD TO CART</button>
+</div>
+</div>
+</div>
+
+</div>
+
+<div class="mt-20">
+<div class="text-emerald-400 text-[11px] font-bold uppercase tracking-widest">Silly Dropped</div>
+<h2 class="text-5xl font-bold mt-2 mb-8">New Arrivals</h2>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+<div class="card rounded-3xl overflow-hidden"><img src="https://images.unsplash.com/photo-1513151233558-d860c5398176?q=80&w=800" class="h-44 w-full object-cover"><div class="p-4"><div>Blue Crystal Candle</div><div class="font-bold">$29</div></div></div>
+<div class="card rounded-3xl overflow-hidden"><img src="https://images.unsplash.com/photo-1514228742587-6b1558fcf93a?q=80&w=800" class="h-44 w-full object-cover"><div class="p-4"><div>Los Pollos Hermanos Mug</div><div class="font-bold">$19</div></div></div>
+<div class="card rounded-3xl overflow-hidden"><img src="https://images.unsplash.com/photo-1577937927133-66ef06acdf18?q=80&w=800" class="h-44 w-full object-cover"><div class="p-4"><div>Heisenberg Black Mug</div><div class="font-bold">$19</div></div></div>
+<div class="card rounded-3xl overflow-hidden"><img src="https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=800" class="h-44 w-full object-cover"><div class="p-4"><div>RV Keychain</div><div class="font-bold">$12</div></div></div>
+</div>
+</div>
+
+</main>
+
+<div id="toast" class="toast bg-orange-500 px-6 py-3 rounded-full font-bold">Added ✓</div>
+
+<script>
+let count=0;
+const cart=document.getElementById('cart');
+const toast=document.getElementById('toast');
+document.querySelectorAll('.add').forEach(btn=>{
+btn.onclick=()=>{
+count++;
+cart.textContent=count;
+const t=btn.textContent;
+btn.textContent='ADDED ✓';
+toast.classList.add('show');
+setTimeout(()=>toast.classList.remove('show'),1500);
+setTimeout(()=>btn.textContent=t,1500);
+};
+});
+</script>
+
+</body>
+</html>
