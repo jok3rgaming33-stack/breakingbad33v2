@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { CartProvider } from "@/components/cart-provider"
+import { NotificationsProvider } from "@/components/notifications-provider"
 import { Navbar } from "@/components/navbar"
 import { LoginPage } from "@/components/login-page"
 import { UserDashboardModal } from "@/components/user-dashboard-modal"
@@ -41,6 +42,7 @@ export default function Home() {
 
   return (
     <CartProvider>
+      <NotificationsProvider pseudo={userData?.pseudo} enabled={isAuthenticated && !isAdmin}>
       <Navbar
         isLoggedIn={isAuthenticated}
         onLogout={handleLogout}
@@ -77,6 +79,7 @@ export default function Home() {
       <DeliveryInfoModal isOpen={isDeliveryOpen} onClose={() => setIsDeliveryOpen(false)} />
 
       {isAuthenticated && <CheckoutCart userData={userData} />}
+      </NotificationsProvider>
     </CartProvider>
   )
 }

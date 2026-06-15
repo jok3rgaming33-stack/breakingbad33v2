@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import { useCart } from "@/components/cart-provider"
-import { ChevronDown, Menu, ShoppingCart, X, ShieldCheck } from "lucide-react"
+import { NotificationBell } from "@/components/notification-bell"
+import { Menu, ShoppingCart, X, ShieldCheck } from "lucide-react"
 import Image from "next/image"
 
 const NAV_ITEMS = [
@@ -12,13 +13,22 @@ const NAV_ITEMS = [
 ]
 
 type NavbarProps = {
+  isLoggedIn?: boolean
+  onLogout?: () => void
+  onOpenDashboard?: () => void
   onOpenLoyalty?: () => void
   onOpenOrders?: () => void
   onOpenDelivery?: () => void
   isAdmin?: boolean
 }
 
-export function Navbar({ onOpenLoyalty, onOpenOrders, onOpenDelivery, isAdmin }: NavbarProps) {
+export function Navbar({
+  isLoggedIn,
+  onOpenLoyalty,
+  onOpenOrders,
+  onOpenDelivery,
+  isAdmin,
+}: NavbarProps) {
   const { count, openCart } = useCart()
   const [open, setOpen] = useState(false)
 
@@ -76,8 +86,11 @@ export function Navbar({ onOpenLoyalty, onOpenOrders, onOpenDelivery, isAdmin }:
           )}
         </nav>
 
-        <div className="flex items-center gap-4">
-          
+        <div className="flex items-center gap-2 sm:gap-4">
+
+          {/* Cloche de notifications (client connecté uniquement) */}
+          {isLoggedIn && !isAdmin && <NotificationBell onOpenOrder={onOpenOrders} />}
+
           {/* === MON PANIER + Icône Caddie === */}
           <button
             onClick={openCart}
