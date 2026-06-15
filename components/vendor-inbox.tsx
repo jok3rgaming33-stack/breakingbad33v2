@@ -3,15 +3,8 @@
 import { useState, useTransition } from "react"
 import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
 import { getThread, addMessage, updateThreadStatus } from "@/app/actions/messaging"
-import { Inbox, Send, Loader2, Truck, Store, RefreshCw } from "lucide-react"
-
-const STATUS_OPTIONS = ["nouveau", "en cours", "traité"] as const
-
-const STATUS_STYLES: Record<string, string> = {
-  nouveau: "bg-primary/20 text-primary",
-  "en cours": "bg-accent/20 text-accent",
-  traité: "bg-muted text-muted-foreground",
-}
+import { Inbox, Send, Loader2, Truck, Store } from "lucide-react"
+import { VENDOR_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 
 function formatDate(value: Date | string) {
   const d = new Date(value)
@@ -83,8 +76,8 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm font-medium">{t.customerName}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLES[t.status] ?? ""}`}>
-                      {t.status}
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusMeta(t.status).badge}`}>
+                      {statusMeta(t.status).label}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -120,20 +113,31 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
                   {selected.scheduledSlot ? ` · ${selected.scheduledSlot}` : ""}
                 </p>
               </div>
-              <div className="ml-auto flex items-center gap-1">
-                {STATUS_OPTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => changeStatus(s)}
+              <div className="ml-auto flex flex-col items-end gap-1.5">
+                <label htmlFor="order-status" className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  État notifié au client
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${statusMeta(selected.status).badge}`}>
+                    {statusMeta(selected.status).label}
+                  </span>
+                  <select
+                    id="order-status"
+                    value={normalizeStatus(selected.status) === "en_attente" ? "" : normalizeStatus(selected.status)}
+                    onChange={(e) => e.target.value && changeStatus(e.target.value)}
                     disabled={isPending}
-                    className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase transition-colors disabled:opacity-50 ${
-                      selected.status === s ? STATUS_STYLES[s] : "bg-secondary text-muted-foreground hover:text-foreground"
-                    }`}
+                    className="rounded-lg border border-input bg-background px-2.5 py-1.5 text-xs font-medium outline-none focus:border-accent disabled:opacity-50"
                   >
-                    {s}
-                  </button>
-                ))}
+                    <option value="" disabled>
+                      Changer le statut…
+                    </option>
+                    {VENDOR_STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_META[s].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 

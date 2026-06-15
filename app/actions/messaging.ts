@@ -26,7 +26,7 @@ export async function createOrderThread(input: NewOrderInput) {
       fulfillment: input.fulfillment,
       scheduledDate: input.scheduledDate ?? null,
       scheduledSlot: input.scheduledSlot ?? null,
-      status: "nouveau",
+      status: "en_attente",
     })
     .returning()
 
@@ -64,9 +64,10 @@ export async function addMessage(threadId: number, sender: "client" | "vendeur",
   if (!text) return { ok: false }
 
   await db.insert(threadMessages).values({ threadId, sender, body: text })
+  // Le statut reste un choix délibéré du vendeur : on ne met à jour que la date.
   await db
     .update(orderThreads)
-    .set({ updatedAt: sql`now()`, status: sender === "vendeur" ? "en cours" : orderThreads.status })
+    .set({ updatedAt: sql`now()` })
     .where(eq(orderThreads.id, threadId))
 
   revalidatePath("/messagerie")
@@ -101,6 +102,6 @@ export async function countNewThreads() {
   const [row] = await db
     .select({ c: sql<number>`count(*)::int` })
     .from(orderThreads)
-    .where(and(eq(orderThreads.status, "nouveau")))
+    .where(and(eq(orderThreads.status, "en_attente")))
   return row?.c ?? 0
 }

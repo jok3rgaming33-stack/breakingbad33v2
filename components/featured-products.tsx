@@ -5,53 +5,85 @@ import { useCart } from "@/components/cart-provider"
 import Image from "next/image"
 import { FlaskConical, X as CloseIcon } from "lucide-react"
 
-const PRODUCTS = [
+type Variant = { qty: number; price: number }
+
+type Product = {
+  title: string
+  image: string
+  description: string
+  fullDescription: string
+  symbol: string
+  number: string
+  variants: Variant[]
+}
+
+const PRODUCTS: Product[] = [
   {
     title: "3m",
-    price: 390,
     image: "/pdt/3m.png",
     description: "Composant de haute précision pour votre laboratoire.",
     fullDescription: "Cet élément '3m' est indispensable pour garantir la pureté de vos réactions. Flacons, béchers et réactifs de qualité premium. Stockage sécurisé recommandé.",
     symbol: "3m",
     number: "01",
+    variants: [
+      { qty: 1, price: 30 },
+      { qty: 3, price: 80 },
+      { qty: 5, price: 120 },
+      { qty: 10, price: 200 },
+    ],
   },
   {
     title: "bai",
-    price: 49,
     image: "/pdt/bai.png",
     description: "Catalyseur essentiel pour des résultats parfaits.",
     fullDescription: "Le 'bai' agit comme un stabilisateur de premier choix dans le processus. Manipuler avec des gants de protection et une aération adéquate.",
     symbol: "Ba",
     number: "56",
+    variants: [
+      { qty: 1, price: 50 },
+      { qty: 5, price: 200 },
+      { qty: 10, price: 330 },
+    ],
   },
   {
     title: "D",
-    price: 125,
     image: "/pdt/D.png",
     description: "Réactif purificateur de grade industriel.",
     fullDescription: "L'élément 'D' finalise la synthèse en apportant la touche signature de votre production. Détails exceptionnels et pureté garantie.",
     symbol: "D",
     number: "04",
+    variants: [
+      { qty: 1, price: 30 },
+      { qty: 3, price: 80 },
+      { qty: 5, price: 120 },
+      { qty: 10, price: 200 },
+    ],
   },
   {
     title: "X",
-    price: 250,
     image: "/pdt/X.png",
     description: "Composé expérimental hautement classifié.",
     fullDescription: "L'élément 'X' est une nouveauté de synthèse extrêmement puissante. Son utilisation requiert une expertise avancée et un équipement de protection complet.",
     symbol: "X",
     number: "99",
+    variants: [
+      { qty: 1, price: 8 },
+      { qty: 5, price: 30 },
+      { qty: 10, price: 50 },
+    ],
   },
 ]
 
 export function FeaturedProducts() {
   const { addToCart } = useCart()
-  const [selectedProduct, setSelectedProduct] = useState<any>(null)
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [variantIdx, setVariantIdx] = useState(0)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
 
-  const openModal = (product: any) => {
+  const openModal = (product: Product) => {
     setSelectedProduct(product)
+    setVariantIdx(0)
     setIsModalOpen(true)
     setIsAnimating(true)
   }
@@ -134,12 +166,33 @@ export function FeaturedProducts() {
             <div className="relative z-20 w-full md:w-1/2 p-12 flex flex-col justify-center">
               <span className="text-[#3e6757] font-mono text-xs tracking-[0.2em] uppercase mb-2">Code {selectedProduct.number}</span>
               <h3 className="text-4xl font-bold text-white mb-4">{selectedProduct.title}</h3>
-              <p className="text-zinc-400 leading-relaxed mb-8">{selectedProduct.fullDescription}</p>
-              
-              <div className="text-2xl font-semibold text-white mb-6">{selectedProduct.price}€</div>
+              <p className="text-zinc-400 leading-relaxed mb-6">{selectedProduct.fullDescription}</p>
+
+              {/* Menu déroulant Quantité / Tarif */}
+              <label htmlFor="variant-featured" className="mb-2 block text-xs font-medium uppercase tracking-[0.2em] text-[#3e6757]">
+                Quantité
+              </label>
+              <select
+                id="variant-featured"
+                value={variantIdx}
+                onChange={(e) => setVariantIdx(Number(e.target.value))}
+                className="mb-6 w-full rounded-2xl border border-white/10 bg-[#050505] px-4 py-3 text-sm text-white outline-none transition-colors focus:border-[#3e6757]"
+              >
+                {selectedProduct.variants.map((v, i) => (
+                  <option key={v.qty} value={i}>
+                    {v.qty} — {v.price}€
+                  </option>
+                ))}
+              </select>
+
+              <div className="text-2xl font-semibold text-white mb-6">{selectedProduct.variants[variantIdx].price}€</div>
 
               <button 
-                onClick={() => { addToCart(selectedProduct.title, selectedProduct.price); closeModal() }}
+                onClick={() => {
+                  const v = selectedProduct.variants[variantIdx]
+                  addToCart(`${selectedProduct.title} ×${v.qty}`, v.price)
+                  closeModal()
+                }}
                 className="w-full bg-[#3e6757] hover:bg-[#3e6757]/80 py-4 rounded-full text-white text-sm font-bold tracking-widest uppercase transition-all"
               >
                 Ajouter au Laboratoire
