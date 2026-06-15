@@ -66,12 +66,15 @@ export function NotificationsProvider({
 
   const poll = useCallback(async () => {
     if (!pseudo) return
+    console.log("[v0] notif poll running for", pseudo)
     let threads: Array<{ id: number; status: string }> = []
     try {
       threads = (await getThreadsForCustomer(pseudo)) as Array<{ id: number; status: string }>
-    } catch {
+    } catch (e) {
+      console.log("[v0] notif poll error", e)
       return
     }
+    console.log("[v0] notif threads", JSON.stringify(threads.map((t) => ({ id: t.id, status: t.status }))))
 
     const seen = seenRef.current
     const fresh: OrderNotification[] = []
@@ -108,9 +111,13 @@ export function NotificationsProvider({
 
   // Sondage périodique
   useEffect(() => {
+    console.log("[v0] notif effect", { enabled, pseudo })
     if (!enabled || !pseudo) return
     poll()
-    const interval = setInterval(poll, POLL_MS)
+    const interval = setInterval(() => {
+      console.log("[v0] notif interval tick")
+      poll()
+    }, POLL_MS)
     // Re-sonde quand l'onglet reprend le focus
     const onVisible = () => {
       if (document.visibilityState === "visible") poll()
