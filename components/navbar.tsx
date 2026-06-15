@@ -8,15 +8,17 @@ import Image from "next/image"
 const NAV_ITEMS = [
   { label: "Engagement qualité" },
   { label: "Livraison/Meet-up" },
+  { label: "Mes commandes", action: "orders" as const },
   { label: "Espace fidélité", action: "loyalty" as const },
   { label: "Conditions de vente" },
 ]
 
 type NavbarProps = {
   onOpenLoyalty?: () => void
+  onOpenOrders?: () => void
 }
 
-export function Navbar({ onOpenLoyalty }: NavbarProps) {
+export function Navbar({ onOpenLoyalty, onOpenOrders }: NavbarProps) {
   const { count, openCart } = useCart()
   const [open, setOpen] = useState(false)
 
@@ -25,6 +27,10 @@ export function Navbar({ onOpenLoyalty }: NavbarProps) {
       e.preventDefault()
       setOpen(false)
       onOpenLoyalty?.()
+    } else if (item.action === "orders") {
+      e.preventDefault()
+      setOpen(false)
+      onOpenOrders?.()
     }
   }
 
