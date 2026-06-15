@@ -2,7 +2,8 @@
 
 import { db } from "@/lib/db"
 import { users, orderThreads } from "@/lib/db/schema"
-import { eq } from "drizzle-orm"
+import { eq, desc, sql } from "drizzle-orm"
+import { revalidatePath } from "next/cache"
 import { isClosedStatus } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 
@@ -56,4 +57,42 @@ export async function getCustomerStats(token: string) {
     else active += 1
   }
   return { points, active, past }
+}
+
+// --- Administration des comptes (réservé au panel admin) ---
+
+export type AdminUserRow = {
+  id: number
+  pseudo: string
+  token: string
+  createdAt: Date | string
+  orderCount: number
+  totalSpent: number
+}
+
+// Répertoire de tous les comptes enregistrés, avec nombre de commandes et total dépensé.
+export async function listUsers(): Promise<AdminUserRow[]> {
+  const rows = await db
+    .select({
+      id: users.id,
+      pseudo: users.pseudo,
+      token: users.token,
+      createdAt: users.createdAt,
+      orderCount: sql<number>`count(${orderThreads.id})::int`,
+      totalSpent: sql<number>`coalesce(sum(${orderThreads.total}), 0)::int`,
+    })
+    .from(users)
+    .leftJoin(orderThreads, eq(orderThreads.customerToken, users.token))
+    .groupBy(users.id, users.pseudo, users.token, users.createdAt)
+    .orderBy(desc(users.createdAt))
+  return rows
+}
+
+// Supprime un compte. Les commandes liées ne sont pas effacées (historique conservé),
+// elles deviennent simplement orphelines de compte.
+export async function deleteUserAccount(id: number) {
+  if (!id) return { ok: false as const }
+  await db.delete(users).where(eq(users.id, id))
+  revalidatePath("/admin")
+  return { ok: true as const }
 }

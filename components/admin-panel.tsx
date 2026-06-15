@@ -2,19 +2,22 @@
 
 import { useState } from "react"
 import type { OrderThread } from "@/lib/db/schema"
+import type { AdminUserRow } from "@/app/actions/account"
 import { VendorInbox } from "@/components/vendor-inbox"
 import { AdminOrdersRecap } from "@/components/admin-orders-recap"
+import { AdminUsers } from "@/components/admin-users"
 import { AdminMap } from "@/components/admin-map"
 import { adminLogout } from "@/app/actions/admin-auth"
-import { MessageSquare, Map, ListOrdered, TrendingUp, LogOut, Construction, Eye } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye } from "lucide-react"
 import Link from "next/link"
 
-type TabId = "messagerie" | "carte" | "commandes" | "profits"
+type TabId = "messagerie" | "carte" | "commandes" | "utilisateurs" | "profits"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "messagerie", label: "Messagerie", icon: MessageSquare },
   { id: "carte", label: "Carte interactive", icon: Map },
   { id: "commandes", label: "Récap commandes", icon: ListOrdered },
+  { id: "utilisateurs", label: "Utilisateurs", icon: Users },
   { id: "profits", label: "Profits", icon: TrendingUp },
 ]
 
@@ -22,7 +25,13 @@ const COMING_SOON: Record<"profits", { title: string; desc: string }> = {
   profits: { title: "Récapitulatif des profits", desc: "Suivi des revenus, marges et statistiques de vente. En cours de développement." },
 }
 
-export function AdminPanel({ initialThreads }: { initialThreads: OrderThread[] }) {
+export function AdminPanel({
+  initialThreads,
+  initialUsers,
+}: {
+  initialThreads: OrderThread[]
+  initialUsers: AdminUserRow[]
+}) {
   const [tab, setTab] = useState<TabId>("messagerie")
 
   return (
@@ -82,6 +91,8 @@ export function AdminPanel({ initialThreads }: { initialThreads: OrderThread[] }
           <VendorInbox initialThreads={initialThreads} />
         ) : tab === "commandes" ? (
           <AdminOrdersRecap threads={initialThreads} />
+        ) : tab === "utilisateurs" ? (
+          <AdminUsers initialUsers={initialUsers} />
         ) : tab === "carte" ? (
           <AdminMap threads={initialThreads} />
         ) : (

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Bell, Check, Package } from "lucide-react"
+import { Bell, Check, Package, MessageSquare } from "lucide-react"
 import { useNotifications } from "@/components/notifications-provider"
 import { statusMeta } from "@/lib/order-status"
 
@@ -75,6 +75,7 @@ export function NotificationBell({ onOpenOrder }: { onOpenOrder?: () => void }) 
             ) : (
               <ul className="flex flex-col">
                 {notifications.map((n) => {
+                  const isMessage = n.kind === "message"
                   const meta = statusMeta(n.status)
                   return (
                     <li key={n.id}>
@@ -87,13 +88,21 @@ export function NotificationBell({ onOpenOrder }: { onOpenOrder?: () => void }) 
                         className="flex w-full items-start gap-3 border-b border-border/60 px-4 py-3 text-left transition-colors hover:bg-secondary"
                       >
                         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary text-foreground">
-                          <Package className="h-4 w-4" aria-hidden="true" />
+                          {isMessage ? (
+                            <MessageSquare className="h-4 w-4" aria-hidden="true" />
+                          ) : (
+                            <Package className="h-4 w-4" aria-hidden="true" />
+                          )}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm font-medium">Commande #{n.threadId}</span>
-                          <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.badge}`}>
-                            {n.label}
-                          </span>
+                          {isMessage ? (
+                            <span className="mt-1 block text-[11px] font-medium text-accent">{n.label}</span>
+                          ) : (
+                            <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.badge}`}>
+                              {n.label}
+                            </span>
+                          )}
                           <span className="mt-1 block text-[11px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
                         </span>
                         {!n.read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#22ffaa]" aria-hidden="true" />}

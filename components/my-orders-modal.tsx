@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { X, ArrowLeft, Package, Send, Loader2 } from "lucide-react"
 import { getThreadsForToken, getThread, addMessage } from "@/app/actions/messaging"
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
@@ -49,6 +49,10 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
   const [reply, setReply] = useState("")
   const [sending, setSending] = useState(false)
 
+  // Suit la commande ouverte pour le rafraîchissement périodique des messages
+  const selectedRef = useRef<number | null>(null)
+  selectedRef.current = selected?.id ?? null
+
   // Charge la liste des commandes du client à l'ouverture (par clé secrète)
   useEffect(() => {
     if (!isOpen || !token) return
@@ -57,6 +61,26 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
       .then((data) => setThreads(data as Thread[]))
       .catch(() => setThreads([]))
       .finally(() => setLoadingList(false))
+  }, [isOpen, token])
+
+  // Rafraîchissement en direct pendant que la modale est ouverte :
+  // - liste des commandes (nouveaux statuts)
+  // - messages du fil ouvert (réponses du vendeur)
+  useEffect(() => {
+    if (!isOpen || !token) return
+    const interval = setInterval(async () => {
+      try {
+        const list = await getThreadsForToken(token)
+        setThreads(list as Thread[])
+        if (selectedRef.current != null) {
+          const data = await getThread(selectedRef.current)
+          if (data) setMessages(data.messages as Message[])
+        }
+      } catch {
+        // silencieux
+      }
+    }, 8000)
+    return () => clearInterval(interval)
   }, [isOpen, token])
 
   const openThread = async (thread: Thread) => {

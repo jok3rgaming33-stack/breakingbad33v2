@@ -1,17 +1,20 @@
 "use client"
 
 import { createContext, useContext, useCallback, useEffect, useRef, useState } from "react"
-import { getThreadsForToken } from "@/app/actions/messaging"
+import { getCustomerThreadsOverview } from "@/app/actions/messaging"
 import { normalizeStatus, statusMeta, type OrderStatusKey } from "@/lib/order-status"
 
 export type OrderNotification = {
   id: string
   threadId: number
+  kind: "status" | "message"
   status: OrderStatusKey
   label: string
   createdAt: number
   read: boolean
 }
+
+type SeenEntry = { status: OrderStatusKey; vendor: number }
 
 type NotificationsContextValue = {
   notifications: OrderNotification[]
@@ -25,7 +28,8 @@ const NotificationsContext = createContext<NotificationsContextValue | null>(nul
 const POLL_MS = 15000
 
 function seenKey(pseudo: string) {
-  return `notif:${pseudo}:seen`
+  // v2 : suit désormais { statut, nb messages vendeur } par commande
+  return `notif:${pseudo}:seen2`
 }
 function listKey(pseudo: string) {
   return `notif:${pseudo}:list`
@@ -53,7 +57,7 @@ export function NotificationsProvider({
   children: React.ReactNode
 }) {
   const [notifications, setNotifications] = useState<OrderNotification[]>([])
-  const seenRef = useRef<Record<number, OrderStatusKey>>({})
+  const seenRef = useRef<Record<number, SeenEntry>>({})
 
   // Charge l'état persisté quand le pseudo devient disponible
   useEffect(() => {
@@ -62,15 +66,19 @@ export function NotificationsProvider({
       seenRef.current = {}
       return
     }
-    seenRef.current = readJSON<Record<number, OrderStatusKey>>(seenKey(pseudo), {})
+    seenRef.current = readJSON<Record<number, SeenEntry>>(seenKey(pseudo), {})
     setNotifications(readJSON<OrderNotification[]>(listKey(pseudo), []))
   }, [pseudo])
 
   const poll = useCallback(async () => {
     if (!pseudo || !token) return
-    let threads: Array<{ id: number; status: string }> = []
+    let threads: Array<{ id: number; status: string; vendorCount: number }> = []
     try {
-      threads = (await getThreadsForToken(token)) as Array<{ id: number; status: string }>
+      threads = (await getCustomerThreadsOverview(token)) as Array<{
+        id: number
+        status: string
+        vendorCount: number
+      }>
     } catch {
       return
     }
@@ -80,22 +88,38 @@ export function NotificationsProvider({
 
     for (const t of threads) {
       const current = normalizeStatus(t.status)
+      const vendor = t.vendorCount ?? 0
       const previous = seen[t.id]
       if (previous === undefined) {
         // Première observation de cette commande : on enregistre sans notifier (pas de spam)
-        seen[t.id] = current
-      } else if (previous !== current) {
-        // Le statut a changé depuis la dernière visite → notification
+        seen[t.id] = { status: current, vendor }
+        continue
+      }
+      // Changement de statut → notification
+      if (previous.status !== current) {
         fresh.push({
-          id: `${t.id}-${current}-${Date.now()}`,
+          id: `${t.id}-status-${current}-${Date.now()}`,
           threadId: t.id,
+          kind: "status",
           status: current,
           label: statusMeta(current).label,
           createdAt: Date.now(),
           read: false,
         })
-        seen[t.id] = current
       }
+      // Nouveau(x) message(s) du vendeur → notification
+      if (vendor > previous.vendor) {
+        fresh.push({
+          id: `${t.id}-msg-${vendor}-${Date.now()}`,
+          threadId: t.id,
+          kind: "message",
+          status: current,
+          label: "Nouveau message du vendeur",
+          createdAt: Date.now(),
+          read: false,
+        })
+      }
+      seen[t.id] = { status: current, vendor }
     }
 
     if (fresh.length > 0) {

@@ -118,6 +118,34 @@ export async function getThreadsForToken(customerToken: string) {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
+// Aperçu léger pour les notifications client : statut + nombre de messages du vendeur.
+// Permet de détecter à la fois un changement de statut ET un nouveau message vendeur.
+export async function getCustomerThreadsOverview(customerToken: string) {
+  const token = customerToken?.trim()
+  if (!token) return []
+  const rows = await db
+    .select({
+      id: orderThreads.id,
+      status: orderThreads.status,
+      vendorCount: sql<number>`count(*) filter (where ${threadMessages.sender} = 'vendeur')::int`,
+    })
+    .from(orderThreads)
+    .leftJoin(threadMessages, eq(threadMessages.threadId, orderThreads.id))
+    .where(eq(orderThreads.customerToken, token))
+    .groupBy(orderThreads.id, orderThreads.status)
+  return rows
+}
+
+// Supprime définitivement une commande (et ses messages, via cascade applicative).
+export async function deleteOrderThread(threadId: number) {
+  if (!threadId) return { ok: false as const }
+  await db.delete(threadMessages).where(eq(threadMessages.threadId, threadId))
+  await db.delete(orderThreads).where(eq(orderThreads.id, threadId))
+  revalidatePath("/admin")
+  revalidatePath("/messagerie")
+  return { ok: true as const }
+}
+
 // Compte les fils "nouveau" (badge boîte de réception)
 export async function countNewThreads() {
   const [row] = await db

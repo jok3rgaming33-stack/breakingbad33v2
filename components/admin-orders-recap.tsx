@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react"
 import type { OrderThread } from "@/lib/db/schema"
+import { deleteOrderThread } from "@/app/actions/messaging"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { statusMeta } from "@/lib/order-status"
-import { ListOrdered, Truck, Store, Copy, Check, Search, Coins } from "lucide-react"
+import { ListOrdered, Truck, Store, Copy, Check, Search, Coins, Trash2, Loader2, AlertTriangle } from "lucide-react"
 
 function formatDate(value: Date | string) {
   const d = new Date(value)
@@ -53,10 +54,13 @@ function TokenCell({ token }: { token: string | null }) {
 
 export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
   const [query, setQuery] = useState("")
+  const [rows, setRows] = useState<OrderThread[]>(threads)
+  const [pendingId, setPendingId] = useState<number | null>(null)
+  const [confirmOrder, setConfirmOrder] = useState<OrderThread | null>(null)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const sorted = [...threads].sort(
+    const sorted = [...rows].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
     if (!q) return sorted
@@ -66,13 +70,24 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
         (t.customerToken ?? "").toLowerCase().includes(q) ||
         (t.products ?? "").toLowerCase().includes(q),
     )
-  }, [threads, query])
+  }, [rows, query])
 
   const totals = useMemo(() => {
-    const revenue = threads.reduce((sum, t) => sum + (t.total ?? 0), 0)
-    const points = threads.reduce((sum, t) => sum + computeLoyaltyPoints(t.total ?? 0), 0)
-    return { count: threads.length, revenue, points }
-  }, [threads])
+    const revenue = rows.reduce((sum, t) => sum + (t.total ?? 0), 0)
+    const points = rows.reduce((sum, t) => sum + computeLoyaltyPoints(t.total ?? 0), 0)
+    return { count: rows.length, revenue, points }
+  }, [rows])
+
+  const handleDelete = async (order: OrderThread) => {
+    setPendingId(order.id)
+    try {
+      const res = await deleteOrderThread(order.id)
+      if (res.ok) setRows((prev) => prev.filter((t) => t.id !== order.id))
+    } finally {
+      setPendingId(null)
+      setConfirmOrder(null)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -129,13 +144,14 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
                 <th className="px-4 py-3 font-medium">Produits</th>
                 <th className="px-4 py-3 font-medium">Montant</th>
                 <th className="px-4 py-3 font-medium">Date</th>
-                <th className="px-4 py-3 text-right font-medium">Points crédités</th>
+                <th className="px-4 py-3 font-medium">Points crédités</th>
+                <th className="px-4 py-3 text-right font-medium">Action</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                     Aucune commande à afficher.
                   </td>
                 </tr>
@@ -167,10 +183,26 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
                       </td>
                       <td className="px-4 py-3 font-semibold">{t.total}€</td>
                       <td className="px-4 py-3 text-muted-foreground">{formatDate(t.createdAt)}</td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3">
                         <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">
                           <Coins className="h-3 w-3" aria-hidden="true" />+{computeLoyaltyPoints(t.total ?? 0)}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setConfirmOrder(t)}
+                          disabled={pendingId === t.id}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
+                          aria-label={`Supprimer la commande #${t.id}`}
+                        >
+                          {pendingId === t.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          )}
+                          Supprimer
+                        </button>
                       </td>
                     </tr>
                   )
@@ -180,6 +212,49 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
           </table>
         </div>
       </div>
+
+      {/* Confirmation de suppression */}
+      {confirmOrder && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-background/90 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirmer la suppression de la commande"
+        >
+          <div className="w-full max-w-sm rounded-3xl border border-destructive/40 bg-card p-6">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/15 text-destructive">
+                <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <h3 className="text-lg font-bold">Supprimer la commande ?</h3>
+            </div>
+            <p className="mb-6 text-sm text-muted-foreground">
+              La commande{" "}
+              <span className="font-semibold text-foreground">#{confirmOrder.id}</span> de{" "}
+              <span className="font-semibold text-foreground">{confirmOrder.customerName}</span> et tous
+              ses messages seront définitivement supprimés.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmOrder(null)}
+                className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(confirmOrder)}
+                disabled={pendingId === confirmOrder.id}
+                className="inline-flex items-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {pendingId === confirmOrder.id && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                Supprimer définitivement
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

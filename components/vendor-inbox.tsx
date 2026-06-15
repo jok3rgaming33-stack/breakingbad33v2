@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
-import { getThread, addMessage, updateThreadStatus } from "@/app/actions/messaging"
+import { getThreads, getThread, addMessage, updateThreadStatus } from "@/app/actions/messaging"
 import { Inbox, Send, Loader2, Truck, Store } from "lucide-react"
 import { VENDOR_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 
@@ -21,6 +21,10 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
 
   const selected = threads.find((t) => t.id === selectedId) ?? null
 
+  // Garde une référence à la commande ouverte pour le rafraîchissement périodique
+  const selectedIdRef = useRef<number | null>(null)
+  selectedIdRef.current = selectedId
+
   const openThread = async (id: number) => {
     setSelectedId(id)
     setLoadingThread(true)
@@ -28,6 +32,33 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
     setMessages(data?.messages ?? [])
     setLoadingThread(false)
   }
+
+  // Rafraîchissement automatique : nouvelles commandes + messages clients en direct
+  const refresh = useCallback(async () => {
+    try {
+      const latest = await getThreads()
+      setThreads(latest)
+      const openId = selectedIdRef.current
+      if (openId != null) {
+        const data = await getThread(openId)
+        setMessages(data?.messages ?? [])
+      }
+    } catch {
+      // silencieux : on réessaiera au prochain tick
+    }
+  }, [])
+
+  useEffect(() => {
+    const interval = setInterval(refresh, 8000)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [refresh])
 
   const sendReply = () => {
     if (!reply.trim() || selectedId == null) return
