@@ -139,7 +139,7 @@ export function FeaturedProducts() {
               <div className="text-2xl font-semibold text-white mb-6">{selectedProduct.price}€</div>
 
               <button 
-                onClick={() => { addToCart(selectedProduct.title); closeModal() }}
+                onClick={() => { addToCart(selectedProduct.title, selectedProduct.price); closeModal() }}
                 className="w-full bg-[#3e6757] hover:bg-[#3e6757]/80 py-4 rounded-full text-white text-sm font-bold tracking-widest uppercase transition-all"
               >
                 Ajouter au Laboratoire

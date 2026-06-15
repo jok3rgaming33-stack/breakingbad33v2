@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Plus, CheckCircle2, Copy, AlertTriangle } from "lucide-react"
+import { adminLogin } from "@/app/actions/admin-auth"
 
 const CRYSTAL_COUNT = 4
 
@@ -132,16 +133,32 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
     setGeneratedKey(key)
     localStorage.setItem("authToken", key)
     localStorage.setItem("userPseudo", pseudo)
+    localStorage.removeItem("isAdmin")
     setShowResultModal(true)
   }
 
-  const loginWithKey = () => {
-    if (loginInput.trim().length < 30) {
+  const loginWithKey = async () => {
+    const token = loginInput.trim()
+    if (token.length < 30) {
       setError("Veuillez entrer votre clé secrète complète.")
       return
     }
     setError("")
-    localStorage.setItem("authToken", loginInput.trim())
+
+    // Vérifie côté serveur si ce token correspond à l'accès admin (Heisenberg)
+    const res = await adminLogin(token)
+    if (res.ok && res.pseudo) {
+      localStorage.setItem("authToken", token)
+      localStorage.setItem("userPseudo", res.pseudo)
+      localStorage.setItem("isAdmin", "1")
+      setGeneratedPseudo(res.pseudo)
+      setIsLoggedIn(true)
+      return
+    }
+
+    // Connexion utilisateur standard
+    localStorage.removeItem("isAdmin")
+    localStorage.setItem("authToken", token)
     const savedPseudo = localStorage.getItem("userPseudo") || ""
     if (savedPseudo) setGeneratedPseudo(savedPseudo)
     setIsLoggedIn(true)

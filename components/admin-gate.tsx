@@ -1,0 +1,49 @@
+"use client"
+
+import { useActionState } from "react"
+import { adminGateAction } from "@/app/actions/admin-auth"
+import { ShieldCheck, Loader2 } from "lucide-react"
+
+export function AdminGate() {
+  const [state, formAction, isPending] = useActionState(adminGateAction, null)
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+      <div className="w-full max-w-md rounded-3xl border border-border bg-card p-8">
+        <div className="mb-7 text-center">
+          <ShieldCheck className="mx-auto mb-4 h-14 w-14 text-accent" aria-hidden="true" />
+          <h1 className="text-3xl font-bold">Panel Administrateur</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Accès strictement réservé. Saisis ton token admin.</p>
+        </div>
+
+        <form action={formAction} className="flex flex-col gap-4">
+          <div>
+            <label htmlFor="admin-token" className="mb-1.5 block text-sm text-muted-foreground">
+              Token admin
+            </label>
+            <input
+              id="admin-token"
+              name="token"
+              type="password"
+              autoComplete="off"
+              required
+              className="w-full rounded-2xl border border-input bg-background/60 px-5 py-4 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none"
+              placeholder="Colle ton token admin"
+            />
+          </div>
+
+          {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
+
+          <button
+            type="submit"
+            disabled={isPending}
+            className="flex items-center justify-center gap-2 rounded-2xl bg-accent py-4 font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {isPending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+            {isPending ? "Vérification..." : "Accéder au panel"}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}

@@ -5,24 +5,36 @@ import { CartProvider } from "@/components/cart-provider"
 import { Navbar } from "@/components/navbar"
 import { LoginPage } from "@/components/login-page"
 import { UserDashboardModal } from "@/components/user-dashboard-modal"
+import { LoyaltyModal } from "@/components/loyalty-modal"
+import { MyOrdersModal } from "@/components/my-orders-modal"
+import { CheckoutCart } from "@/components/checkout-cart"
+import { Hero } from "@/components/hero"
+import { FeaturedProducts } from "@/components/featured-products"
+import { NewArrivals } from "@/components/new-arrivals"
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isDashboardOpen, setIsDashboardOpen] = useState(false)
+  const [isLoyaltyOpen, setIsLoyaltyOpen] = useState(false)
+  const [isOrdersOpen, setIsOrdersOpen] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [userData, setUserData] = useState<{ pseudo?: string } | null>(null)
 
   const handleLoginSuccess = () => {
     setIsAuthenticated(true)
     const pseudo = localStorage.getItem("userPseudo")
     if (pseudo) setUserData({ pseudo })
+    setIsAdmin(localStorage.getItem("isAdmin") === "1")
   }
 
   const handleLogout = () => {
     setIsAuthenticated(false)
     setIsDashboardOpen(false)
+    setIsAdmin(false)
     setUserData(null)
     localStorage.removeItem("authToken")
     localStorage.removeItem("userPseudo")
+    localStorage.removeItem("isAdmin")
   }
 
   return (
@@ -31,22 +43,19 @@ export default function Home() {
         isLoggedIn={isAuthenticated}
         onLogout={handleLogout}
         onOpenDashboard={() => setIsDashboardOpen(true)}
+        onOpenLoyalty={() => setIsLoyaltyOpen(true)}
+        onOpenOrders={() => setIsOrdersOpen(true)}
+        isAdmin={isAdmin}
       />
 
       <main>
         {!isAuthenticated ? (
           <LoginPage onSuccess={handleLoginSuccess} />
         ) : (
-          <div className="flex min-h-screen items-center justify-center bg-background pt-16 text-foreground">
-            <div className="text-center">
-              <h1 className="mb-4 text-4xl font-bold text-balance">Bienvenue sur BreakingBad33</h1>
-              <button
-                onClick={() => setIsDashboardOpen(true)}
-                className="rounded-2xl bg-accent px-8 py-3 font-semibold text-accent-foreground transition-colors hover:brightness-110"
-              >
-                Ouvrir mon Dashboard
-              </button>
-            </div>
+          <div className="bg-background text-foreground">
+            <Hero />
+            <FeaturedProducts />
+            <NewArrivals />
           </div>
         )}
       </main>
@@ -57,6 +66,12 @@ export default function Home() {
         userData={userData}
         onLogout={handleLogout}
       />
+
+      <LoyaltyModal isOpen={isLoyaltyOpen} onClose={() => setIsLoyaltyOpen(false)} userData={userData} />
+
+      <MyOrdersModal isOpen={isOrdersOpen} onClose={() => setIsOrdersOpen(false)} userData={userData} />
+
+      {isAuthenticated && <CheckoutCart userData={userData} />}
     </CartProvider>
   )
 }
