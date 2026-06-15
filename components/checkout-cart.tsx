@@ -11,24 +11,11 @@ type CheckoutCartProps = {
   onOrderPlaced?: (message: string) => void
 }
 
-// Coordonnées GPS de référence (point de départ des livraisons)
-const ORIGIN = { lat: 44.841575, lng: -0.581069 }
 const FEE_NEAR = 10 // <= 10 km
 const FEE_FAR = 20 // > 10 km
 
 const DELIVERY_SLOTS = ["14H - 17H", "18H - 20H", "21H - 02H"]
 const MEETUP_HOURS = ["14H", "15H", "16H", "17H", "18H", "19H", "20H", "21H", "22H", "23H", "00H"]
-
-// Distance Haversine en km
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
-  const R = 6371
-  const dLat = ((lat2 - lat1) * Math.PI) / 180
-  const dLng = ((lng2 - lng1) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
 
 // Parse un code fidélité BB33-10E-XXXXXX -> 10
 function parseLoyaltyDiscount(code: string): number {
@@ -55,8 +42,9 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const [isMeetup, setIsMeetup] = useState(false)
   const [meetupHour, setMeetupHour] = useState("")
 
-  const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "done" | "error">("idle")
+  const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "done" | "error" | "notfound">("idle")
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
+  const [resolvedLabel, setResolvedLabel] = useState<string | null>(null)
   const [placed, setPlaced] = useState(false)
 
   const name = userData?.pseudo ?? "Invité"
@@ -74,21 +62,21 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
 
   if (!isOpen) return null
 
-  // Géocodage de l'adresse via Nominatim (OpenStreetMap, sans clé)
+  // Géocodage de l'adresse via la route serveur (API Adresse / BAN)
   const checkAddress = async () => {
     if (!address.trim()) return
     setGeoStatus("loading")
+    setResolvedLabel(null)
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`,
-        { headers: { "Accept-Language": "fr" } },
-      )
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(address)}`)
       const data = await res.json()
-      if (Array.isArray(data) && data.length > 0) {
-        const { lat, lon } = data[0]
-        const km = haversineKm(ORIGIN.lat, ORIGIN.lng, Number(lat), Number(lon))
-        setDistanceKm(km)
+      if (res.ok && data.found) {
+        setDistanceKm(Number(data.distanceKm))
+        setResolvedLabel(data.label ?? null)
         setGeoStatus("done")
+      } else if (res.ok && data.found === false) {
+        setDistanceKm(null)
+        setGeoStatus("notfound")
       } else {
         setDistanceKm(null)
         setGeoStatus("error")
@@ -290,6 +278,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     setAddress(e.target.value)
                     setGeoStatus("idle")
                     setDistanceKm(null)
+                    setResolvedLabel(null)
                   }}
                   onBlur={checkAddress}
                   disabled={isMeetup}
@@ -316,8 +305,12 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                         ≈ {distanceKm.toFixed(1)} km — frais {deliveryFee}€
                       </span>
                     )}
-                    {geoStatus === "error" && <span className="text-destructive">Adresse introuvable</span>}
+                    {geoStatus === "notfound" && <span className="text-destructive">Adresse introuvable</span>}
+                    {geoStatus === "error" && <span className="text-destructive">Erreur du service de géocodage</span>}
                   </div>
+                )}
+                {!isMeetup && geoStatus === "done" && resolvedLabel && (
+                  <p className="mt-1.5 text-xs text-muted-foreground">Adresse reconnue : {resolvedLabel}</p>
                 )}
               </div>
 
