@@ -24,12 +24,25 @@ export default function Home() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [userData, setUserData] = useState<{ pseudo?: string; token?: string } | null>(null)
 
-  // Si l'admin est connecté (cookie de session), le bouton "Voir le site" doit
-  // afficher la boutique au lieu de l'écran de connexion. On vérifie la session
-  // côté serveur au montage et on bascule en aperçu admin le cas échéant.
+  // Au montage, on restaure la session pour éviter de retomber sur l'écran de
+  // connexion lors d'un rechargement ou d'un nouvel onglet ("Voir le site").
   useEffect(() => {
     let cancelled = false
-    if (localStorage.getItem("authToken")) return
+
+    // 1) Session locale (client OU admin connecté via la page de connexion)
+    const token = localStorage.getItem("authToken")
+    if (token) {
+      setIsAuthenticated(true)
+      setIsAdmin(localStorage.getItem("isAdmin") === "1")
+      setUserData({
+        pseudo: localStorage.getItem("userPseudo") ?? undefined,
+        token,
+      })
+      return
+    }
+
+    // 2) Sinon, session admin par cookie serveur (ex. "Voir le site" depuis le
+    //    panel admin quand l'authentification s'est faite via le portail /admin).
     isAdminAuthenticated()
       .then((ok) => {
         if (cancelled || !ok) return
