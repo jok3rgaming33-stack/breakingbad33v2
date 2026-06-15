@@ -17,7 +17,7 @@ type NavbarProps = {
 }
 
 export function Navbar({ onOpenLoyalty }: NavbarProps) {
-  const { count } = useCart()
+  const { count, openCart } = useCart()
   const [open, setOpen] = useState(false)
 
   const handleNavClick = (e: React.MouseEvent, item: (typeof NAV_ITEMS)[number]) => {
@@ -61,10 +61,7 @@ export function Navbar({ onOpenLoyalty }: NavbarProps) {
           
           {/* === MON PANIER + Icône Caddie === */}
           <button
-            onClick={() => {
-              // Tu peux ouvrir le modal du panier ici plus tard
-              console.log("Ouverture du panier")
-            }}
+            onClick={openCart}
             className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white"
           >
             MON PANIER

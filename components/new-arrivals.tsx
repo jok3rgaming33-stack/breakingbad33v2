@@ -160,7 +160,7 @@ export function NewArrivals() {
               <div className="text-2xl font-semibold text-white mb-6">{selectedArrival.price}€</div>
 
               <button 
-                onClick={() => { addToCart(selectedArrival.title); closeModal() }}
+                onClick={() => { addToCart(selectedArrival.title, selectedArrival.price); closeModal() }}
                 className="w-full bg-[#3e6757] hover:bg-[#3e6757]/80 py-4 rounded-full text-white text-sm font-bold tracking-widest uppercase transition-all"
               >
                 Ajouter au Laboratoire

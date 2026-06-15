@@ -6,6 +6,7 @@ import { Navbar } from "@/components/navbar"
 import { LoginPage } from "@/components/login-page"
 import { UserDashboardModal } from "@/components/user-dashboard-modal"
 import { LoyaltyModal } from "@/components/loyalty-modal"
+import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
 import { FeaturedProducts } from "@/components/featured-products"
 import { NewArrivals } from "@/components/new-arrivals"
@@ -59,6 +60,8 @@ export default function Home() {
       />
 
       <LoyaltyModal isOpen={isLoyaltyOpen} onClose={() => setIsLoyaltyOpen(false)} userData={userData} />
+
+      {isAuthenticated && <CheckoutCart userData={userData} />}
     </CartProvider>
   )
 }
