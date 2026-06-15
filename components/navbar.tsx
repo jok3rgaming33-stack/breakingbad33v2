@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useCart } from "@/components/cart-provider"
-import { ChevronDown, Menu, ShoppingCart, X } from "lucide-react"
+import { ChevronDown, Menu, ShoppingCart, X, ShieldCheck } from "lucide-react"
 import Image from "next/image"
 
 const NAV_ITEMS = [
@@ -16,9 +16,10 @@ const NAV_ITEMS = [
 type NavbarProps = {
   onOpenLoyalty?: () => void
   onOpenOrders?: () => void
+  isAdmin?: boolean
 }
 
-export function Navbar({ onOpenLoyalty, onOpenOrders }: NavbarProps) {
+export function Navbar({ onOpenLoyalty, onOpenOrders, isAdmin }: NavbarProps) {
   const { count, openCart } = useCart()
   const [open, setOpen] = useState(false)
 
@@ -61,6 +62,15 @@ export function Navbar({ onOpenLoyalty, onOpenOrders }: NavbarProps) {
               {item.label}
             </a>
           ))}
+          {isAdmin && (
+            <a
+              href="/admin"
+              className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-accent-foreground transition-opacity hover:opacity-90"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+              Panel Admin
+            </a>
+          )}
         </nav>
 
         <div className="flex items-center gap-4">
@@ -105,6 +115,15 @@ export function Navbar({ onOpenLoyalty, onOpenOrders }: NavbarProps) {
                 {item.label}
               </a>
             ))}
+            {isAdmin && (
+              <a
+                href="/admin"
+                className="mt-1 flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold uppercase tracking-wide text-accent-foreground"
+              >
+                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                Panel Admin
+              </a>
+            )}
           </div>
         </nav>
       )}

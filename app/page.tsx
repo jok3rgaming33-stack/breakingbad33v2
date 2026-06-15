@@ -17,20 +17,24 @@ export default function Home() {
   const [isDashboardOpen, setIsDashboardOpen] = useState(false)
   const [isLoyaltyOpen, setIsLoyaltyOpen] = useState(false)
   const [isOrdersOpen, setIsOrdersOpen] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [userData, setUserData] = useState<{ pseudo?: string } | null>(null)
 
   const handleLoginSuccess = () => {
     setIsAuthenticated(true)
     const pseudo = localStorage.getItem("userPseudo")
     if (pseudo) setUserData({ pseudo })
+    setIsAdmin(localStorage.getItem("isAdmin") === "1")
   }
 
   const handleLogout = () => {
     setIsAuthenticated(false)
     setIsDashboardOpen(false)
+    setIsAdmin(false)
     setUserData(null)
     localStorage.removeItem("authToken")
     localStorage.removeItem("userPseudo")
+    localStorage.removeItem("isAdmin")
   }
 
   return (
@@ -41,6 +45,7 @@ export default function Home() {
         onOpenDashboard={() => setIsDashboardOpen(true)}
         onOpenLoyalty={() => setIsLoyaltyOpen(true)}
         onOpenOrders={() => setIsOrdersOpen(true)}
+        isAdmin={isAdmin}
       />
 
       <main>
