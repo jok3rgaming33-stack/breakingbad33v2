@@ -5,6 +5,7 @@ import { CartProvider } from "@/components/cart-provider"
 import { Navbar } from "@/components/navbar"
 import { LoginPage } from "@/components/login-page"
 import { UserDashboardModal } from "@/components/user-dashboard-modal"
+import { LoyaltyModal } from "@/components/loyalty-modal"
 import { Hero } from "@/components/hero"
 import { FeaturedProducts } from "@/components/featured-products"
 import { NewArrivals } from "@/components/new-arrivals"
@@ -12,6 +13,7 @@ import { NewArrivals } from "@/components/new-arrivals"
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isDashboardOpen, setIsDashboardOpen] = useState(false)
+  const [isLoyaltyOpen, setIsLoyaltyOpen] = useState(false)
   const [userData, setUserData] = useState<{ pseudo?: string } | null>(null)
 
   const handleLoginSuccess = () => {
@@ -34,6 +36,7 @@ export default function Home() {
         isLoggedIn={isAuthenticated}
         onLogout={handleLogout}
         onOpenDashboard={() => setIsDashboardOpen(true)}
+        onOpenLoyalty={() => setIsLoyaltyOpen(true)}
       />
 
       <main>
@@ -54,6 +57,8 @@ export default function Home() {
         userData={userData}
         onLogout={handleLogout}
       />
+
+      <LoyaltyModal isOpen={isLoyaltyOpen} onClose={() => setIsLoyaltyOpen(false)} userData={userData} />
     </CartProvider>
   )
 }

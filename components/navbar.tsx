@@ -8,13 +8,25 @@ import Image from "next/image"
 const NAV_ITEMS = [
   { label: "Engagement qualité" },
   { label: "Livraison/Meet-up" },
-  { label: "Espace fidélité" },
+  { label: "Espace fidélité", action: "loyalty" as const },
   { label: "Conditions de vente" },
 ]
 
-export function Navbar() {
+type NavbarProps = {
+  onOpenLoyalty?: () => void
+}
+
+export function Navbar({ onOpenLoyalty }: NavbarProps) {
   const { count } = useCart()
   const [open, setOpen] = useState(false)
+
+  const handleNavClick = (e: React.MouseEvent, item: (typeof NAV_ITEMS)[number]) => {
+    if (item.action === "loyalty") {
+      e.preventDefault()
+      setOpen(false)
+      onOpenLoyalty?.()
+    }
+  }
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-white/5 bg-black/70 backdrop-blur-xl">
@@ -37,6 +49,7 @@ export function Navbar() {
             <a
               key={item.label}
               href="#"
+              onClick={(e) => handleNavClick(e, item)}
               className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.15em] text-muted-foreground transition-colors hover:text-foreground"
             >
               {item.label}
@@ -83,6 +96,7 @@ export function Navbar() {
               <a 
                 key={item.label} 
                 href="#" 
+                onClick={(e) => handleNavClick(e, item)}
                 className="rounded-md px-3 py-2 text-sm font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               >
                 {item.label}
