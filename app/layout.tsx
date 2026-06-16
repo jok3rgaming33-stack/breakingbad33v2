@@ -14,22 +14,11 @@ export const metadata: Metadata = {
   description:
     'Authentic. Premium. Iconic. Official Breaking Bad merchandise and collectibles.',
   generator: 'v0.app',
+  manifest: '/manifest.webmanifest',
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    icon: [{ url: '/images/logoapp.png', type: 'image/png' }],
+    shortcut: '/images/logoapp.png',
+    apple: '/images/logoapp.png',
   },
 }
 
