@@ -16,9 +16,9 @@ export const metadata: Metadata = {
   generator: 'v0.app',
   manifest: '/manifest.webmanifest',
   icons: {
-    icon: [{ url: '/images/logoapp.png', type: 'image/png' }],
-    shortcut: '/images/logoapp.png',
-    apple: '/images/logoapp.png',
+    icon: [{ url: '/images/icon-maskable-512.png', type: 'image/png' }],
+    shortcut: '/images/icon-maskable-512.png',
+    apple: '/images/icon-maskable-512.png',
   },
 }
 
