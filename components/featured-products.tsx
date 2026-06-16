@@ -113,7 +113,7 @@ export function FeaturedProducts() {
           <FlaskConical className="w-8 h-8 text-[#3e6757]" />
           <div>
             <p className="text-xs tracking-[0.3em] text-[#3e6757] uppercase">Laboratoire Clandestin</p>
-            <h2 className="text-4xl font-light text-white tracking-tight">Éléments Essentiels</h2>
+            <h2 className="text-4xl font-light text-white tracking-tight">Nos Best-Seller</h2>
           </div>
         </div>
 

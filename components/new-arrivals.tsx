@@ -111,7 +111,7 @@ export function NewArrivals() {
           <Sparkles className="w-8 h-8 text-[#3e6757]" />
           <div>
             <p className="text-xs tracking-[0.3em] text-[#3e6757] uppercase">Nouvel Arrivage</p>
-            <h2 className="text-4xl font-light text-white tracking-tight">Dernières Acquisitions</h2>
+            <h2 className="text-4xl font-light text-white tracking-tight">Nouveautés</h2>
           </div>
         </div>
 
@@ -126,9 +126,8 @@ export function NewArrivals() {
                 <Image src={arrival.image} alt={arrival.alt} fill className="object-contain" />
               </div>
               <span className="text-[#3e6757] font-mono text-xs tracking-[0.2em] uppercase mb-1">{arrival.symbol}</span>
-              <h3 className="text-lg font-semibold text-white mb-2">{arrival.title}</h3>
-              <p className="text-zinc-500 text-xs mb-4">{arrival.price}€</p>
-              
+              <h3 className="text-lg font-semibold text-white mb-4">{arrival.title}</h3>
+
               <button className="w-full border border-white/10 py-2 rounded-full text-white text-xs hover:bg-white hover:text-black transition-colors">
                 Détails
               </button>
