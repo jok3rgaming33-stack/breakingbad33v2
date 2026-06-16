@@ -9,7 +9,6 @@ type Variant = { qty: number; price: number }
 
 type Arrival = {
   title: string
-  price: number
   image: string
   alt: string
   symbol: string
@@ -18,57 +17,51 @@ type Arrival = {
   variants: Variant[]
 }
 
-// NOTE : tarifs provisoires à affiner ultérieurement.
 const ARRIVALS: Arrival[] = [
-  { 
-    title: "cloud", 
-    price: 35, 
-    image: "/pdt/cloud.png", 
-    alt: "Composé atmosphérique", 
-    symbol: "Cl", 
+  {
+    title: "cloud",
+    image: "/pdt/cloud.png",
+    alt: "Deviens Sangoku",
+    symbol: "Cl",
     number: "17",
-    description: "Catalyseur gazeux pour réactions en phase volatile.",
-    variants: [{ qty: 1, price: 35 }, { qty: 5, price: 140 }, { qty: 10, price: 245 }],
+    description: "Ecsta en 280mg.",
+    variants: [{ qty: 5, price: 40 }, { qty: 10, price: 60 }, { qty: 20, price: 100 }],
   },
-  { 
-    title: "iron", 
-    price: 45, 
-    image: "/pdt/iron.png", 
-    alt: "Base métallique", 
-    symbol: "Fe", 
+  {
+    title: "iron-man",
+    image: "/pdt/iron.png",
+    alt: "Become a Super-Hero",
+    symbol: "Fe",
     number: "26",
-    description: "Base structurelle renforcée pour synthèse complexe.",
-    variants: [{ qty: 1, price: 45 }, { qty: 5, price: 180 }, { qty: 10, price: 315 }],
+    description: "Ecsta en 240mg.",
+    variants: [{ qty: 5, price: 30 }, { qty: 10, price: 50 }, { qty: 20, price: 80 }],
   },
-  { 
-    title: "K", 
-    price: 55, 
-    image: "/pdt/K.png", 
-    alt: "Réactif alcalin", 
-    symbol: "K", 
+  {
+    title: "La Ké",
+    image: "/pdt/K.png",
+    alt: "Needles",
+    symbol: "K",
     number: "19",
-    description: "Agent de réactivité pure, hautement instable.",
-    variants: [{ qty: 1, price: 55 }, { qty: 5, price: 220 }, { qty: 10, price: 385 }],
-  },
-  { 
-    title: "spee", 
-    price: 65, 
-    image: "/pdt/spee.png", 
-    alt: "Accélérateur", 
-    symbol: "Sp", 
-    number: "08",
-    description: "Accélérateur de processus moléculaire rapide.",
-    variants: [{ qty: 1, price: 65 }, { qty: 5, price: 260 }, { qty: 10, price: 455 }],
-  },
-  { 
-    title: "water", 
-    price: 20, 
-    image: "/pdt/water.png", 
-    alt: "Solvant purifié", 
-    symbol: "H2O", 
-    number: "00",
-    description: "Solvant universel de haute pureté analytique.",
+    description: "Notre needles, explosive.",
     variants: [{ qty: 1, price: 20 }, { qty: 5, price: 80 }, { qty: 10, price: 140 }],
+  },
+  {
+    title: "Speed",
+    image: "/pdt/spee.png",
+    alt: "Boost ton potentiel",
+    symbol: "Sp",
+    number: "08",
+    description: "Du speed reçu en pâte, séché par nos soins.",
+    variants: [{ qty: 1, price: 15 }, { qty: 5, price: 60 }, { qty: 10, price: 100 }],
+  },
+  {
+    title: "Watermelon",
+    image: "/pdt/water.png",
+    alt: "Rien a voir avec le fruit",
+    symbol: "H2O",
+    number: "00",
+    description: "Ecsta en 280mg.",
+    variants: [{ qty: 5, price: 40 }, { qty: 10, price: 60 }, { qty: 20, price: 100 }],
   },
 ]
 
