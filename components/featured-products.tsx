@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useCart } from "@/components/cart-provider"
 import Image from "next/image"
 import { FlaskConical, X as CloseIcon } from "lucide-react"
+import { ProductBadge, useProductBadges } from "@/components/product-badge"
 
 type Variant = { qty: number; price: number }
 
@@ -74,8 +75,9 @@ const PRODUCTS: Product[] = [
   },
 ]
 
-export function FeaturedProducts() {
+export function FeaturedProducts({ isAdmin = false }: { isAdmin?: boolean }) {
   const { addToCart } = useCart()
+  const { data: badges, mutate: mutateBadges } = useProductBadges()
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [variantIdx, setVariantIdx] = useState(0)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -122,8 +124,14 @@ export function FeaturedProducts() {
             <div
               key={index}
               onClick={() => openModal(product)}
-              className="group bg-[#0a0a0a] border border-white/10 p-8 rounded-3xl hover:border-[#3e6757]/50 transition-all cursor-pointer flex flex-col items-center text-center"
+              className="group relative bg-[#0a0a0a] border border-white/10 p-8 rounded-3xl hover:border-[#3e6757]/50 transition-all cursor-pointer flex flex-col items-center text-center overflow-hidden"
             >
+              <ProductBadge
+                productKey={`featured:${product.title}`}
+                badgeKey={badges?.[`featured:${product.title}`]}
+                isAdmin={isAdmin}
+                onChanged={() => mutateBadges()}
+              />
               <div className="relative h-48 w-48 mb-8">
                 <Image src={product.image} alt={product.title} fill className="object-contain" />
               </div>

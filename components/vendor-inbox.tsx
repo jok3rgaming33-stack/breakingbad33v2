@@ -18,6 +18,9 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
   const [loadingThread, setLoadingThread] = useState(false)
   const [reply, setReply] = useState("")
   const [isPending, startTransition] = useTransition()
+  // Modale de motif d'annulation
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState("")
 
   const selected = threads.find((t) => t.id === selectedId) ?? null
 
@@ -76,9 +79,29 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
 
   const changeStatus = (status: string) => {
     if (selectedId == null) return
+    // L'annulation passe par une modale pour saisir le motif communiqué au client.
+    if (status === "annulee") {
+      setCancelReason("")
+      setCancelOpen(true)
+      return
+    }
     startTransition(async () => {
       await updateThreadStatus(selectedId, status)
       setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status } : t)))
+      const data = await getThread(selectedId)
+      setMessages(data?.messages ?? [])
+    })
+  }
+
+  const confirmCancel = () => {
+    if (selectedId == null) return
+    const reason = cancelReason.trim()
+    setCancelOpen(false)
+    startTransition(async () => {
+      await updateThreadStatus(selectedId, "annulee", reason)
+      setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status: "annulee" } : t)))
+      const data = await getThread(selectedId)
+      setMessages(data?.messages ?? [])
     })
   }
 
@@ -229,6 +252,49 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
           </>
         )}
       </section>
+
+      {/* Modale : motif d'annulation communiqué au client */}
+      {cancelOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setCancelOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold">Annuler la commande</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Indique le motif de l&apos;annulation. Il sera envoyé au client dans la messagerie.
+            </p>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              rows={3}
+              autoFocus
+              placeholder="Ex. Article en rupture de stock, paiement non reçu…"
+              className="mt-4 w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-accent"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCancelOpen(false)}
+                className="rounded-lg border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+              >
+                Retour
+              </button>
+              <button
+                type="button"
+                onClick={confirmCancel}
+                disabled={isPending}
+                className="rounded-lg bg-red-500/90 px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                Confirmer l&apos;annulation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

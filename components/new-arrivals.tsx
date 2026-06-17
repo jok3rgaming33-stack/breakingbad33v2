@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useCart } from "@/components/cart-provider"
 import { Sparkles, X as CloseIcon } from "lucide-react"
 import Image from "next/image"
+import { ProductBadge, useProductBadges } from "@/components/product-badge"
 
 type Variant = { qty: number; price: number }
 
@@ -65,8 +66,9 @@ const ARRIVALS: Arrival[] = [
   },
 ]
 
-export function NewArrivals() {
+export function NewArrivals({ isAdmin = false }: { isAdmin?: boolean }) {
   const { addToCart } = useCart()
+  const { data: badges, mutate: mutateBadges } = useProductBadges()
   const [selectedArrival, setSelectedArrival] = useState<Arrival | null>(null)
   const [variantIdx, setVariantIdx] = useState(0)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -113,8 +115,14 @@ export function NewArrivals() {
             <div
               key={arrival.title}
               onClick={() => openModal(arrival)}
-              className="group bg-[#0a0a0a] border border-white/10 p-6 rounded-3xl hover:border-[#3e6757]/50 transition-all cursor-pointer flex flex-col items-center text-center"
+              className="group relative bg-[#0a0a0a] border border-white/10 p-6 rounded-3xl hover:border-[#3e6757]/50 transition-all cursor-pointer flex flex-col items-center text-center overflow-hidden"
             >
+              <ProductBadge
+                productKey={`arrival:${arrival.title}`}
+                badgeKey={badges?.[`arrival:${arrival.title}`]}
+                isAdmin={isAdmin}
+                onChanged={() => mutateBadges()}
+              />
               <div className="relative h-32 w-32 mb-6">
                 <Image src={arrival.image} alt={arrival.alt} fill className="object-contain" />
               </div>

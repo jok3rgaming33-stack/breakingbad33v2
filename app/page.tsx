@@ -98,8 +98,8 @@ export default function Home() {
         ) : (
           <div className="bg-background text-foreground">
             <Hero />
-            <FeaturedProducts />
-            <NewArrivals />
+            <FeaturedProducts isAdmin={isAdmin} />
+            <NewArrivals isAdmin={isAdmin} />
           </div>
         )}
       </main>

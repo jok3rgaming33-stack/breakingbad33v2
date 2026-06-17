@@ -33,6 +33,15 @@ export const threadMessages = pgTable("thread_messages", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Bandeaux produits posés par l'admin (best-seller / reappro / fin_de_stock).
+// La clé produit est l'identifiant stable de la vignette (ex. "featured:3m").
+export const productBadges = pgTable("product_badges", {
+  productKey: text("product_key").primaryKey(),
+  badge: text("badge").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export type User = typeof users.$inferSelect
 export type OrderThread = typeof orderThreads.$inferSelect
 export type ThreadMessage = typeof threadMessages.$inferSelect
+export type ProductBadge = typeof productBadges.$inferSelect

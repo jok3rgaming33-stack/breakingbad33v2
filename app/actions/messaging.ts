@@ -87,29 +87,54 @@ export async function addMessage(threadId: number, sender: "client" | "vendeur",
   return { ok: true }
 }
 
-// Met à jour le statut d'un fil. Lorsque la commande passe à "livree", on envoie
-// automatiquement un message de confirmation (une seule fois) ; c'est aussi le
-// moment où les points de fidélité sont considérés comme crédités (voir getCustomerStats).
-export async function updateThreadStatus(threadId: number, status: string) {
+// Met à jour le statut d'un fil et envoie automatiquement un message au client
+// décrivant le nouveau statut (une fois par transition). Pour "livree", c'est aussi
+// le moment où les points de fidélité sont considérés comme crédités (voir getCustomerStats).
+// Pour "annulee", un motif facultatif saisi par l'admin est inclus dans le message.
+export async function updateThreadStatus(threadId: number, status: string, reason?: string) {
   const [current] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
   if (!current) return { ok: false }
 
-  const wasDelivered = normalizeStatus(current.status) === "livree"
-  const nowDelivered = normalizeStatus(status) === "livree"
+  const prevKey = normalizeStatus(current.status)
+  const nextKey = normalizeStatus(status)
 
   await db
     .update(orderThreads)
     .set({ status, updatedAt: sql`now()` })
     .where(eq(orderThreads.id, threadId))
 
-  // Message automatique de livraison, uniquement à la première bascule vers "livree"
-  if (nowDelivered && !wasDelivered) {
-    const mode = current.fulfillment === "meetup" ? "en meet-up" : "en livraison"
-    const points = computeLoyaltyPoints(current.total ?? 0)
-    const body =
-      `Ta commande t'a bien été livrée (${mode}). Merci pour ta confiance !` +
-      (points > 0 ? ` ${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités sur ton compte.` : "")
-    await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
+  // Message automatique au client, uniquement quand le statut change réellement.
+  if (nextKey !== prevKey) {
+    let body: string | null = null
+    switch (nextKey) {
+      case "validee":
+        body = "Ta commande a été validée."
+        break
+      case "preparation":
+        body = "Nous sommes en train de préparer tes articles."
+        break
+      case "livraison":
+        body = "Le livreur est en route, reste joignable."
+        break
+      case "livree": {
+        const mode = current.fulfillment === "meetup" ? "en meet-up" : "en livraison"
+        const points = computeLoyaltyPoints(current.total ?? 0)
+        body =
+          `Ta commande t'a bien été livrée (${mode}). Merci pour ta confiance !` +
+          (points > 0 ? ` ${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités sur ton compte.` : "")
+        break
+      }
+      case "annulee": {
+        const motif = reason?.trim()
+        body = motif
+          ? `Ta commande a été annulée. Motif : ${motif}`
+          : "Ta commande a été annulée."
+        break
+      }
+    }
+    if (body) {
+      await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
+    }
   }
 
   revalidatePath("/messagerie")
