@@ -55,7 +55,7 @@ export function Hero() {
   }, [])
 
   return (
-    <section className="relative flex min-h-[820px] items-center justify-center overflow-hidden">
+    <section className="relative flex min-h-[60vh] items-center justify-center overflow-hidden md:min-h-[68vh]">
       <Image src="/images/hero-rv.png" alt="RV" fill className="object-cover" priority />
       <canvas ref={canvasRef} className="absolute inset-0 z-10 pointer-events-none" />
       <div className="absolute inset-0 bg-black/45 z-20" />
