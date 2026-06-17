@@ -10,6 +10,7 @@ import { AdminMap } from "@/components/admin-map"
 import { adminLogout } from "@/app/actions/admin-auth"
 import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye } from "lucide-react"
 import Link from "next/link"
+import { PushToggle } from "@/components/push-toggle"
 
 type TabId = "messagerie" | "carte" | "commandes" | "utilisateurs" | "profits"
 
@@ -67,6 +68,15 @@ export function AdminPanel({
       </header>
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+        {/* Activation des notifications push vendeur (nouvelles commandes + messages clients) */}
+        <div className="mb-6 flex flex-col gap-2 rounded-2xl border border-border bg-card p-4 sm:max-w-md">
+          <p className="text-sm font-medium">Notifications vendeur</p>
+          <p className="text-xs text-muted-foreground">
+            Sois alerté des nouvelles commandes et des nouveaux messages clients, même panel fermé.
+          </p>
+          <PushToggle role="vendeur" className="mt-1" />
+        </div>
+
         {/* Tabs */}
         <nav className="mb-6 flex flex-wrap gap-2" aria-label="Sections admin">
           {TABS.map(({ id, label, icon: Icon }) => (

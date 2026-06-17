@@ -1,0 +1,58 @@
+// Service Worker pour les notifications push Web de BreakingBad33.
+// Reçoit les messages push et affiche une notification système,
+// même quand le site / l'app est fermé ou en arrière-plan.
+
+self.addEventListener("install", (event) => {
+  self.skipWaiting()
+})
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim())
+})
+
+self.addEventListener("push", (event) => {
+  let data = {}
+  try {
+    data = event.data ? event.data.json() : {}
+  } catch (e) {
+    data = { title: "BreakingBad33", body: event.data ? event.data.text() : "" }
+  }
+
+  const title = data.title || "BreakingBad33"
+  const options = {
+    body: data.body || "",
+    icon: "/images/icon-maskable-512.png",
+    badge: "/images/icon-maskable-512.png",
+    tag: data.tag || undefined,
+    data: { url: data.url || "/" },
+    vibrate: [80, 40, 80],
+  }
+
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+  const targetUrl = (event.notification.data && event.notification.data.url) || "/"
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      // Si un onglet de l'app est déjà ouvert, on le focus et on navigue.
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.focus()
+          if ("navigate" in client) {
+            try {
+              client.navigate(targetUrl)
+            } catch (e) {}
+          }
+          return
+        }
+      }
+      // Sinon on ouvre une nouvelle fenêtre.
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl)
+      }
+    }),
+  )
+})

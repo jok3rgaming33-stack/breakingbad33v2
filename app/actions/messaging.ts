@@ -4,8 +4,9 @@ import { db } from "@/lib/db"
 import { orderThreads, threadMessages } from "@/lib/db/schema"
 import { and, desc, eq, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import { normalizeStatus } from "@/lib/order-status"
+import { normalizeStatus, statusMeta } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
+import { notifyCustomer, notifyVendor } from "@/lib/push"
 
 export type NewOrderInput = {
   customerName: string
@@ -48,6 +49,14 @@ export async function createOrderThread(input: NewOrderInput) {
     body: input.summary,
   })
 
+  // Notifie le vendeur de l'arrivée d'une nouvelle commande.
+  await notifyVendor({
+    title: "Nouvelle commande",
+    body: `${name} vient de passer une commande (#${thread.id}).`,
+    url: "/admin",
+    tag: `order-${thread.id}`,
+  })
+
   revalidatePath("/messagerie")
   return { id: thread.id }
 }
@@ -81,6 +90,29 @@ export async function addMessage(threadId: number, sender: "client" | "vendeur",
     .update(orderThreads)
     .set({ updatedAt: sql`now()` })
     .where(eq(orderThreads.id, threadId))
+
+  // Notification push à l'autre partie.
+  const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
+  if (thread) {
+    const preview = text.length > 80 ? `${text.slice(0, 77)}…` : text
+    if (sender === "vendeur") {
+      // Message du vendeur → on prévient le client.
+      await notifyCustomer(thread.customerToken, {
+        title: "Nouveau message du vendeur",
+        body: preview,
+        url: "/",
+        tag: `thread-${threadId}`,
+      })
+    } else {
+      // Message du client → on prévient le vendeur.
+      await notifyVendor({
+        title: `Message de ${thread.customerName}`,
+        body: preview,
+        url: "/admin",
+        tag: `thread-${threadId}`,
+      })
+    }
+  }
 
   revalidatePath("/messagerie")
   revalidatePath(`/messagerie/${threadId}`)
@@ -134,6 +166,13 @@ export async function updateThreadStatus(threadId: number, status: string, reaso
     }
     if (body) {
       await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
+      // Notifie le client du changement de statut de sa commande.
+      await notifyCustomer(current.customerToken, {
+        title: `Commande #${threadId} — ${statusMeta(nextKey).label}`,
+        body,
+        url: "/",
+        tag: `status-${threadId}`,
+      })
     }
   }
 
