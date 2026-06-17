@@ -110,8 +110,8 @@ export function FeaturedProducts({ isAdmin = false }: { isAdmin?: boolean }) {
 
   return (
     <>
-      <section className="mx-auto max-w-[1200px] px-4 py-20" id="featured">
-        <div className="flex items-center gap-4 mb-16">
+      <section className="mx-auto max-w-[1200px] px-4 pb-20 pt-10 scroll-mt-20" id="featured">
+        <div className="flex items-center gap-4 mb-12">
           <FlaskConical className="w-8 h-8 text-[#3e6757]" />
           <div>
             <p className="text-xs tracking-[0.3em] text-[#3e6757] uppercase">Laboratoire Clandestin</p>

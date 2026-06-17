@@ -7,6 +7,7 @@ import { Menu, ShoppingCart, X, ShieldCheck, LogOut } from "lucide-react"
 import Image from "next/image"
 
 const NAV_ITEMS = [
+  { label: "Nos produits", action: "featured" as const },
   { label: "Livraison/Meet-up", action: "delivery" as const },
   { label: "Mes commandes", action: "orders" as const },
   { label: "Espace fidélité", action: "loyalty" as const },
@@ -34,7 +35,11 @@ export function Navbar({
   const [open, setOpen] = useState(false)
 
   const handleNavClick = (e: React.MouseEvent, item: (typeof NAV_ITEMS)[number]) => {
-    if (item.action === "loyalty") {
+    if (item.action === "featured") {
+      e.preventDefault()
+      setOpen(false)
+      document.getElementById("featured")?.scrollIntoView({ behavior: "smooth" })
+    } else if (item.action === "loyalty") {
       e.preventDefault()
       setOpen(false)
       onOpenLoyalty?.()
