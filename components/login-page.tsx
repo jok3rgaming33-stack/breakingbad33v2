@@ -1,18 +1,22 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Plus, CheckCircle2, Copy, AlertTriangle } from "lucide-react"
+import { Plus, CheckCircle2, Copy, AlertTriangle, Loader2, History } from "lucide-react"
 import { adminLogin } from "@/app/actions/admin-auth"
+import { createAccount, ensureAccount, getAccount, getCustomerStats } from "@/app/actions/account"
 
 const CRYSTAL_COUNT = 4
 
-export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
+export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boolean }) => void }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [showResultModal, setShowResultModal] = useState(false)
   const [generatedPseudo, setGeneratedPseudo] = useState("")
   const [generatedKey, setGeneratedKey] = useState("")
   const [loginInput, setLoginInput] = useState("")
   const [error, setError] = useState("")
+  const [creating, setCreating] = useState(false)
+  const [loggingIn, setLoggingIn] = useState(false)
+  const [stats, setStats] = useState<{ points: number; active: number; past: number } | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // Canvas Cristaux
@@ -126,15 +130,26 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
       .replace(/=+$/, "")
   }
 
-  const createAnonymousAccess = () => {
+  const createAnonymousAccess = async () => {
+    if (creating) return
+    setCreating(true)
     const pseudo = generateShortPseudo()
     const key = generateSecretKey()
-    setGeneratedPseudo(pseudo)
-    setGeneratedKey(key)
-    localStorage.setItem("authToken", key)
-    localStorage.setItem("userPseudo", pseudo)
-    localStorage.removeItem("isAdmin")
-    setShowResultModal(true)
+    try {
+      // Persiste le compte en base : la clé secrète devient l'identifiant durable.
+      const res = await createAccount(key, pseudo)
+      const finalPseudo = res.ok && res.pseudo ? res.pseudo : pseudo
+      setGeneratedPseudo(finalPseudo)
+      setGeneratedKey(key)
+      localStorage.setItem("authToken", key)
+      localStorage.setItem("userPseudo", finalPseudo)
+      localStorage.removeItem("isAdmin")
+      setShowResultModal(true)
+    } catch {
+      setError("Impossible de créer le compte. Réessaie dans un instant.")
+    } finally {
+      setCreating(false)
+    }
   }
 
   const loginWithKey = async () => {
@@ -143,25 +158,45 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
       setError("Veuillez entrer votre clé secrète complète.")
       return
     }
+    if (loggingIn) return
     setError("")
+    setLoggingIn(true)
 
-    // Vérifie côté serveur si ce token correspond à l'accès admin (Heisenberg)
-    const res = await adminLogin(token)
-    if (res.ok && res.pseudo) {
+    try {
+      // Vérifie côté serveur si ce token correspond à l'accès admin (Heisenberg)
+      const res = await adminLogin(token)
+      if (res.ok && res.pseudo) {
+        localStorage.setItem("authToken", token)
+        localStorage.setItem("userPseudo", res.pseudo)
+        localStorage.setItem("isAdmin", "1")
+        // L'admin ne passe pas de commande : on l'envoie directement vers le panel,
+        // sans afficher le tableau de bord client (points / suivi de commandes).
+        window.location.href = "/admin"
+        return
+      }
+
+      // Connexion utilisateur standard : on retrouve le pseudo réel depuis la base.
+      const account = await getAccount(token)
+      let pseudo = account?.pseudo ?? ""
+
+      if (!pseudo) {
+        // Compte hérité (créé avant la base de données) ou nouvel appareil :
+        // on migre/crée le compte à partir du pseudo local s'il existe.
+        const localPseudo = localStorage.getItem("userPseudo") || generateShortPseudo()
+        const ensured = await ensureAccount(token, localPseudo)
+        pseudo = ensured.ok && ensured.pseudo ? ensured.pseudo : localPseudo
+      }
+
+      localStorage.removeItem("isAdmin")
       localStorage.setItem("authToken", token)
-      localStorage.setItem("userPseudo", res.pseudo)
-      localStorage.setItem("isAdmin", "1")
-      setGeneratedPseudo(res.pseudo)
+      localStorage.setItem("userPseudo", pseudo)
+      setGeneratedPseudo(pseudo)
       setIsLoggedIn(true)
-      return
+    } catch {
+      setError("Connexion impossible. Réessaie dans un instant.")
+    } finally {
+      setLoggingIn(false)
     }
-
-    // Connexion utilisateur standard
-    localStorage.removeItem("isAdmin")
-    localStorage.setItem("authToken", token)
-    const savedPseudo = localStorage.getItem("userPseudo") || ""
-    if (savedPseudo) setGeneratedPseudo(savedPseudo)
-    setIsLoggedIn(true)
   }
 
   const closeResultModal = () => {
@@ -169,9 +204,51 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
     setIsLoggedIn(true)
   }
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
+  const [copiedField, setCopiedField] = useState<"pseudo" | "key" | null>(null)
+
+  const copyToClipboard = async (text: string, field: "pseudo" | "key") => {
+    let success = false
+    // 1) API Clipboard moderne (peut être bloquée dans une iframe / hors HTTPS)
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+        success = true
+      }
+    } catch {
+      success = false
+    }
+    // 2) Repli universel via un textarea temporaire + execCommand
+    if (!success) {
+      try {
+        const textarea = document.createElement("textarea")
+        textarea.value = text
+        textarea.setAttribute("readonly", "")
+        textarea.style.position = "fixed"
+        textarea.style.top = "-9999px"
+        document.body.appendChild(textarea)
+        textarea.select()
+        success = document.execCommand("copy")
+        document.body.removeChild(textarea)
+      } catch {
+        success = false
+      }
+    }
+    if (success) {
+      setCopiedField(field)
+      window.setTimeout(() => setCopiedField(null), 2000)
+    }
   }
+
+  // Charge les statistiques réelles du client dès l'affichage du tableau de bord
+  useEffect(() => {
+    if (!isLoggedIn) return
+    const token = localStorage.getItem("authToken")
+    if (!token) return
+    setStats(null)
+    getCustomerStats(token)
+      .then((s) => setStats(s))
+      .catch(() => setStats({ points: 0, active: 0, past: 0 }))
+  }, [isLoggedIn])
 
   // Dashboard affiché juste après la connexion
   if (isLoggedIn) {
@@ -186,26 +263,36 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
           <div className="mb-8 rounded-3xl border border-accent/30 bg-card p-8">
             <div className="grid grid-cols-1 gap-6 text-center md:grid-cols-3">
               <div className="rounded-2xl bg-background/40 p-6">
-                <div className="text-4xl font-bold text-accent">248</div>
+                <div className="text-4xl font-bold text-accent">
+                  {stats ? stats.points : <Loader2 className="mx-auto h-8 w-8 animate-spin" aria-hidden="true" />}
+                </div>
                 <div className="mt-2 text-sm text-muted-foreground">Points fidélité</div>
               </div>
               <div className="rounded-2xl bg-background/40 p-6">
-                <div className="text-4xl font-bold text-primary">1</div>
+                <div className="text-4xl font-bold text-primary">
+                  {stats ? stats.active : <Loader2 className="mx-auto h-8 w-8 animate-spin" aria-hidden="true" />}
+                </div>
                 <div className="mt-2 text-sm text-muted-foreground">Commandes en cours</div>
               </div>
               <div className="rounded-2xl bg-background/40 p-6">
-                <div className="text-4xl font-bold text-muted-foreground">14</div>
+                <div className="text-4xl font-bold text-muted-foreground">
+                  {stats ? stats.past : <Loader2 className="mx-auto h-8 w-8 animate-spin" aria-hidden="true" />}
+                </div>
                 <div className="mt-2 text-sm text-muted-foreground">Commandes passées</div>
               </div>
             </div>
           </div>
 
           <div className="mt-6 flex flex-col justify-center gap-4 sm:flex-row">
-            <button className="rounded-2xl bg-secondary px-8 py-3 font-semibold text-secondary-foreground transition-colors hover:bg-muted">
+            <button
+              onClick={() => onSuccess({ openOrders: true })}
+              className="flex items-center justify-center gap-2 rounded-2xl bg-secondary px-8 py-3 font-semibold text-secondary-foreground transition-colors hover:bg-muted"
+            >
+              <History className="h-5 w-5" aria-hidden="true" />
               Historique
             </button>
             <button
-              onClick={onSuccess}
+              onClick={() => onSuccess()}
               className="rounded-2xl bg-accent px-8 py-3 text-lg font-bold text-accent-foreground shadow-lg shadow-accent/30 transition-colors hover:brightness-110"
             >
               Aller à la boutique
@@ -253,10 +340,15 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
           <div className="mb-6">
             <button
               onClick={createAnonymousAccess}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl bg-accent py-5 text-xl font-semibold text-accent-foreground transition-colors hover:brightness-110"
+              disabled={creating}
+              className="flex w-full items-center justify-center gap-3 rounded-2xl bg-accent py-5 text-xl font-semibold text-accent-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <Plus className="h-6 w-6" aria-hidden="true" />
-              <span>Créer mon accès anonyme</span>
+              {creating ? (
+                <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
+              ) : (
+                <Plus className="h-6 w-6" aria-hidden="true" />
+              )}
+              <span>{creating ? "Création..." : "Créer mon accès anonyme"}</span>
             </button>
           </div>
 
@@ -276,9 +368,11 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
             {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
             <button
               onClick={loginWithKey}
-              className="mt-2 w-full rounded-2xl bg-foreground py-4 text-lg font-semibold text-background transition-colors hover:opacity-90"
+              disabled={loggingIn}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-foreground py-4 text-lg font-semibold text-background transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Se connecter avec ma clé
+              {loggingIn && <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />}
+              {loggingIn ? "Connexion..." : "Se connecter avec ma clé"}
             </button>
           </div>
         </div>
@@ -313,11 +407,22 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
               <div className="flex items-center justify-between rounded-2xl border border-border bg-background/60 px-5 py-4">
                 <span className="font-mono text-2xl font-bold">{generatedPseudo}</span>
                 <button
-                  onClick={() => copyToClipboard(generatedPseudo)}
+                  type="button"
+                  onClick={() => copyToClipboard(generatedPseudo, "pseudo")}
+                  aria-label="Copier le pseudo"
                   className="flex items-center gap-2 rounded-xl bg-secondary px-4 py-2 text-sm text-secondary-foreground transition-colors hover:bg-muted"
                 >
-                  <Copy className="h-4 w-4" aria-hidden="true" />
-                  Copier
+                  {copiedField === "pseudo" ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      Copié !
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4" aria-hidden="true" />
+                      Copier
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -327,11 +432,22 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
               <div className="flex items-center justify-between rounded-2xl border border-destructive/50 bg-background/60 px-5 py-4">
                 <span className="flex-1 break-all pr-4 font-mono text-xs text-destructive">{generatedKey}</span>
                 <button
-                  onClick={() => copyToClipboard(generatedKey)}
+                  type="button"
+                  onClick={() => copyToClipboard(generatedKey, "key")}
+                  aria-label="Copier la clé secrète"
                   className="flex flex-shrink-0 items-center gap-2 rounded-xl bg-secondary px-4 py-2 text-sm text-secondary-foreground transition-colors hover:bg-muted"
                 >
-                  <Copy className="h-4 w-4" aria-hidden="true" />
-                  Copier
+                  {copiedField === "key" ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      Copié !
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4" aria-hidden="true" />
+                      Copier
+                    </>
+                  )}
                 </button>
               </div>
               <p className="mt-2 flex items-center gap-1.5 text-xs text-destructive">

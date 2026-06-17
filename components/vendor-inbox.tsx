@@ -1,17 +1,10 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
-import { getThread, addMessage, updateThreadStatus } from "@/app/actions/messaging"
-import { Inbox, Send, Loader2, Truck, Store, RefreshCw } from "lucide-react"
-
-const STATUS_OPTIONS = ["nouveau", "en cours", "traité"] as const
-
-const STATUS_STYLES: Record<string, string> = {
-  nouveau: "bg-primary/20 text-primary",
-  "en cours": "bg-accent/20 text-accent",
-  traité: "bg-muted text-muted-foreground",
-}
+import { getThreads, getThread, addMessage, updateThreadStatus } from "@/app/actions/messaging"
+import { Inbox, Send, Loader2, Truck, Store } from "lucide-react"
+import { VENDOR_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 
 function formatDate(value: Date | string) {
   const d = new Date(value)
@@ -25,8 +18,15 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
   const [loadingThread, setLoadingThread] = useState(false)
   const [reply, setReply] = useState("")
   const [isPending, startTransition] = useTransition()
+  // Modale de motif d'annulation
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState("")
 
   const selected = threads.find((t) => t.id === selectedId) ?? null
+
+  // Garde une référence à la commande ouverte pour le rafraîchissement périodique
+  const selectedIdRef = useRef<number | null>(null)
+  selectedIdRef.current = selectedId
 
   const openThread = async (id: number) => {
     setSelectedId(id)
@@ -35,6 +35,33 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
     setMessages(data?.messages ?? [])
     setLoadingThread(false)
   }
+
+  // Rafraîchissement automatique : nouvelles commandes + messages clients en direct
+  const refresh = useCallback(async () => {
+    try {
+      const latest = await getThreads()
+      setThreads(latest)
+      const openId = selectedIdRef.current
+      if (openId != null) {
+        const data = await getThread(openId)
+        setMessages(data?.messages ?? [])
+      }
+    } catch {
+      // silencieux : on réessaiera au prochain tick
+    }
+  }, [])
+
+  useEffect(() => {
+    const interval = setInterval(refresh, 8000)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [refresh])
 
   const sendReply = () => {
     if (!reply.trim() || selectedId == null) return
@@ -52,9 +79,29 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
 
   const changeStatus = (status: string) => {
     if (selectedId == null) return
+    // L'annulation passe par une modale pour saisir le motif communiqué au client.
+    if (status === "annulee") {
+      setCancelReason("")
+      setCancelOpen(true)
+      return
+    }
     startTransition(async () => {
       await updateThreadStatus(selectedId, status)
       setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status } : t)))
+      const data = await getThread(selectedId)
+      setMessages(data?.messages ?? [])
+    })
+  }
+
+  const confirmCancel = () => {
+    if (selectedId == null) return
+    const reason = cancelReason.trim()
+    setCancelOpen(false)
+    startTransition(async () => {
+      await updateThreadStatus(selectedId, "annulee", reason)
+      setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status: "annulee" } : t)))
+      const data = await getThread(selectedId)
+      setMessages(data?.messages ?? [])
     })
   }
 
@@ -83,8 +130,8 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm font-medium">{t.customerName}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLES[t.status] ?? ""}`}>
-                      {t.status}
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusMeta(t.status).badge}`}>
+                      {statusMeta(t.status).label}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -120,20 +167,31 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
                   {selected.scheduledSlot ? ` · ${selected.scheduledSlot}` : ""}
                 </p>
               </div>
-              <div className="ml-auto flex items-center gap-1">
-                {STATUS_OPTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => changeStatus(s)}
+              <div className="ml-auto flex flex-col items-end gap-1.5">
+                <label htmlFor="order-status" className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  État notifié au client
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${statusMeta(selected.status).badge}`}>
+                    {statusMeta(selected.status).label}
+                  </span>
+                  <select
+                    id="order-status"
+                    value={normalizeStatus(selected.status) === "en_attente" ? "" : normalizeStatus(selected.status)}
+                    onChange={(e) => e.target.value && changeStatus(e.target.value)}
                     disabled={isPending}
-                    className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase transition-colors disabled:opacity-50 ${
-                      selected.status === s ? STATUS_STYLES[s] : "bg-secondary text-muted-foreground hover:text-foreground"
-                    }`}
+                    className="rounded-lg border border-input bg-background px-2.5 py-1.5 text-xs font-medium outline-none focus:border-accent disabled:opacity-50"
                   >
-                    {s}
-                  </button>
-                ))}
+                    <option value="" disabled>
+                      Changer le statut…
+                    </option>
+                    {VENDOR_STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_META[s].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -194,6 +252,49 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
           </>
         )}
       </section>
+
+      {/* Modale : motif d'annulation communiqué au client */}
+      {cancelOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setCancelOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold">Annuler la commande</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Indique le motif de l&apos;annulation. Il sera envoyé au client dans la messagerie.
+            </p>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              rows={3}
+              autoFocus
+              placeholder="Ex. Article en rupture de stock, paiement non reçu…"
+              className="mt-4 w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-accent"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCancelOpen(false)}
+                className="rounded-lg border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+              >
+                Retour
+              </button>
+              <button
+                type="button"
+                onClick={confirmCancel}
+                disabled={isPending}
+                className="rounded-lg bg-red-500/90 px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                Confirmer l&apos;annulation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

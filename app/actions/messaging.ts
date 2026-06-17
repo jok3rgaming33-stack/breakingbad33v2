@@ -4,12 +4,19 @@ import { db } from "@/lib/db"
 import { orderThreads, threadMessages } from "@/lib/db/schema"
 import { and, desc, eq, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
+import { normalizeStatus } from "@/lib/order-status"
+import { computeLoyaltyPoints } from "@/lib/loyalty"
 
 export type NewOrderInput = {
   customerName: string
+  customerToken?: string
   summary: string
+  products?: string
   total: number
   fulfillment: "livraison" | "meetup"
+  address?: string
+  lat?: number | null
+  lng?: number | null
   scheduledDate?: string
   scheduledSlot?: string
 }
@@ -21,12 +28,17 @@ export async function createOrderThread(input: NewOrderInput) {
     .insert(orderThreads)
     .values({
       customerName: name,
+      customerToken: input.customerToken?.trim() || null,
       summary: input.summary,
+      products: input.products?.trim() || null,
       total: input.total,
       fulfillment: input.fulfillment,
+      address: input.address?.trim() || null,
+      lat: input.lat ?? null,
+      lng: input.lng ?? null,
       scheduledDate: input.scheduledDate ?? null,
       scheduledSlot: input.scheduledSlot ?? null,
-      status: "nouveau",
+      status: "en_attente",
     })
     .returning()
 
@@ -64,9 +76,10 @@ export async function addMessage(threadId: number, sender: "client" | "vendeur",
   if (!text) return { ok: false }
 
   await db.insert(threadMessages).values({ threadId, sender, body: text })
+  // Le statut reste un choix délibéré du vendeur : on ne met à jour que la date.
   await db
     .update(orderThreads)
-    .set({ updatedAt: sql`now()`, status: sender === "vendeur" ? "en cours" : orderThreads.status })
+    .set({ updatedAt: sql`now()` })
     .where(eq(orderThreads.id, threadId))
 
   revalidatePath("/messagerie")
@@ -74,18 +87,63 @@ export async function addMessage(threadId: number, sender: "client" | "vendeur",
   return { ok: true }
 }
 
-// Met à jour le statut d'un fil (nouveau / en cours / traité)
-export async function updateThreadStatus(threadId: number, status: string) {
+// Met à jour le statut d'un fil et envoie automatiquement un message au client
+// décrivant le nouveau statut (une fois par transition). Pour "livree", c'est aussi
+// le moment où les points de fidélité sont considérés comme crédités (voir getCustomerStats).
+// Pour "annulee", un motif facultatif saisi par l'admin est inclus dans le message.
+export async function updateThreadStatus(threadId: number, status: string, reason?: string) {
+  const [current] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
+  if (!current) return { ok: false }
+
+  const prevKey = normalizeStatus(current.status)
+  const nextKey = normalizeStatus(status)
+
   await db
     .update(orderThreads)
     .set({ status, updatedAt: sql`now()` })
     .where(eq(orderThreads.id, threadId))
+
+  // Message automatique au client, uniquement quand le statut change réellement.
+  if (nextKey !== prevKey) {
+    let body: string | null = null
+    switch (nextKey) {
+      case "validee":
+        body = "Ta commande a été validée."
+        break
+      case "preparation":
+        body = "Nous sommes en train de préparer tes articles."
+        break
+      case "livraison":
+        body = "Le livreur est en route, reste joignable."
+        break
+      case "livree": {
+        const mode = current.fulfillment === "meetup" ? "en meet-up" : "en livraison"
+        const points = computeLoyaltyPoints(current.total ?? 0)
+        body =
+          `Ta commande t'a bien été livrée (${mode}). Merci pour ta confiance !` +
+          (points > 0 ? ` ${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités sur ton compte.` : "")
+        break
+      }
+      case "annulee": {
+        const motif = reason?.trim()
+        body = motif
+          ? `Ta commande a été annulée. Motif : ${motif}`
+          : "Ta commande a été annulée."
+        break
+      }
+    }
+    if (body) {
+      await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
+    }
+  }
+
   revalidatePath("/messagerie")
   revalidatePath(`/messagerie/${threadId}`)
+  revalidatePath("/admin")
   return { ok: true }
 }
 
-// Vue client : ses fils filtrés par pseudo
+// Vue client : ses fils filtrés par pseudo (compat héritée)
 export async function getThreadsForCustomer(customerName: string) {
   const name = customerName?.trim()
   if (!name) return []
@@ -96,11 +154,50 @@ export async function getThreadsForCustomer(customerName: string) {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
+// Vue client : ses fils filtrés par clé secrète (identifiant stable, multi-appareils)
+export async function getThreadsForToken(customerToken: string) {
+  const token = customerToken?.trim()
+  if (!token) return []
+  return db
+    .select()
+    .from(orderThreads)
+    .where(eq(orderThreads.customerToken, token))
+    .orderBy(desc(orderThreads.updatedAt))
+}
+
+// Aperçu léger pour les notifications client : statut + nombre de messages du vendeur.
+// Permet de détecter à la fois un changement de statut ET un nouveau message vendeur.
+export async function getCustomerThreadsOverview(customerToken: string) {
+  const token = customerToken?.trim()
+  if (!token) return []
+  const rows = await db
+    .select({
+      id: orderThreads.id,
+      status: orderThreads.status,
+      vendorCount: sql<number>`count(*) filter (where ${threadMessages.sender} = 'vendeur')::int`,
+    })
+    .from(orderThreads)
+    .leftJoin(threadMessages, eq(threadMessages.threadId, orderThreads.id))
+    .where(eq(orderThreads.customerToken, token))
+    .groupBy(orderThreads.id, orderThreads.status)
+  return rows
+}
+
+// Supprime définitivement une commande (et ses messages, via cascade applicative).
+export async function deleteOrderThread(threadId: number) {
+  if (!threadId) return { ok: false as const }
+  await db.delete(threadMessages).where(eq(threadMessages.threadId, threadId))
+  await db.delete(orderThreads).where(eq(orderThreads.id, threadId))
+  revalidatePath("/admin")
+  revalidatePath("/messagerie")
+  return { ok: true as const }
+}
+
 // Compte les fils "nouveau" (badge boîte de réception)
 export async function countNewThreads() {
   const [row] = await db
     .select({ c: sql<number>`count(*)::int` })
     .from(orderThreads)
-    .where(and(eq(orderThreads.status, "nouveau")))
+    .where(and(eq(orderThreads.status, "en_attente")))
   return row?.c ?? 0
 }

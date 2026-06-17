@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
-import { X, KeyRound, Gift, Check, Copy, ArrowLeft } from "lucide-react"
+import { useEffect, useState } from "react"
+import { X, Gift, Check, Copy, ArrowLeft, Loader2 } from "lucide-react"
+import { getCustomerStats } from "@/app/actions/account"
 
-type UserData = { pseudo?: string } | null
+type UserData = { pseudo?: string; token?: string } | null
 
 type LoyaltyModalProps = {
   isOpen: boolean
@@ -23,49 +24,42 @@ const REWARDS: Reward[] = [
   { points: 100, discount: 30, label: "-30€" },
 ]
 
-// Solde de points (à remplacer par une vraie source plus tard)
-const POINTS_BALANCE = 248
-
 function generateRewardCode(discount: number) {
   const random = Math.random().toString(36).slice(2, 8).toUpperCase()
   return `BB33-${discount}E-${random}`
 }
 
 export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
-  const [step, setStep] = useState<"login" | "space">("login")
-  const [token, setToken] = useState("")
-  const [error, setError] = useState("")
+  const token = userData?.token ?? ""
+  const [points, setPoints] = useState<number | null>(null)
   const [selectedReward, setSelectedReward] = useState<Reward | null>(null)
   const [generatedCode, setGeneratedCode] = useState("")
   const [copied, setCopied] = useState(false)
 
+  // Charge le solde de points réel du client (depuis ses commandes)
+  useEffect(() => {
+    if (!isOpen || !token) return
+    setPoints(null)
+    getCustomerStats(token)
+      .then((s) => setPoints(s.points))
+      .catch(() => setPoints(0))
+  }, [isOpen, token])
+
   if (!isOpen) return null
 
   const name = userData?.pseudo ?? "Invité"
+  const balance = points ?? 0
 
   const handleClose = () => {
     // Réinitialise l'état à la fermeture
-    setStep("login")
-    setToken("")
-    setError("")
     setSelectedReward(null)
     setGeneratedCode("")
     setCopied(false)
     onClose()
   }
 
-  const handleTokenSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (token.trim().length < 4) {
-      setError("Token invalide. Saisis au moins 4 caractères.")
-      return
-    }
-    setError("")
-    setStep("space")
-  }
-
   const handleSelectReward = (reward: Reward) => {
-    if (POINTS_BALANCE < reward.points) return
+    if (balance < reward.points) return
     setSelectedReward(reward)
     setGeneratedCode(generateRewardCode(reward.discount))
     setCopied(false)
@@ -107,42 +101,16 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
           <div className="mt-1 font-mono text-2xl font-bold">{name}</div>
         </div>
 
-        {/* Étape 1 : login par token */}
-        {step === "login" && (
-          <form onSubmit={handleTokenSubmit}>
-            <label htmlFor="loyalty-token" className="mb-2 block text-sm font-medium text-muted-foreground">
-              Saisis ton token pour accéder à ton espace fidélité
-            </label>
-            <div className="relative">
-              <KeyRound
-                className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <input
-                id="loyalty-token"
-                type="text"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="Ton token fidélité"
-                className="w-full rounded-2xl border border-border bg-background/60 py-4 pl-12 pr-4 font-mono text-foreground outline-none transition-colors focus:border-accent"
-                autoComplete="off"
-              />
-            </div>
-            {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
-            <button
-              type="submit"
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-4 font-semibold text-accent-foreground transition-opacity hover:opacity-90"
-            >
-              Accéder à mon espace
-            </button>
-          </form>
-        )}
-
-        {/* Étape 2 : espace fidélité + choix d'avantage */}
-        {step === "space" && (
-          <div>
+        {/* Espace fidélité + choix d'avantage */}
+        <div>
             <div className="mb-6 rounded-2xl bg-background/40 p-4 text-center">
-              <div className="text-3xl font-bold text-accent">{POINTS_BALANCE}</div>
+              <div className="text-3xl font-bold text-accent">
+                {points === null ? (
+                  <Loader2 className="mx-auto h-7 w-7 animate-spin" aria-hidden="true" />
+                ) : (
+                  points
+                )}
+              </div>
               <div className="mt-1 text-xs text-muted-foreground">Points disponibles</div>
             </div>
 
@@ -151,7 +119,7 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
                 <div className="mb-3 text-sm font-medium text-muted-foreground">Choisis ton avantage</div>
                 <div className="flex flex-col gap-3">
                   {REWARDS.map((reward) => {
-                    const affordable = POINTS_BALANCE >= reward.points
+                    const affordable = balance >= reward.points
                     return (
                       <button
                         key={reward.points}
@@ -186,7 +154,7 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
                 </div>
 
                 <div className="mb-2 text-sm font-medium text-muted-foreground">
-                  Ton code unique à saisir lors de la commande
+                  Ton code unique �� saisir lors de la commande
                 </div>
                 <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 p-4">
                   <span className="font-mono text-lg font-bold tracking-wider">{generatedCode}</span>
@@ -219,7 +187,6 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
               </div>
             )}
           </div>
-        )}
       </div>
     </div>
   )

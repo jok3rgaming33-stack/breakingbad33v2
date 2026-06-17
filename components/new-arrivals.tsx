@@ -4,73 +4,79 @@ import { useState, useEffect } from "react"
 import { useCart } from "@/components/cart-provider"
 import { Sparkles, X as CloseIcon } from "lucide-react"
 import Image from "next/image"
+import { ProductBadge, useProductBadges } from "@/components/product-badge"
+
+type Variant = { qty: number; price: number }
 
 type Arrival = {
   title: string
-  price: number
   image: string
   alt: string
   symbol: string
   number: string
   description: string
+  variants: Variant[]
 }
 
 const ARRIVALS: Arrival[] = [
-  { 
-    title: "cloud", 
-    price: 35, 
-    image: "/pdt/cloud.png", 
-    alt: "Composé atmosphérique", 
-    symbol: "Cl", 
+  {
+    title: "cloud",
+    image: "/pdt/cloud.png",
+    alt: "Deviens Sangoku",
+    symbol: "Cl",
     number: "17",
-    description: "Catalyseur gazeux pour réactions en phase volatile."
+    description: "Ecsta en 280mg.",
+    variants: [{ qty: 5, price: 40 }, { qty: 10, price: 60 }, { qty: 20, price: 100 }],
   },
-  { 
-    title: "iron", 
-    price: 45, 
-    image: "/pdt/iron.png", 
-    alt: "Base métallique", 
-    symbol: "Fe", 
+  {
+    title: "iron-man",
+    image: "/pdt/iron.png",
+    alt: "Become a Super-Hero",
+    symbol: "Fe",
     number: "26",
-    description: "Base structurelle renforcée pour synthèse complexe."
+    description: "Ecsta en 240mg.",
+    variants: [{ qty: 5, price: 30 }, { qty: 10, price: 50 }, { qty: 20, price: 80 }],
   },
-  { 
-    title: "K", 
-    price: 55, 
-    image: "/pdt/K.png", 
-    alt: "Réactif alcalin", 
-    symbol: "K", 
+  {
+    title: "La Ké",
+    image: "/pdt/K.png",
+    alt: "Needles",
+    symbol: "K",
     number: "19",
-    description: "Agent de réactivité pure, hautement instable."
+    description: "Notre needles, explosive.",
+    variants: [{ qty: 1, price: 20 }, { qty: 5, price: 80 }, { qty: 10, price: 140 }],
   },
-  { 
-    title: "spee", 
-    price: 65, 
-    image: "/pdt/spee.png", 
-    alt: "Accélérateur", 
-    symbol: "Sp", 
+  {
+    title: "Speed",
+    image: "/pdt/spee.png",
+    alt: "Boost ton potentiel",
+    symbol: "Sp",
     number: "08",
-    description: "Accélérateur de processus moléculaire rapide."
+    description: "Du speed reçu en pâte, séché par nos soins.",
+    variants: [{ qty: 1, price: 15 }, { qty: 5, price: 60 }, { qty: 10, price: 100 }],
   },
-  { 
-    title: "water", 
-    price: 20, 
-    image: "/pdt/water.png", 
-    alt: "Solvant purifié", 
-    symbol: "H2O", 
+  {
+    title: "Watermelon",
+    image: "/pdt/water.png",
+    alt: "Rien a voir avec le fruit",
+    symbol: "H2O",
     number: "00",
-    description: "Solvant universel de haute pureté analytique."
+    description: "Ecsta en 280mg.",
+    variants: [{ qty: 5, price: 40 }, { qty: 10, price: 60 }, { qty: 20, price: 100 }],
   },
 ]
 
-export function NewArrivals() {
+export function NewArrivals({ isAdmin = false }: { isAdmin?: boolean }) {
   const { addToCart } = useCart()
+  const { data: badges, mutate: mutateBadges } = useProductBadges()
   const [selectedArrival, setSelectedArrival] = useState<Arrival | null>(null)
+  const [variantIdx, setVariantIdx] = useState(0)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
 
   const openModal = (arrival: Arrival) => {
     setSelectedArrival(arrival)
+    setVariantIdx(0)
     setIsModalOpen(true)
     setIsAnimating(true)
   }
@@ -100,7 +106,7 @@ export function NewArrivals() {
           <Sparkles className="w-8 h-8 text-[#3e6757]" />
           <div>
             <p className="text-xs tracking-[0.3em] text-[#3e6757] uppercase">Nouvel Arrivage</p>
-            <h2 className="text-4xl font-light text-white tracking-tight">Dernières Acquisitions</h2>
+            <h2 className="text-4xl font-light text-white tracking-tight">Nouveautés</h2>
           </div>
         </div>
 
@@ -109,15 +115,20 @@ export function NewArrivals() {
             <div
               key={arrival.title}
               onClick={() => openModal(arrival)}
-              className="group bg-[#0a0a0a] border border-white/10 p-6 rounded-3xl hover:border-[#3e6757]/50 transition-all cursor-pointer flex flex-col items-center text-center"
+              className="group relative bg-[#0a0a0a] border border-white/10 p-6 rounded-3xl hover:border-[#3e6757]/50 transition-all cursor-pointer flex flex-col items-center text-center overflow-hidden"
             >
+              <ProductBadge
+                productKey={`arrival:${arrival.title}`}
+                badgeKey={badges?.[`arrival:${arrival.title}`]}
+                isAdmin={isAdmin}
+                onChanged={() => mutateBadges()}
+              />
               <div className="relative h-32 w-32 mb-6">
                 <Image src={arrival.image} alt={arrival.alt} fill className="object-contain" />
               </div>
               <span className="text-[#3e6757] font-mono text-xs tracking-[0.2em] uppercase mb-1">{arrival.symbol}</span>
-              <h3 className="text-lg font-semibold text-white mb-2">{arrival.title}</h3>
-              <p className="text-zinc-500 text-xs mb-4">{arrival.price}€</p>
-              
+              <h3 className="text-lg font-semibold text-white mb-4">{arrival.title}</h3>
+
               <button className="w-full border border-white/10 py-2 rounded-full text-white text-xs hover:bg-white hover:text-black transition-colors">
                 Détails
               </button>
@@ -153,14 +164,35 @@ export function NewArrivals() {
             <div className="relative z-20 w-full md:w-1/2 p-12 flex flex-col justify-center">
               <span className="text-[#3e6757] font-mono text-xs tracking-[0.2em] uppercase mb-2">Code {selectedArrival.number}</span>
               <h3 className="text-4xl font-bold text-white mb-4">{selectedArrival.title}</h3>
-              <p className="text-zinc-400 leading-relaxed mb-8">
+              <p className="text-zinc-400 leading-relaxed mb-6">
                 {selectedArrival.description}
               </p>
-              
-              <div className="text-2xl font-semibold text-white mb-6">{selectedArrival.price}€</div>
+
+              {/* Menu déroulant Quantité / Tarif */}
+              <label htmlFor="variant-arrival" className="mb-2 block text-xs font-medium uppercase tracking-[0.2em] text-[#3e6757]">
+                Quantité
+              </label>
+              <select
+                id="variant-arrival"
+                value={variantIdx}
+                onChange={(e) => setVariantIdx(Number(e.target.value))}
+                className="mb-6 w-full rounded-2xl border border-white/10 bg-[#050505] px-4 py-3 text-sm text-white outline-none transition-colors focus:border-[#3e6757]"
+              >
+                {selectedArrival.variants.map((v, i) => (
+                  <option key={v.qty} value={i}>
+                    {v.qty} — {v.price}€
+                  </option>
+                ))}
+              </select>
+
+              <div className="text-2xl font-semibold text-white mb-6">{selectedArrival.variants[variantIdx].price}€</div>
 
               <button 
-                onClick={() => { addToCart(selectedArrival.title, selectedArrival.price); closeModal() }}
+                onClick={() => {
+                  const v = selectedArrival.variants[variantIdx]
+                  addToCart(`${selectedArrival.title} ×${v.qty}`, v.price)
+                  closeModal()
+                }}
                 className="w-full bg-[#3e6757] hover:bg-[#3e6757]/80 py-4 rounded-full text-white text-sm font-bold tracking-widest uppercase transition-all"
               >
                 Ajouter au Laboratoire

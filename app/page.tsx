@@ -1,12 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { CartProvider } from "@/components/cart-provider"
+import { NotificationsProvider } from "@/components/notifications-provider"
 import { Navbar } from "@/components/navbar"
 import { LoginPage } from "@/components/login-page"
 import { UserDashboardModal } from "@/components/user-dashboard-modal"
 import { LoyaltyModal } from "@/components/loyalty-modal"
 import { MyOrdersModal } from "@/components/my-orders-modal"
+import { DeliveryInfoModal } from "@/components/delivery-info-modal"
 import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
 import { FeaturedProducts } from "@/components/featured-products"
@@ -17,14 +20,49 @@ export default function Home() {
   const [isDashboardOpen, setIsDashboardOpen] = useState(false)
   const [isLoyaltyOpen, setIsLoyaltyOpen] = useState(false)
   const [isOrdersOpen, setIsOrdersOpen] = useState(false)
+  const [isDeliveryOpen, setIsDeliveryOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
-  const [userData, setUserData] = useState<{ pseudo?: string } | null>(null)
+  const [userData, setUserData] = useState<{ pseudo?: string; token?: string } | null>(null)
 
-  const handleLoginSuccess = () => {
+  // Au montage, on restaure la session pour éviter de retomber sur l'écran de
+  // connexion lors d'un rechargement ou d'un nouvel onglet ("Voir le site").
+  useEffect(() => {
+    let cancelled = false
+
+    // 1) Session locale (client OU admin connecté via la page de connexion)
+    const token = localStorage.getItem("authToken")
+    if (token) {
+      setIsAuthenticated(true)
+      setIsAdmin(localStorage.getItem("isAdmin") === "1")
+      setUserData({
+        pseudo: localStorage.getItem("userPseudo") ?? undefined,
+        token,
+      })
+      return
+    }
+
+    // 2) Sinon, session admin par cookie serveur (ex. "Voir le site" depuis le
+    //    panel admin quand l'authentification s'est faite via le portail /admin).
+    isAdminAuthenticated()
+      .then((ok) => {
+        if (cancelled || !ok) return
+        setIsAuthenticated(true)
+        setIsAdmin(true)
+        setUserData({ pseudo: "Heisenberg" })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleLoginSuccess = (opts?: { openOrders?: boolean }) => {
     setIsAuthenticated(true)
-    const pseudo = localStorage.getItem("userPseudo")
-    if (pseudo) setUserData({ pseudo })
+    const pseudo = localStorage.getItem("userPseudo") ?? undefined
+    const token = localStorage.getItem("authToken") ?? undefined
+    setUserData({ pseudo, token })
     setIsAdmin(localStorage.getItem("isAdmin") === "1")
+    if (opts?.openOrders) setIsOrdersOpen(true)
   }
 
   const handleLogout = () => {
@@ -39,12 +77,18 @@ export default function Home() {
 
   return (
     <CartProvider>
+      <NotificationsProvider
+        pseudo={userData?.pseudo}
+        token={userData?.token}
+        enabled={isAuthenticated && !isAdmin}
+      >
       <Navbar
         isLoggedIn={isAuthenticated}
         onLogout={handleLogout}
         onOpenDashboard={() => setIsDashboardOpen(true)}
         onOpenLoyalty={() => setIsLoyaltyOpen(true)}
         onOpenOrders={() => setIsOrdersOpen(true)}
+        onOpenDelivery={() => setIsDeliveryOpen(true)}
         isAdmin={isAdmin}
       />
 
@@ -54,8 +98,8 @@ export default function Home() {
         ) : (
           <div className="bg-background text-foreground">
             <Hero />
-            <FeaturedProducts />
-            <NewArrivals />
+            <FeaturedProducts isAdmin={isAdmin} />
+            <NewArrivals isAdmin={isAdmin} />
           </div>
         )}
       </main>
@@ -71,7 +115,10 @@ export default function Home() {
 
       <MyOrdersModal isOpen={isOrdersOpen} onClose={() => setIsOrdersOpen(false)} userData={userData} />
 
+      <DeliveryInfoModal isOpen={isDeliveryOpen} onClose={() => setIsDeliveryOpen(false)} />
+
       {isAuthenticated && <CheckoutCart userData={userData} />}
+      </NotificationsProvider>
     </CartProvider>
   )
 }

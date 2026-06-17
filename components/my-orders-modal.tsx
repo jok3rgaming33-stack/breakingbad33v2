@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { X, ArrowLeft, Package, Send, Loader2 } from "lucide-react"
-import { getThreadsForCustomer, getThread, addMessage } from "@/app/actions/messaging"
+import { getThreadsForToken, getThread, addMessage } from "@/app/actions/messaging"
+import { statusMeta, isClosedStatus } from "@/lib/order-status"
 
-type UserData = { pseudo?: string } | null
+type UserData = { pseudo?: string; token?: string } | null
 
 type MyOrdersModalProps = {
   isOpen: boolean
@@ -33,19 +34,14 @@ type Message = {
   createdAt: Date | string
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  nouveau: "Nouveau",
-  "en cours": "En cours",
-  traité: "Traité",
-}
-
 function formatDate(d: Date | string) {
   return new Date(d).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
 }
 
 export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps) {
-  const name = userData?.pseudo ?? ""
+  const token = userData?.token ?? ""
   const [threads, setThreads] = useState<Thread[]>([])
+  const [tab, setTab] = useState<"active" | "past">("active")
   const [loadingList, setLoadingList] = useState(false)
   const [selected, setSelected] = useState<Thread | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -53,15 +49,39 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
   const [reply, setReply] = useState("")
   const [sending, setSending] = useState(false)
 
-  // Charge la liste des commandes du client à l'ouverture
+  // Suit la commande ouverte pour le rafraîchissement périodique des messages
+  const selectedRef = useRef<number | null>(null)
+  selectedRef.current = selected?.id ?? null
+
+  // Charge la liste des commandes du client à l'ouverture (par clé secrète)
   useEffect(() => {
-    if (!isOpen || !name) return
+    if (!isOpen || !token) return
     setLoadingList(true)
-    getThreadsForCustomer(name)
+    getThreadsForToken(token)
       .then((data) => setThreads(data as Thread[]))
       .catch(() => setThreads([]))
       .finally(() => setLoadingList(false))
-  }, [isOpen, name])
+  }, [isOpen, token])
+
+  // Rafraîchissement en direct pendant que la modale est ouverte :
+  // - liste des commandes (nouveaux statuts)
+  // - messages du fil ouvert (réponses du vendeur)
+  useEffect(() => {
+    if (!isOpen || !token) return
+    const interval = setInterval(async () => {
+      try {
+        const list = await getThreadsForToken(token)
+        setThreads(list as Thread[])
+        if (selectedRef.current != null) {
+          const data = await getThread(selectedRef.current)
+          if (data) setMessages(data.messages as Message[])
+        }
+      } catch {
+        // silencieux
+      }
+    }, 8000)
+    return () => clearInterval(interval)
+  }, [isOpen, token])
 
   const openThread = async (thread: Thread) => {
     setSelected(thread)
@@ -92,6 +112,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
     setSelected(null)
     setMessages([])
     setReply("")
+    setTab("active")
     onClose()
   }
 
@@ -135,39 +156,78 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
 
         {/* Liste des commandes */}
         {!selected && (
-          <div className="flex-1 overflow-y-auto p-6">
-            {loadingList ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground">
-                <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
-              </div>
-            ) : threads.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
-                <Package className="h-10 w-10" aria-hidden="true" />
-                <p className="text-sm">Aucune commande pour le moment.</p>
-              </div>
-            ) : (
-              <ul className="flex flex-col gap-3">
-                {threads.map((t) => (
-                  <li key={t.id}>
-                    <button
-                      type="button"
-                      onClick={() => openThread(t)}
-                      className="flex w-full items-center justify-between rounded-2xl border border-border bg-background/60 p-4 text-left transition-colors hover:border-accent"
-                    >
-                      <div>
-                        <div className="font-semibold">Commande #{t.id}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {formatDate(t.createdAt)} · {t.total}€
-                        </div>
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {/* Onglets */}
+            <div className="flex gap-1 border-b border-border px-6 pt-4">
+              {(
+                [
+                  { key: "active" as const, label: "En cours" },
+                  { key: "past" as const, label: "Mes commandes passées" },
+                ]
+              ).map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setTab(t.key)}
+                  className={`relative px-3 pb-3 text-sm font-medium transition-colors ${
+                    tab === t.key ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {t.label}
+                  {tab === t.key && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-accent" />}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingList ? (
+                <div className="flex items-center justify-center py-12 text-muted-foreground">
+                  <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
+                </div>
+              ) : (
+                (() => {
+                  const list = threads.filter((t) =>
+                    tab === "past" ? isClosedStatus(t.status) : !isClosedStatus(t.status),
+                  )
+                  if (list.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
+                        <Package className="h-10 w-10" aria-hidden="true" />
+                        <p className="text-sm">
+                          {tab === "past" ? "Aucune commande passée." : "Aucune commande en cours."}
+                        </p>
                       </div>
-                      <span className="rounded-full bg-accent/15 px-3 py-1 text-xs font-medium text-accent">
-                        {STATUS_LABEL[t.status] ?? t.status}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+                    )
+                  }
+                  return (
+                    <ul className="flex flex-col gap-3">
+                      {list.map((t) => {
+                        const meta = statusMeta(t.status)
+                        return (
+                          <li key={t.id}>
+                            <button
+                              type="button"
+                              onClick={() => openThread(t)}
+                              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 p-4 text-left transition-colors hover:border-accent"
+                            >
+                              <div>
+                                <div className="font-semibold">Commande #{t.id}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {formatDate(t.createdAt)} · {t.total}€
+                                </div>
+                              </div>
+                              <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${meta.badge}`}>
+                                {meta.label}
+                              </span>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )
+                })()
+              )}
+            </div>
           </div>
         )}
 

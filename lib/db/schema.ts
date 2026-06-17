@@ -1,11 +1,23 @@
-import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core"
+import { pgTable, serial, text, integer, doublePrecision, timestamp } from "drizzle-orm/pg-core"
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  token: text("token").notNull().unique(),
+  pseudo: text("pseudo").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
 
 export const orderThreads = pgTable("order_threads", {
   id: serial("id").primaryKey(),
   customerName: text("customer_name").notNull(),
+  customerToken: text("customer_token"),
   summary: text("summary").notNull(),
+  products: text("products"),
   total: integer("total").notNull().default(0),
   fulfillment: text("fulfillment").notNull().default("livraison"),
+  address: text("address"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
   scheduledDate: text("scheduled_date"),
   scheduledSlot: text("scheduled_slot"),
   status: text("status").notNull().default("nouveau"),
@@ -21,5 +33,15 @@ export const threadMessages = pgTable("thread_messages", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Bandeaux produits posés par l'admin (best-seller / reappro / fin_de_stock).
+// La clé produit est l'identifiant stable de la vignette (ex. "featured:3m").
+export const productBadges = pgTable("product_badges", {
+  productKey: text("product_key").primaryKey(),
+  badge: text("badge").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type User = typeof users.$inferSelect
 export type OrderThread = typeof orderThreads.$inferSelect
 export type ThreadMessage = typeof threadMessages.$inferSelect
+export type ProductBadge = typeof productBadges.$inferSelect
