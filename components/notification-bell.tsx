@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { Bell, Check, Package, MessageSquare } from "lucide-react"
 import { useNotifications } from "@/components/notifications-provider"
 import { statusMeta } from "@/lib/order-status"
+import { PushToggle } from "@/components/push-toggle"
 
 function timeAgo(ts: number) {
   const diff = Math.max(0, Date.now() - ts)
@@ -19,7 +20,13 @@ function timeAgo(ts: number) {
 export function NotificationBell({ onOpenOrder }: { onOpenOrder?: () => void }) {
   const { notifications, unreadCount, markAllRead, clearAll } = useNotifications()
   const [open, setOpen] = useState(false)
+  const [token, setToken] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+
+  // Récupère le token client (identifiant stable, multi-appareils) pour lier l'abonnement push.
+  useEffect(() => {
+    setToken(localStorage.getItem("authToken"))
+  }, [])
 
   // Ferme au clic extérieur
   useEffect(() => {
@@ -64,6 +71,11 @@ export function NotificationBell({ onOpenOrder }: { onOpenOrder?: () => void }) 
                 Tout effacer
               </button>
             )}
+          </div>
+
+          {/* Activation des notifications push (alertes même site fermé) */}
+          <div className="border-b border-border px-4 py-3">
+            <PushToggle role="client" customerToken={token} />
           </div>
 
           <div className="max-h-80 overflow-y-auto">

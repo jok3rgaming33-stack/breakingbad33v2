@@ -41,7 +41,20 @@ export const productBadges = pgTable("product_badges", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Abonnements aux notifications push Web (Service Worker + VAPID).
+// role = 'client' (avec customer_token) ou 'vendeur' (notifications admin).
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  role: text("role").notNull().default("client"),
+  customerToken: text("customer_token"),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export type User = typeof users.$inferSelect
 export type OrderThread = typeof orderThreads.$inferSelect
 export type ThreadMessage = typeof threadMessages.$inferSelect
 export type ProductBadge = typeof productBadges.$inferSelect
+export type PushSubscription = typeof pushSubscriptions.$inferSelect
