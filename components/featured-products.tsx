@@ -22,8 +22,8 @@ const PRODUCTS: Product[] = [
   {
     title: "3m",
     image: "/pdt/3m.png",
-    description: "Composant de haute précision pour votre laboratoire.",
-    fullDescription: "Cet élément '3m' est indispensable pour garantir la pureté de vos réactions. Flacons, béchers et réactifs de qualité premium. Stockage sécurisé recommandé.",
+    description: "La meilleure 3M de Bordeaux, testez ! Vous la validerez.",
+    fullDescription: "Une pure folie, de cette qualité, compliqué à trouver sur Bordeaux ! Provenance : Pays-Bas.",
     symbol: "3m",
     number: "01",
     variants: [
@@ -34,10 +34,10 @@ const PRODUCTS: Product[] = [
     ],
   },
   {
-    title: "bai",
+    title: "Baïda",
     image: "/pdt/bai.png",
-    description: "Catalyseur essentiel pour des résultats parfaits.",
-    fullDescription: "Le 'bai' agit comme un stabilisateur de premier choix dans le processus. Manipuler avec des gants de protection et une aération adéquate.",
+    description: "Pavé de qualité, effet smooth, longue durée, pas de maux de tête.",
+    fullDescription: "Plusieurs batch, mais toujours la même qualité.",
     symbol: "Ba",
     number: "56",
     variants: [
@@ -47,10 +47,10 @@ const PRODUCTS: Product[] = [
     ],
   },
   {
-    title: "D",
+    title: "La D",
     image: "/pdt/D.png",
-    description: "Réactif purificateur de grade industriel.",
-    fullDescription: "L'élément 'D' finalise la synthèse en apportant la touche signature de votre production. Détails exceptionnels et pureté garantie.",
+    description: "Connecte toi au monde",
+    fullDescription: "Champagne, Sprite, pure quali.",
     symbol: "D",
     number: "04",
     variants: [
@@ -61,10 +61,10 @@ const PRODUCTS: Product[] = [
     ],
   },
   {
-    title: "X",
+    title: "X-Taze",
     image: "/pdt/X.png",
-    description: "Composé expérimental hautement classifié.",
-    fullDescription: "L'élément 'X' est une nouveauté de synthèse extrêmement puissante. Son utilisation requiert une expertise avancée et un équipement de protection complet.",
+    description: "Notre bébé.",
+    fullDescription: "X-taze, c'est un step supérieur au ecsta classique ! 80% de notre meilleure MD + 20% de notre 3M.",
     symbol: "X",
     number: "99",
     variants: [
