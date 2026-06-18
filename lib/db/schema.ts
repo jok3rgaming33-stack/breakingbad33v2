@@ -4,6 +4,9 @@ export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   token: text("token").notNull().unique(),
   pseudo: text("pseudo").notNull(),
+  // Ajustement manuel des points fidélité par le vendeur (peut être négatif).
+  // Points affichés = points calculés sur les commandes + cet ajustement.
+  loyaltyAdjustment: integer("loyalty_adjustment").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 

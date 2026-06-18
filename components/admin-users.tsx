@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react"
 import type { AdminUserRow } from "@/app/actions/account"
-import { deleteUserAccount } from "@/app/actions/account"
-import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle } from "lucide-react"
+import { deleteUserAccount, setLoyaltyAdjustment } from "@/app/actions/account"
+import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle, Pencil, Check, X } from "lucide-react"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 
 function formatDate(value: Date | string) {
@@ -27,6 +27,33 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [query, setQuery] = useState("")
   const [pendingId, setPendingId] = useState<number | null>(null)
   const [confirmUser, setConfirmUser] = useState<AdminUserRow | null>(null)
+  // Édition des points fidélité : on saisit le total souhaité, on stocke l'ajustement.
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editValue, setEditValue] = useState("")
+  const [savingId, setSavingId] = useState<number | null>(null)
+
+  const totalPoints = (u: AdminUserRow) => Math.max(0, computeLoyaltyPoints(u.totalSpent) + u.loyaltyAdjustment)
+
+  const startEdit = (u: AdminUserRow) => {
+    setEditingId(u.id)
+    setEditValue(String(totalPoints(u)))
+  }
+
+  const handleSavePoints = async (u: AdminUserRow) => {
+    const desired = Number.parseInt(editValue, 10)
+    if (!Number.isFinite(desired) || desired < 0) return
+    const adjustment = desired - computeLoyaltyPoints(u.totalSpent)
+    setSavingId(u.id)
+    try {
+      const res = await setLoyaltyAdjustment(u.id, adjustment)
+      if (res.ok) {
+        setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, loyaltyAdjustment: res.loyaltyAdjustment } : x)))
+        setEditingId(null)
+      }
+    } finally {
+      setSavingId(null)
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -120,10 +147,65 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">
-                        <Coins className="h-3 w-3" aria-hidden="true" />
-                        {computeLoyaltyPoints(u.totalSpent)}
-                      </span>
+                      {editingId === u.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min={0}
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSavePoints(u)
+                              if (e.key === "Escape") setEditingId(null)
+                            }}
+                            autoFocus
+                            className="w-20 rounded-lg border border-accent bg-background px-2 py-1 text-xs outline-none"
+                            aria-label={`Points fidélité de ${u.pseudo}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleSavePoints(u)}
+                            disabled={savingId === u.id}
+                            className="rounded-md bg-accent p-1 text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                            aria-label="Enregistrer"
+                          >
+                            {savingId === u.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(null)}
+                            className="rounded-md border border-border p-1 text-muted-foreground transition-colors hover:bg-secondary"
+                            aria-label="Annuler"
+                          >
+                            <X className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">
+                            <Coins className="h-3 w-3" aria-hidden="true" />
+                            {totalPoints(u)}
+                          </span>
+                          {u.loyaltyAdjustment !== 0 && (
+                            <span className="text-[10px] text-muted-foreground" title="Ajustement manuel appliqué">
+                              ({u.loyaltyAdjustment > 0 ? "+" : ""}
+                              {u.loyaltyAdjustment})
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => startEdit(u)}
+                            className="rounded-md border border-border p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                            aria-label={`Modifier les points de ${u.pseudo}`}
+                          >
+                            <Pencil className="h-3 w-3" aria-hidden="true" />
+                          </button>
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
