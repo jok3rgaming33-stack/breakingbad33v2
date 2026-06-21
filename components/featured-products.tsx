@@ -34,11 +34,11 @@ const PRODUCTS: Product[] = [
     ],
   },
   {
-    title: "Baïda",
+    title: "Coke",
     image: "/pdt/bai.png",
     description: "Pavé de qualité, effet smooth, longue durée, pas de maux de tête.",
     fullDescription: "Plusieurs batch, mais toujours la même qualité.",
-    symbol: "Ba",
+    symbol: "Ck",
     number: "56",
     variants: [
       { qty: 1, price: 50 },
