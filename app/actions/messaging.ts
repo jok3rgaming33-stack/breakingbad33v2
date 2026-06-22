@@ -61,6 +61,42 @@ export async function createOrderThread(input: NewOrderInput) {
   return { id: thread.id }
 }
 
+// Crée une discussion générale (sans commande) : le client contacte directement le chimiste.
+export async function createGeneralInquiryThread(input: {
+  customerName: string
+  customerToken?: string
+  message: string
+}) {
+  const name = input.customerName?.trim() || "Client"
+  const body = input.message?.trim()
+  if (!body) return { ok: false as const }
+
+  const [thread] = await db
+    .insert(orderThreads)
+    .values({
+      customerName: name,
+      customerToken: input.customerToken?.trim() || null,
+      summary: "Discussion générale",
+      total: 0,
+      fulfillment: "livraison",
+      status: "discussion",
+    })
+    .returning()
+
+  await db.insert(threadMessages).values({ threadId: thread.id, sender: "client", body })
+
+  await notifyVendor({
+    title: `Message de ${name}`,
+    body: body.length > 80 ? `${body.slice(0, 77)}…` : body,
+    url: "/admin",
+    tag: `thread-${thread.id}`,
+  })
+
+  revalidatePath("/messagerie")
+  revalidatePath("/admin")
+  return { ok: true as const, id: thread.id }
+}
+
 // Boîte de réception vendeur : tous les fils avec aperçu du dernier message
 export async function getThreads() {
   const threads = await db.select().from(orderThreads).orderBy(desc(orderThreads.updatedAt))

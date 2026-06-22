@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, doublePrecision, timestamp } from "drizzle-orm/pg-core"
+import { pgTable, serial, text, integer, doublePrecision, timestamp, boolean } from "drizzle-orm/pg-core"
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -55,6 +55,54 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   auth: text("auth").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+// News / annonces affichées en popup carousel à l'entrée du site.
+export const news = pgTable("news", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  isActive: boolean("is_active").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Slides d'une news. promoType = 'percent' | 'fixed' (montant en €), promoValue = valeur.
+export const newsSlides = pgTable("news_slides", {
+  id: serial("id").primaryKey(),
+  newsId: integer("news_id").notNull(),
+  order: integer("order").notNull().default(0),
+  title: text("title"),
+  content: text("content"),
+  imageUrl: text("image_url"),
+  buttonText: text("button_text"),
+  buttonLink: text("button_link"),
+  promoCode: text("promo_code"),
+  promoType: text("promo_type"),
+  promoValue: integer("promo_value"),
+  minAmount: integer("min_amount"),
+  isSingleUse: boolean("is_single_use").notNull().default(true),
+})
+
+// Trace l'utilisation d'un code promo par un client (usage unique par token).
+export const promoUsages = pgTable("promo_usages", {
+  id: serial("id").primaryKey(),
+  promoCode: text("promo_code").notNull(),
+  userToken: text("user_token").notNull(),
+  newsSlideId: integer("news_slide_id"),
+  usedAt: timestamp("used_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Trace les news déjà vues par un client (pour ne pas réafficher le popup).
+export const userNewsReads = pgTable("user_news_reads", {
+  id: serial("id").primaryKey(),
+  userToken: text("user_token").notNull(),
+  newsId: integer("news_id").notNull(),
+  readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type News = typeof news.$inferSelect
+export type NewsSlide = typeof newsSlides.$inferSelect
+export type PromoUsage = typeof promoUsages.$inferSelect
+export type UserNewsRead = typeof userNewsReads.$inferSelect
 
 export type User = typeof users.$inferSelect
 export type OrderThread = typeof orderThreads.$inferSelect
