@@ -20,7 +20,7 @@ type Arrival = {
 
 const ARRIVALS: Arrival[] = [
   {
-    title: "cloud",
+    title: "Cloud - 280Mg",
     image: "/pdt/cloud.png",
     alt: "Deviens Sangoku",
     symbol: "Cl",
@@ -28,17 +28,35 @@ const ARRIVALS: Arrival[] = [
     description: "Ecsta en 280mg.",
     variants: [{ qty: 5, price: 40 }, { qty: 10, price: 60 }, { qty: 20, price: 100 }],
   },
+    {
+    title: "Marvel Watermelon - 240Mg",
+    image: "/pdt/water.png",
+    alt: "Rien a voir avec le fruit",
+    symbol: "H2O",
+    number: "00",
+    description: "Ecsta en 240mg.",
+    variants: [{ qty: 5, price: 30 }, { qty: 10, price: 40 }, { qty: 20, price: 60 }],
+  },
   {
-    title: "iron-man",
-    image: "/pdt/iron.png",
+    title: "Punisher - 250Mg",
+    image: "/pdt/punisher.jpg",
     alt: "Become a Super-Hero",
     symbol: "Fe",
     number: "26",
-    description: "Ecsta en 240mg.",
-    variants: [{ qty: 5, price: 30 }, { qty: 10, price: 50 }, { qty: 20, price: 80 }],
+    description: "Ecsta en 250mg.",
+    variants: [{ qty: 5, price: 30 }, { qty: 10, price: 40 }, { qty: 20, price: 60 }],
+  },
+    {
+    title: "Tesla - 300Mg",
+    image: "/pdt/tesla.jpg",
+    alt: "Elon n'a rien à voir là-dedans",
+    symbol: "Ts",
+    number: "99",
+    description: "Ecsta en 300mg.",
+    variants: [{ qty: 5, price: 40 }, { qty: 10, price: 60 }, { qty: 20, price: 100 }],
   },
   {
-    title: "La Ké",
+    title: "La Kéta Needles",
     image: "/pdt/K.png",
     alt: "Needles",
     symbol: "K",
@@ -47,22 +65,13 @@ const ARRIVALS: Arrival[] = [
     variants: [{ qty: 1, price: 20 }, { qty: 5, price: 80 }, { qty: 10, price: 140 }],
   },
   {
-    title: "Speed",
+    title: "Dry Speed",
     image: "/pdt/spee.png",
     alt: "Boost ton potentiel",
     symbol: "Sp",
     number: "08",
     description: "Du speed reçu en pâte, séché par nos soins.",
     variants: [{ qty: 1, price: 15 }, { qty: 5, price: 60 }, { qty: 10, price: 100 }],
-  },
-  {
-    title: "Watermelon",
-    image: "/pdt/water.png",
-    alt: "Rien a voir avec le fruit",
-    symbol: "H2O",
-    number: "00",
-    description: "Ecsta en 280mg.",
-    variants: [{ qty: 5, price: 40 }, { qty: 10, price: 60 }, { qty: 20, price: 100 }],
   },
 ]
 
