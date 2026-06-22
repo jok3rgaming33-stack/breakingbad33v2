@@ -166,7 +166,32 @@ export async function getActiveNewsForUser(userToken: string | null | undefined)
       .from(newsSlides)
       .where(eq(newsSlides.newsId, item.id))
       .orderBy(asc(newsSlides.order), asc(newsSlides.id))
-    if (slides.length === 0) continue
+
+    // Si la news n'a aucun slide, on affiche tout de même un slide par défaut
+    // basé sur son titre, pour que le popup apparaisse bien côté client.
+    if (slides.length === 0) {
+      return {
+        news: item,
+        slides: [
+          {
+            id: -item.id,
+            newsId: item.id,
+            order: 0,
+            title: item.title,
+            content: null,
+            imageUrl: null,
+            buttonText: null,
+            buttonLink: null,
+            promoCode: null,
+            promoType: null,
+            promoValue: null,
+            minAmount: null,
+            isSingleUse: true,
+            promoUsed: false,
+          },
+        ],
+      }
+    }
     // Indique pour chaque promo si ce client l'a déjà utilisée.
     const slidesWithUsage = await Promise.all(
       slides.map(async (s) => {
