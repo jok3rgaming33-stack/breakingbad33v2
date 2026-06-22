@@ -8,6 +8,7 @@ import Image from "next/image"
 
 const NAV_ITEMS = [
   { label: "Nos produits", action: "featured" as const },
+  { label: "Messagerie", action: "messaging" as const },
   { label: "Livraison/Meet-up", action: "delivery" as const },
   { label: "Mes commandes", action: "orders" as const },
   { label: "Espace fidélité", action: "loyalty" as const },
@@ -20,6 +21,7 @@ type NavbarProps = {
   onOpenLoyalty?: () => void
   onOpenOrders?: () => void
   onOpenDelivery?: () => void
+  onOpenMessaging?: () => void
   isAdmin?: boolean
 }
 
@@ -29,6 +31,7 @@ export function Navbar({
   onOpenLoyalty,
   onOpenOrders,
   onOpenDelivery,
+  onOpenMessaging,
   isAdmin,
 }: NavbarProps) {
   const { count, openCart } = useCart()
@@ -39,6 +42,10 @@ export function Navbar({
       e.preventDefault()
       setOpen(false)
       document.getElementById("featured")?.scrollIntoView({ behavior: "smooth" })
+    } else if (item.action === "messaging") {
+      e.preventDefault()
+      setOpen(false)
+      onOpenMessaging?.()
     } else if (item.action === "loyalty") {
       e.preventDefault()
       setOpen(false)

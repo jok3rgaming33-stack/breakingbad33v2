@@ -7,18 +7,20 @@ import { VendorInbox } from "@/components/vendor-inbox"
 import { AdminOrdersRecap } from "@/components/admin-orders-recap"
 import { AdminUsers } from "@/components/admin-users"
 import { AdminMap } from "@/components/admin-map"
+import { AdminNews } from "@/components/admin-news"
 import { adminLogout } from "@/app/actions/admin-auth"
-import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper } from "lucide-react"
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 
-type TabId = "messagerie" | "carte" | "commandes" | "utilisateurs" | "profits"
+type TabId = "messagerie" | "carte" | "commandes" | "utilisateurs" | "news" | "profits"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "messagerie", label: "Messagerie", icon: MessageSquare },
   { id: "carte", label: "Carte interactive", icon: Map },
   { id: "commandes", label: "Récap commandes", icon: ListOrdered },
   { id: "utilisateurs", label: "Utilisateurs", icon: Users },
+  { id: "news", label: "News", icon: Newspaper },
   { id: "profits", label: "Profits", icon: TrendingUp },
 ]
 
@@ -105,6 +107,8 @@ export function AdminPanel({
           <AdminUsers initialUsers={initialUsers} />
         ) : tab === "carte" ? (
           <AdminMap threads={initialThreads} />
+        ) : tab === "news" ? (
+          <AdminNews />
         ) : (
           <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border bg-card px-6 py-20 text-center">
             <Construction className="mb-4 h-12 w-12 text-accent" aria-hidden="true" />

@@ -10,6 +10,14 @@ export type CartItem = {
   qty: number
 }
 
+// Promo issue d'une news. type: "percent" (%), "fixed" (€).
+export type CartPromo = {
+  code: string
+  type: "percent" | "fixed"
+  value: number
+  minAmount: number
+}
+
 type CartContextType = {
   count: number
   items: CartItem[]
@@ -22,6 +30,10 @@ type CartContextType = {
   openCart: () => void
   closeCart: () => void
   toast: ToastState
+  promo: CartPromo | null
+  promoDiscount: number
+  applyPromo: (promo: CartPromo) => void
+  removePromo: () => void
 }
 
 const CartContext = createContext<CartContextType | null>(null)
@@ -30,6 +42,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([])
   const [toast, setToast] = useState<ToastState>(null)
   const [isOpen, setIsOpen] = useState(false)
+  const [promo, setPromo] = useState<CartPromo | null>(null)
 
   const addToCart = useCallback((title: string, price = 0) => {
     setItems((prev) => {
@@ -60,16 +73,51 @@ export function CartProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
-  const clear = useCallback(() => setItems([]), [])
+  const clear = useCallback(() => {
+    setItems([])
+    setPromo(null)
+  }, [])
   const openCart = useCallback(() => setIsOpen(true), [])
   const closeCart = useCallback(() => setIsOpen(false), [])
+
+  const applyPromo = useCallback((p: CartPromo) => {
+    setPromo(p)
+    const id = Date.now()
+    setToast({ id, message: `Promo ${p.code} ajoutée à ton panier` })
+    setTimeout(() => setToast((t) => (t && t.id === id ? null : t)), 2600)
+  }, [])
+  const removePromo = useCallback(() => setPromo(null), [])
 
   const count = useMemo(() => items.reduce((sum, i) => sum + i.qty, 0), [items])
   const subtotal = useMemo(() => items.reduce((sum, i) => sum + i.price * i.qty, 0), [items])
 
+  // Remise promo : appliquée seulement si le montant minimum est atteint.
+  const promoDiscount = useMemo(() => {
+    if (!promo) return 0
+    if (subtotal < promo.minAmount) return 0
+    const raw = promo.type === "percent" ? Math.round((subtotal * promo.value) / 100) : promo.value
+    return Math.min(raw, subtotal)
+  }, [promo, subtotal])
+
   return (
     <CartContext.Provider
-      value={{ count, items, subtotal, addToCart, removeItem, updateQty, clear, isOpen, openCart, closeCart, toast }}
+      value={{
+        count,
+        items,
+        subtotal,
+        addToCart,
+        removeItem,
+        updateQty,
+        clear,
+        isOpen,
+        openCart,
+        closeCart,
+        toast,
+        promo,
+        promoDiscount,
+        applyPromo,
+        removePromo,
+      }}
     >
       {children}
       <Toast toast={toast} />
