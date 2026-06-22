@@ -12,6 +12,7 @@ export const VENDOR_STATUS_OPTIONS = [
 ] as const
 
 export type OrderStatusKey =
+  | "discussion"
   | "en_attente"
   | "validee"
   | "preparation"
@@ -28,6 +29,11 @@ type StatusMeta = {
 }
 
 export const STATUS_META: Record<string, StatusMeta> = {
+  discussion: {
+    label: "Discussion",
+    badge: "bg-teal-500/15 text-teal-300 border border-teal-500/30",
+    accent: "text-teal-300",
+  },
   en_attente: {
     label: "En attente de validation",
     badge: "bg-amber-500/15 text-amber-400 border border-amber-500/30",

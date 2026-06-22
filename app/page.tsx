@@ -9,6 +9,8 @@ import { LoginPage } from "@/components/login-page"
 import { UserDashboardModal } from "@/components/user-dashboard-modal"
 import { LoyaltyModal } from "@/components/loyalty-modal"
 import { MyOrdersModal } from "@/components/my-orders-modal"
+import { MessagerieModal } from "@/components/messagerie-modal"
+import { NewsPopup } from "@/components/news-popup"
 import { DeliveryInfoModal } from "@/components/delivery-info-modal"
 import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
@@ -21,6 +23,7 @@ export default function Home() {
   const [isLoyaltyOpen, setIsLoyaltyOpen] = useState(false)
   const [isOrdersOpen, setIsOrdersOpen] = useState(false)
   const [isDeliveryOpen, setIsDeliveryOpen] = useState(false)
+  const [isMessagingOpen, setIsMessagingOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [userData, setUserData] = useState<{ pseudo?: string; token?: string } | null>(null)
 
@@ -89,6 +92,7 @@ export default function Home() {
         onOpenLoyalty={() => setIsLoyaltyOpen(true)}
         onOpenOrders={() => setIsOrdersOpen(true)}
         onOpenDelivery={() => setIsDeliveryOpen(true)}
+        onOpenMessaging={() => setIsMessagingOpen(true)}
         isAdmin={isAdmin}
       />
 
@@ -116,6 +120,11 @@ export default function Home() {
       <MyOrdersModal isOpen={isOrdersOpen} onClose={() => setIsOrdersOpen(false)} userData={userData} />
 
       <DeliveryInfoModal isOpen={isDeliveryOpen} onClose={() => setIsDeliveryOpen(false)} />
+
+      <MessagerieModal isOpen={isMessagingOpen} onClose={() => setIsMessagingOpen(false)} userData={userData} />
+
+      {/* Popup News à l'entrée du site (client connecté non admin) */}
+      {isAuthenticated && !isAdmin && <NewsPopup token={userData?.token} />}
 
       {isAuthenticated && <CheckoutCart userData={userData} />}
       </NotificationsProvider>

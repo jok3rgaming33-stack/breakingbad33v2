@@ -68,3 +68,9 @@ export async function notifyVendor(payload: PushPayload) {
   const rows = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.role, "vendeur"))
   await sendToRows(rows, payload)
 }
+
+// Notifie tous les clients abonnés (diffusion, ex. publication d'une news).
+export async function notifyAllClients(payload: PushPayload) {
+  const rows = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.role, "client"))
+  await sendToRows(rows, payload)
+}

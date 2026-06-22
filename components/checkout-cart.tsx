@@ -32,7 +32,8 @@ function dateOffset(days: number) {
 }
 
 export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
-  const { items, subtotal, updateQty, removeItem, clear, isOpen, closeCart } = useCart()
+  const { items, subtotal, updateQty, removeItem, clear, isOpen, closeCart, promo, promoDiscount, removePromo } =
+    useCart()
   const onClose = closeCart
 
   const [address, setAddress] = useState("")
@@ -62,7 +63,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
 
   const loyaltyDiscount = useMemo(() => parseLoyaltyDiscount(loyaltyCode), [loyaltyCode])
 
-  const total = Math.max(0, subtotal + deliveryFee - loyaltyDiscount)
+  const total = Math.max(0, subtotal + deliveryFee - loyaltyDiscount - promoDiscount)
 
   if (!isOpen) return null
 
@@ -122,10 +123,12 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       `Date : ${date}`,
       mode,
       promoCode ? `Code promo : ${promoCode}` : null,
+      promo && promoDiscount > 0 ? `Promo ${promo.code} : -${promoDiscount}€` : null,
       loyaltyCode ? `Code fidélité : ${loyaltyCode} (-${loyaltyDiscount}€)` : null,
       ``,
       `Sous-total : ${subtotal}€`,
       !isMeetup ? `Livraison : ${deliveryFee}€` : null,
+      promo && promoDiscount > 0 ? `Réduction promo : -${promoDiscount}€` : null,
       loyaltyDiscount ? `Réduction fidélité : -${loyaltyDiscount}€` : null,
       `TOTAL : ${total}€`,
     ]
@@ -442,6 +445,24 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 <div className="mb-1 flex justify-between text-sm text-muted-foreground">
                   <span>Livraison</span>
                   <span>{distanceKm != null ? `${deliveryFee}€` : "—"}</span>
+                </div>
+              )}
+              {promo && (
+                <div className="mb-1 flex items-center justify-between text-sm text-accent">
+                  <span className="flex items-center gap-1.5">
+                    Promo {promo.code}
+                    <button
+                      type="button"
+                      onClick={removePromo}
+                      className="text-muted-foreground transition-colors hover:text-destructive"
+                      aria-label="Retirer la promo"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </span>
+                  <span>
+                    {promoDiscount > 0 ? `-${promoDiscount}€` : `min. ${promo.minAmount}€`}
+                  </span>
                 </div>
               )}
               {loyaltyDiscount > 0 && (
