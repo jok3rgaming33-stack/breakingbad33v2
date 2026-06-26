@@ -7,7 +7,8 @@ import Image from "next/image"
 import { FlaskConical, Sparkles, X as CloseIcon } from "lucide-react"
 import { ProductBadges } from "@/components/product-badge"
 import { resolveBadges } from "@/lib/badges"
-import { getProductsBySection, decrementStock, type Product, type ProductVariant } from "@/app/actions/products"
+import { getProductsBySection, decrementStock } from "@/app/actions/products"
+import type { Product, ProductVariant } from "@/lib/db/schema"
 
 type SectionConfig = {
   section: "featured" | "arrival"

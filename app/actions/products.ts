@@ -6,8 +6,6 @@ import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { revalidatePath } from "next/cache"
 import { asc, eq, sql } from "drizzle-orm"
 
-export type { Product, ProductVariant }
-
 // Liste tous les produits (admin) triés par section puis ordre.
 export async function listProducts(): Promise<Product[]> {
   return db.select().from(products).orderBy(asc(products.section), asc(products.sortOrder), asc(products.id))

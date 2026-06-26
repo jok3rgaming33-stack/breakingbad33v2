@@ -4,15 +4,8 @@ import { useState } from "react"
 import useSWR from "swr"
 import { Plus, Trash2, Pencil, Minus, X, Loader2, PackagePlus, Save } from "lucide-react"
 import { BADGE_OPTIONS } from "@/lib/badges"
-import {
-  listProducts,
-  saveProduct,
-  deleteProduct,
-  adjustStock,
-  type Product,
-  type ProductVariant,
-  type ProductInput,
-} from "@/app/actions/products"
+import { listProducts, saveProduct, deleteProduct, adjustStock, type ProductInput } from "@/app/actions/products"
+import type { Product, ProductVariant } from "@/lib/db/schema"
 
 type FormState = {
   id?: number

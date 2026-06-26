@@ -8,8 +8,6 @@ import { LOYALTY_REWARDS } from "@/lib/loyalty"
 import { revalidatePath } from "next/cache"
 import { and, asc, desc, eq, sql } from "drizzle-orm"
 
-export type { PromoCode, LoyaltyCode }
-
 // Forme renvoyée au panier lorsqu'un code est validé.
 export type ValidatedPromo = {
   code: string

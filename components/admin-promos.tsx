@@ -3,7 +3,8 @@
 import { useState } from "react"
 import useSWR from "swr"
 import { Ticket, Trash2, Plus, Loader2, Power } from "lucide-react"
-import { listPromoCodes, savePromoCode, deletePromoCode, type PromoCode } from "@/app/actions/promo"
+import { listPromoCodes, savePromoCode, deletePromoCode } from "@/app/actions/promo"
+import type { PromoCode } from "@/lib/db/schema"
 
 export function AdminPromos() {
   const { data: codes, mutate, isLoading } = useSWR("admin-promos", () => listPromoCodes())

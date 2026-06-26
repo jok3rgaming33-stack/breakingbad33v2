@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react"
 import { X, Gift, Check, Copy, Loader2, Ticket, AlertCircle } from "lucide-react"
 import { getCustomerStats } from "@/app/actions/account"
-import { generateLoyaltyCode, listLoyaltyCodes, type LoyaltyCode } from "@/app/actions/promo"
+import { generateLoyaltyCode, listLoyaltyCodes } from "@/app/actions/promo"
+import type { LoyaltyCode } from "@/lib/db/schema"
 import { LOYALTY_REWARDS, type LoyaltyReward } from "@/lib/loyalty"
 
 type UserData = { pseudo?: string; token?: string } | null
