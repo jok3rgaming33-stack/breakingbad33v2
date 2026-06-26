@@ -1,14 +1,66 @@
-import { pgTable, serial, text, integer, doublePrecision, timestamp, boolean } from "drizzle-orm/pg-core"
+import { pgTable, serial, text, integer, doublePrecision, timestamp, boolean, jsonb } from "drizzle-orm/pg-core"
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   token: text("token").notNull().unique(),
   pseudo: text("pseudo").notNull(),
   // Ajustement manuel des points fidélité par le vendeur (peut être négatif).
-  // Points affichés = points calculés sur les commandes + cet ajustement.
+  // Points affichés = points calculés sur les commandes + cet ajustement - dépensés.
   loyaltyAdjustment: integer("loyalty_adjustment").notNull().default(0),
+  // Points déjà consommés par la génération de codes de réduction.
+  loyaltySpent: integer("loyalty_spent").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+// Variante de prix d'un produit (quantité -> prix).
+export type ProductVariant = { qty: number; price: number }
+
+// Produits de la boutique, éditables depuis le panel admin.
+// section = 'featured' (vedette) | 'arrival' (nouveautés).
+export const products = pgTable("products", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  section: text("section").notNull().default("featured"),
+  image: text("image"),
+  symbol: text("symbol"),
+  number: text("number"),
+  description: text("description"),
+  fullDescription: text("full_description"),
+  stock: integer("stock").notNull().default(0),
+  variants: jsonb("variants").$type<ProductVariant[]>().notNull().default([]),
+  badges: jsonb("badges").$type<string[]>().notNull().default([]),
+  discountType: text("discount_type"), // 'percent' | 'fixed' | null
+  discountValue: integer("discount_value"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Codes promo globaux créés par l'admin (saisissables dans le panier).
+export const promoCodes = pgTable("promo_codes", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  type: text("type").notNull().default("fixed"), // 'percent' | 'fixed'
+  value: integer("value").notNull().default(0),
+  minAmount: integer("min_amount").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Codes de fidélité générés par un client (points réellement débités, usage unique).
+export const loyaltyCodes = pgTable("loyalty_codes", {
+  id: serial("id").primaryKey(),
+  userToken: text("user_token").notNull(),
+  code: text("code").notNull().unique(),
+  discount: integer("discount").notNull(),
+  pointsCost: integer("points_cost").notNull(),
+  minAmount: integer("min_amount").notNull().default(0),
+  used: boolean("used").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type Product = typeof products.$inferSelect
+export type PromoCode = typeof promoCodes.$inferSelect
+export type LoyaltyCode = typeof loyaltyCodes.$inferSelect
 
 export const orderThreads = pgTable("order_threads", {
   id: serial("id").primaryKey(),

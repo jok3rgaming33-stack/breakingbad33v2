@@ -16,6 +16,7 @@ import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
 import { FeaturedProducts } from "@/components/featured-products"
 import { NewArrivals } from "@/components/new-arrivals"
+import { ViewSwitcher } from "@/components/view-switcher"
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -102,8 +103,8 @@ export default function Home() {
         ) : (
           <div className="bg-background text-foreground">
             <Hero />
-            <FeaturedProducts isAdmin={isAdmin} />
-            <NewArrivals isAdmin={isAdmin} />
+            <FeaturedProducts />
+            <NewArrivals />
           </div>
         )}
       </main>
@@ -127,6 +128,9 @@ export default function Home() {
       {isAuthenticated && !isAdmin && <NewsPopup token={userData?.token} />}
 
       {isAuthenticated && <CheckoutCart userData={userData} />}
+
+      {/* Bascule discrète Vue Client / Panel Admin (admin uniquement) */}
+      {isAuthenticated && isAdmin && <ViewSwitcher current="client" />}
       </NotificationsProvider>
     </CartProvider>
   )

@@ -8,15 +8,19 @@ import { AdminOrdersRecap } from "@/components/admin-orders-recap"
 import { AdminUsers } from "@/components/admin-users"
 import { AdminMap } from "@/components/admin-map"
 import { AdminNews } from "@/components/admin-news"
+import { AdminProducts } from "@/components/admin-products"
+import { AdminPromos } from "@/components/admin-promos"
 import { adminLogout } from "@/app/actions/admin-auth"
-import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket } from "lucide-react"
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 
-type TabId = "messagerie" | "carte" | "commandes" | "utilisateurs" | "news" | "profits"
+type TabId = "messagerie" | "carte" | "commandes" | "utilisateurs" | "produits" | "promos" | "news" | "profits"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "messagerie", label: "Messagerie", icon: MessageSquare },
+  { id: "produits", label: "Produits", icon: Package },
+  { id: "promos", label: "Codes promo", icon: Ticket },
   { id: "carte", label: "Carte interactive", icon: Map },
   { id: "commandes", label: "Récap commandes", icon: ListOrdered },
   { id: "utilisateurs", label: "Utilisateurs", icon: Users },
@@ -49,12 +53,10 @@ export function AdminPanel({
           <div className="flex items-center gap-2">
             <Link
               href="/"
-              target="_blank"
-              rel="noopener noreferrer"
               className="flex items-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
             >
               <Eye className="h-4 w-4" aria-hidden="true" />
-              Voir le site
+              Vue Client
             </Link>
             <form action={adminLogout}>
               <button
@@ -105,6 +107,10 @@ export function AdminPanel({
           <AdminOrdersRecap threads={initialThreads} />
         ) : tab === "utilisateurs" ? (
           <AdminUsers initialUsers={initialUsers} />
+        ) : tab === "produits" ? (
+          <AdminProducts />
+        ) : tab === "promos" ? (
+          <AdminPromos />
         ) : tab === "carte" ? (
           <AdminMap threads={initialThreads} />
         ) : tab === "news" ? (
