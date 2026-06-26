@@ -6,6 +6,7 @@ export const BADGE_OPTIONS = [
   { key: "top_seller", label: "Top Seller", className: "bg-indigo-600 text-white" },
   { key: "promo", label: "Promo", className: "bg-red-600 text-white" },
   { key: "nouveau", label: "Nouveau", className: "bg-sky-500 text-black" },
+  { key: "arrivage", label: "Arrivage", className: "bg-sky-400 text-black" },
   { key: "reappro", label: "En réappro", className: "bg-amber-500 text-black" },
   { key: "fin_de_stock", label: "Fin de stock", className: "bg-zinc-600 text-white" },
 ] as const
