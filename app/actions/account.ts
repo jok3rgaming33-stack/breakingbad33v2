@@ -70,9 +70,10 @@ export async function getCustomerStats(token: string) {
     else active += 1
   }
 
-  // Ajustement manuel éventuel du vendeur (les points ne descendent jamais sous 0).
+  // Ajustement manuel du vendeur, moins les points déjà dépensés en codes.
+  // Les points ne descendent jamais sous 0.
   const account = await db.select().from(users).where(eq(users.token, t)).limit(1)
-  points = Math.max(0, points + (account[0]?.loyaltyAdjustment ?? 0))
+  points = Math.max(0, points + (account[0]?.loyaltyAdjustment ?? 0) - (account[0]?.loyaltySpent ?? 0))
 
   return { points, active, past }
 }

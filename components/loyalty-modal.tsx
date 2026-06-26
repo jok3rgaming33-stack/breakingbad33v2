@@ -1,8 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { X, Gift, Check, Copy, ArrowLeft, Loader2 } from "lucide-react"
+import { X, Gift, Check, Copy, Loader2, Ticket, AlertCircle } from "lucide-react"
 import { getCustomerStats } from "@/app/actions/account"
+import { generateLoyaltyCode, listLoyaltyCodes, type LoyaltyCode } from "@/app/actions/promo"
+import { LOYALTY_REWARDS, type LoyaltyReward } from "@/lib/loyalty"
 
 type UserData = { pseudo?: string; token?: string } | null
 
@@ -12,37 +14,32 @@ type LoyaltyModalProps = {
   userData: UserData
 }
 
-type Reward = {
-  points: number
-  discount: number
-  label: string
-}
-
-const REWARDS: Reward[] = [
-  { points: 30, discount: 10, label: "-10€" },
-  { points: 60, discount: 20, label: "-20€" },
-  { points: 100, discount: 30, label: "-30€" },
-]
-
-function generateRewardCode(discount: number) {
-  const random = Math.random().toString(36).slice(2, 8).toUpperCase()
-  return `BB33-${discount}E-${random}`
-}
-
 export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
   const token = userData?.token ?? ""
   const [points, setPoints] = useState<number | null>(null)
-  const [selectedReward, setSelectedReward] = useState<Reward | null>(null)
-  const [generatedCode, setGeneratedCode] = useState("")
-  const [copied, setCopied] = useState(false)
+  const [view, setView] = useState<"rewards" | "codes">("rewards")
+  const [myCodes, setMyCodes] = useState<LoyaltyCode[]>([])
+  const [generating, setGenerating] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
 
-  // Charge le solde de points réel du client (depuis ses commandes)
-  useEffect(() => {
-    if (!isOpen || !token) return
-    setPoints(null)
+  const refresh = () => {
+    if (!token) return
     getCustomerStats(token)
       .then((s) => setPoints(s.points))
       .catch(() => setPoints(0))
+    listLoyaltyCodes(token)
+      .then(setMyCodes)
+      .catch(() => setMyCodes([]))
+  }
+
+  useEffect(() => {
+    if (!isOpen || !token) return
+    setPoints(null)
+    setView("rewards")
+    setError(null)
+    refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, token])
 
   if (!isOpen) return null
@@ -51,27 +48,32 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
   const balance = points ?? 0
 
   const handleClose = () => {
-    // Réinitialise l'état à la fermeture
-    setSelectedReward(null)
-    setGeneratedCode("")
-    setCopied(false)
+    setError(null)
     onClose()
   }
 
-  const handleSelectReward = (reward: Reward) => {
-    if (balance < reward.points) return
-    setSelectedReward(reward)
-    setGeneratedCode(generateRewardCode(reward.discount))
-    setCopied(false)
+  const handleGenerate = async (reward: LoyaltyReward) => {
+    if (balance < reward.points || generating) return
+    setGenerating(reward.points)
+    setError(null)
+    const res = await generateLoyaltyCode(token, reward.points)
+    setGenerating(null)
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
+    setPoints(res.remaining)
+    refresh()
+    setView("codes")
   }
 
-  const handleCopy = async () => {
+  const handleCopy = async (code: string) => {
     try {
-      await navigator.clipboard.writeText(generatedCode)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(code)
+      setCopied(code)
+      setTimeout(() => setCopied(null), 2000)
     } catch {
-      setCopied(false)
+      setCopied(null)
     }
   }
 
@@ -82,8 +84,8 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
       aria-modal="true"
       aria-label="Espace fidélité"
     >
-      <div className="w-full max-w-md rounded-3xl border border-accent/40 bg-card p-8">
-        <div className="mb-6 flex items-center justify-between">
+      <div className="flex max-h-[90vh] w-full max-w-md flex-col rounded-3xl border border-accent/40 bg-card p-6">
+        <div className="mb-5 flex items-center justify-between">
           <h2 className="text-2xl font-bold text-balance">Espace fidélité</h2>
           <button
             type="button"
@@ -95,98 +97,126 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
           </button>
         </div>
 
-        {/* Nom de l'utilisateur */}
-        <div className="mb-6 rounded-2xl border border-border bg-background/60 p-6">
-          <div className="text-sm text-muted-foreground">Membre</div>
-          <div className="mt-1 font-mono text-2xl font-bold">{name}</div>
+        {/* Membre + solde */}
+        <div className="mb-4 flex items-center justify-between rounded-2xl border border-border bg-background/60 p-4">
+          <div>
+            <div className="text-xs text-muted-foreground">Membre</div>
+            <div className="font-mono text-lg font-bold">{name}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-accent">
+              {points === null ? <Loader2 className="ml-auto h-6 w-6 animate-spin" aria-hidden="true" /> : balance}
+            </div>
+            <div className="text-xs text-muted-foreground">points (1€ = 1 pt)</div>
+          </div>
         </div>
 
-        {/* Espace fidélité + choix d'avantage */}
-        <div>
-            <div className="mb-6 rounded-2xl bg-background/40 p-4 text-center">
-              <div className="text-3xl font-bold text-accent">
-                {points === null ? (
-                  <Loader2 className="mx-auto h-7 w-7 animate-spin" aria-hidden="true" />
-                ) : (
-                  points
-                )}
-              </div>
-              <div className="mt-1 text-xs text-muted-foreground">Points disponibles</div>
-            </div>
+        {/* Onglets */}
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setView("rewards")}
+            className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-colors ${
+              view === "rewards" ? "bg-accent text-accent-foreground" : "bg-secondary text-muted-foreground"
+            }`}
+          >
+            <Gift className="h-4 w-4" aria-hidden="true" /> Récompenses
+          </button>
+          <button
+            onClick={() => setView("codes")}
+            className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-colors ${
+              view === "codes" ? "bg-accent text-accent-foreground" : "bg-secondary text-muted-foreground"
+            }`}
+          >
+            <Ticket className="h-4 w-4" aria-hidden="true" /> Mes codes
+            {myCodes.length > 0 && (
+              <span className="rounded-full bg-background/40 px-1.5 text-xs">{myCodes.length}</span>
+            )}
+          </button>
+        </div>
 
-            {!selectedReward ? (
-              <>
-                <div className="mb-3 text-sm font-medium text-muted-foreground">Choisis ton avantage</div>
-                <div className="flex flex-col gap-3">
-                  {REWARDS.map((reward) => {
-                    const affordable = balance >= reward.points
-                    return (
-                      <button
-                        key={reward.points}
-                        type="button"
-                        onClick={() => handleSelectReward(reward)}
-                        disabled={!affordable}
-                        className="flex items-center justify-between rounded-2xl border border-border bg-background/60 p-4 text-left transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent">
-                            <Gift className="h-5 w-5" aria-hidden="true" />
-                          </div>
-                          <div>
-                            <div className="font-semibold">{reward.label} de réduction</div>
-                            <div className="text-xs text-muted-foreground">{reward.points} points</div>
-                          </div>
-                        </div>
-                        {!affordable && <span className="text-xs text-muted-foreground">Indisponible</span>}
-                      </button>
-                    )
-                  })}
-                </div>
-              </>
-            ) : (
-              <div>
-                <div className="mb-4 flex items-center gap-2 rounded-2xl border border-accent/40 bg-accent/10 p-4">
-                  <Check className="h-5 w-5 shrink-0 text-accent" aria-hidden="true" />
-                  <div className="text-sm">
-                    Avantage <span className="font-semibold">{selectedReward.label}</span> activé pour{" "}
-                    <span className="font-semibold">{selectedReward.points} points</span>.
-                  </div>
-                </div>
+        {error && (
+          <div className="mb-3 flex items-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {error}
+          </div>
+        )}
 
-                <div className="mb-2 text-sm font-medium text-muted-foreground">
-                  Ton code unique �� saisir lors de la commande
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 p-4">
-                  <span className="font-mono text-lg font-bold tracking-wider">{generatedCode}</span>
+        <div className="flex-1 overflow-y-auto">
+          {view === "rewards" ? (
+            <div className="flex flex-col gap-3">
+              {LOYALTY_REWARDS.map((reward) => {
+                const affordable = balance >= reward.points
+                const busy = generating === reward.points
+                return (
                   <button
+                    key={reward.points}
                     type="button"
-                    onClick={handleCopy}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-secondary text-secondary-foreground transition-colors hover:bg-muted"
-                    aria-label="Copier le code"
+                    onClick={() => handleGenerate(reward)}
+                    disabled={!affordable || busy}
+                    className="flex items-center justify-between rounded-2xl border border-border bg-background/60 p-4 text-left transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border"
                   >
-                    {copied ? (
-                      <Check className="h-4 w-4 text-accent" aria-hidden="true" />
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent">
+                        <Gift className="h-5 w-5" aria-hidden="true" />
+                      </div>
+                      <div>
+                        <div className="font-semibold">{reward.label} de réduction</div>
+                        <div className="text-xs text-muted-foreground">
+                          {reward.points} points · dès {reward.minAmount}€ d'achat
+                        </div>
+                      </div>
+                    </div>
+                    {busy ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-accent" aria-hidden="true" />
+                    ) : affordable ? (
+                      <span className="text-xs font-semibold text-accent">Générer</span>
                     ) : (
-                      <Copy className="h-4 w-4" aria-hidden="true" />
+                      <span className="text-xs text-muted-foreground">{reward.points - balance} pts manquants</span>
                     )}
                   </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedReward(null)
-                    setGeneratedCode("")
-                    setCopied(false)
-                  }}
-                  className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-secondary py-4 font-semibold text-secondary-foreground transition-colors hover:bg-muted"
-                >
-                  <ArrowLeft className="h-5 w-5" aria-hidden="true" />
-                  Choisir un autre avantage
-                </button>
-              </div>
-            )}
-          </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {myCodes.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  Aucun code généré. Échange tes points dans l'onglet Récompenses.
+                </p>
+              ) : (
+                myCodes.map((c) => (
+                  <div
+                    key={c.id}
+                    className={`flex items-center justify-between gap-3 rounded-2xl border p-4 ${
+                      c.used ? "border-border bg-background/40 opacity-60" : "border-accent/40 bg-accent/5"
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="font-mono text-base font-bold tracking-wider">{c.code}</div>
+                      <div className="text-xs text-muted-foreground">
+                        -{c.discount}€ · dès {c.minAmount}€ {c.used ? "· utilisé" : ""}
+                      </div>
+                    </div>
+                    {!c.used && (
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(c.code)}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-secondary text-secondary-foreground transition-colors hover:bg-muted"
+                        aria-label="Copier le code"
+                      >
+                        {copied === c.code ? (
+                          <Check className="h-4 w-4 text-accent" aria-hidden="true" />
+                        ) : (
+                          <Copy className="h-4 w-4" aria-hidden="true" />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

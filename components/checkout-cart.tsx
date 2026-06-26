@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import { useCart } from "@/components/cart-provider"
 import { createOrderThread } from "@/app/actions/messaging"
+import { validateCode, markLoyaltyCodeUsed } from "@/app/actions/promo"
 import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus } from "lucide-react"
 
 type UserData = { pseudo?: string } | null

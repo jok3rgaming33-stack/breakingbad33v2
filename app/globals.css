@@ -96,3 +96,10 @@
     @apply font-sans;
   }
 }
+
+@layer components {
+  /* Champ de formulaire réutilisable (panel admin). */
+  .input {
+    @apply w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-accent;
+  }
+}
