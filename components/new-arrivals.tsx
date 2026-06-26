@@ -55,6 +55,15 @@ const ARRIVALS: Arrival[] = [
     description: "Ecsta en 300mg.",
     variants: [{ qty: 5, price: 40 }, { qty: 10, price: 60 }, { qty: 20, price: 100 }],
   },
+      {
+    title: "Valium _ 10Mg",
+    image: "/pdt/valium.jpg",
+    alt: "Détends-toi",
+    symbol: "Va",
+    number: "28",
+    description: "Comprimés sécables en 10mg.",
+    variants: [{ qty: 4, price: 50 }, { qty: 8, price: 90 }, { qty: 12, price: 130 }],
+  },
   {
     title: "La Kéta Needles",
     image: "/pdt/K.png",
