@@ -19,12 +19,6 @@ const FEE_FAR = 20 // > 10 km
 const DELIVERY_SLOTS = ["14H - 17H", "18H - 20H", "21H - 02H"]
 const MEETUP_HOURS = ["14H", "15H", "16H", "17H", "18H", "19H", "20H", "21H", "22H", "23H", "00H"]
 
-// Parse un code fidélité BB33-10E-XXXXXX -> 10
-function parseLoyaltyDiscount(code: string): number {
-  const match = code.trim().toUpperCase().match(/^BB33-(\d+)E-/)
-  return match ? Number(match[1]) : 0
-}
-
 // Date du jour + n jours au format yyyy-mm-dd
 function dateOffset(days: number) {
   const d = new Date()
@@ -33,13 +27,14 @@ function dateOffset(days: number) {
 }
 
 export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
-  const { items, subtotal, updateQty, removeItem, clear, isOpen, closeCart, promo, promoDiscount, removePromo } =
+  const { items, subtotal, updateQty, removeItem, clear, isOpen, closeCart, promo, promoDiscount, applyPromo, removePromo } =
     useCart()
   const onClose = closeCart
 
   const [address, setAddress] = useState("")
-  const [promoCode, setPromoCode] = useState("")
-  const [loyaltyCode, setLoyaltyCode] = useState("")
+  const [codeInput, setCodeInput] = useState("")
+  const [codeError, setCodeError] = useState<string | null>(null)
+  const [codeChecking, setCodeChecking] = useState(false)
   const [date, setDate] = useState("")
   const [slot, setSlot] = useState("")
   const [isMeetup, setIsMeetup] = useState(false)
@@ -62,11 +57,31 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     return distanceKm <= 10 ? FEE_NEAR : FEE_FAR
   }, [isMeetup, distanceKm])
 
-  const loyaltyDiscount = useMemo(() => parseLoyaltyDiscount(loyaltyCode), [loyaltyCode])
-
-  const total = Math.max(0, subtotal + deliveryFee - loyaltyDiscount - promoDiscount)
+  const total = Math.max(0, subtotal + deliveryFee - promoDiscount)
 
   if (!isOpen) return null
+
+  // Valide un code (promo global OU fidélité) côté serveur et l'applique au panier.
+  const applyCode = async () => {
+    const code = codeInput.trim()
+    if (!code || codeChecking) return
+    setCodeChecking(true)
+    setCodeError(null)
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("authToken") ?? undefined : undefined
+      const res = await validateCode(code, subtotal, token)
+      if (res.ok) {
+        applyPromo(res.promo)
+        setCodeInput("")
+      } else {
+        setCodeError(res.error)
+      }
+    } catch {
+      setCodeError("Impossible de vérifier ce code.")
+    } finally {
+      setCodeChecking(false)
+    }
+  }
 
   // Géocodage de l'adresse via la route serveur (API Adresse / BAN)
   const checkAddress = async () => {
@@ -123,14 +138,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       ``,
       `Date : ${date}`,
       mode,
-      promoCode ? `Code promo : ${promoCode}` : null,
-      promo && promoDiscount > 0 ? `Promo ${promo.code} : -${promoDiscount}€` : null,
-      loyaltyCode ? `Code fidélité : ${loyaltyCode} (-${loyaltyDiscount}€)` : null,
+      promo && promoDiscount > 0 ? `Code ${promo.code} : -${promoDiscount}€` : null,
       ``,
       `Sous-total : ${subtotal}€`,
       !isMeetup ? `Livraison : ${deliveryFee}€` : null,
-      promo && promoDiscount > 0 ? `Réduction promo : -${promoDiscount}€` : null,
-      loyaltyDiscount ? `Réduction fidélité : -${loyaltyDiscount}€` : null,
+      promo && promoDiscount > 0 ? `Réduction (${promo.code}) : -${promoDiscount}€` : null,
       `TOTAL : ${total}€`,
     ]
       .filter(Boolean)
@@ -152,6 +164,10 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         scheduledDate: date,
         scheduledSlot: isMeetup ? meetupHour : slot,
       })
+      // Code fidélité (BB33-...) consommé à usage unique une fois la commande passée.
+      if (promo && /^BB33-/i.test(promo.code)) {
+        await markLoyaltyCodeUsed(promo.code)
+      }
       onOrderPlaced?.(message)
       setPlaced(true)
     } catch (err) {
@@ -170,8 +186,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const handleNewOrder = () => {
     clear()
     setAddress("")
-    setPromoCode("")
-    setLoyaltyCode("")
+    setCodeInput("")
+    setCodeError(null)
     setDate("")
     setSlot("")
     setIsMeetup(false)
@@ -354,28 +370,57 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 )}
               </div>
 
-              {/* Codes promo / fidélité */}
+              {/* Code promo / fidélité (champ unique validé côté serveur) */}
               <div className="mt-5">
                 <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                   <Ticket className="h-4 w-4 text-accent" aria-hidden="true" />
                   Code promo / fidélité
                 </div>
-                <input
-                  type="text"
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value)}
-                  placeholder="Code promo"
-                  className="mb-2 w-full rounded-2xl border border-border bg-background/60 px-3 py-2.5 font-mono text-sm outline-none transition-colors focus:border-accent"
-                />
-                <input
-                  type="text"
-                  value={loyaltyCode}
-                  onChange={(e) => setLoyaltyCode(e.target.value)}
-                  placeholder="Code fidélité (ex. BB33-10E-XXXXXX)"
-                  className="w-full rounded-2xl border border-border bg-background/60 px-3 py-2.5 font-mono text-sm outline-none transition-colors focus:border-accent"
-                />
-                {loyaltyDiscount > 0 && (
-                  <p className="mt-1.5 text-xs text-accent">Réduction fidélité appliquée : -{loyaltyDiscount}€</p>
+                {promo ? (
+                  <div className="flex items-center justify-between rounded-2xl border border-accent/40 bg-accent/10 px-3 py-2.5">
+                    <span className="font-mono text-sm font-semibold text-accent">{promo.code}</span>
+                    <button
+                      type="button"
+                      onClick={removePromo}
+                      className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      Retirer
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={codeInput}
+                      onChange={(e) => {
+                        setCodeInput(e.target.value)
+                        setCodeError(null)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          applyCode()
+                        }
+                      }}
+                      placeholder="Saisis ton code"
+                      className="w-full rounded-2xl border border-border bg-background/60 px-3 py-2.5 font-mono text-sm uppercase outline-none transition-colors focus:border-accent"
+                    />
+                    <button
+                      type="button"
+                      onClick={applyCode}
+                      disabled={!codeInput.trim() || codeChecking}
+                      className="flex shrink-0 items-center justify-center rounded-2xl bg-secondary px-4 text-sm font-semibold text-secondary-foreground transition-colors hover:bg-muted disabled:opacity-40"
+                    >
+                      {codeChecking ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Appliquer"}
+                    </button>
+                  </div>
+                )}
+                {codeError && <p className="mt-1.5 text-xs text-destructive">{codeError}</p>}
+                {promo && promoDiscount === 0 && (
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    Atteins {promo.minAmount}€ d&apos;achat pour activer cette réduction.
+                  </p>
                 )}
               </div>
 
@@ -464,12 +509,6 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   <span>
                     {promoDiscount > 0 ? `-${promoDiscount}€` : `min. ${promo.minAmount}€`}
                   </span>
-                </div>
-              )}
-              {loyaltyDiscount > 0 && (
-                <div className="mb-1 flex justify-between text-sm text-accent">
-                  <span>Réduction fidélité</span>
-                  <span>-{loyaltyDiscount}€</span>
                 </div>
               )}
               <div className="mb-4 flex justify-between text-lg font-bold">
