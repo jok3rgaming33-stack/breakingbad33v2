@@ -26,16 +26,24 @@ const ARRIVALS: Arrival[] = [
     symbol: "Cl",
     number: "17",
     description: "Ecsta en 280mg.",
-    variants: [{ qty: 5, price: 40 }, { qty: 10, price: 60 }, { qty: 20, price: 100 }],
+    variants: [
+      { qty: 5, price: 40 },
+      { qty: 10, price: 60 },
+      { qty: 20, price: 100 },
+    ],
   },
-    {
+  {
     title: "Marvel Watermelon - 240Mg",
     image: "/pdt/water.png",
     alt: "Rien a voir avec le fruit",
     symbol: "H2O",
     number: "00",
     description: "Ecsta en 240mg.",
-    variants: [{ qty: 5, price: 30 }, { qty: 10, price: 40 }, { qty: 20, price: 60 }],
+    variants: [
+      { qty: 5, price: 30 },
+      { qty: 10, price: 40 },
+      { qty: 20, price: 60 },
+    ],
   },
   {
     title: "Punisher - 250Mg",
@@ -44,25 +52,38 @@ const ARRIVALS: Arrival[] = [
     symbol: "Fe",
     number: "26",
     description: "Ecsta en 250mg.",
-    variants: [{ qty: 5, price: 30 }, { qty: 10, price: 40 }, { qty: 20, price: 60 }],
+    variants: [
+      { qty: 5, price: 30 },
+      { qty: 10, price: 40 },
+      { qty: 20, price: 60 },
+    ],
   },
-    {
+  {
     title: "Tesla - 300Mg",
     image: "/pdt/tesla.jpg",
     alt: "Elon n'a rien à voir là-dedans",
     symbol: "Ts",
     number: "99",
     description: "Ecsta en 300mg.",
-    variants: [{ qty: 5, price: 40 }, { qty: 10, price: 60 }, { qty: 20, price: 100 }],
+    variants: [
+      { qty: 5, price: 40 },
+      { qty: 10, price: 60 },
+      { qty: 20, price: 100 },
+    ],
   },
-      {
-    title: "Valium _ 10Mg",
+  {
+    title: "Valium 10mg",
     image: "/pdt/valium.jpg",
     alt: "Détends-toi",
     symbol: "Va",
     number: "28",
-    description: "Mental : Calme immédiat de l'anxiété et forte somnolence.Physique : Relâchement musculaire total et anti-convulsivant.🚨 Posologie maximale (Adulte moyen) :40 mg par jour maximum (généralement répartis en 2 à 4 prises).⚠️ Alerte Risques : Chute de la vigilance (danger absolu pour la conduite)",
-    variants: [{ qty: 4, price: 50 }, { qty: 8, price: 90 }, { qty: 12, price: 130 }],
+    description:
+      "Mental : Calme immédiat de l'anxiété et forte somnolence. Physique : Relâchement musculaire total et anti-convulsivant. 🚨 Posologie maximale (Adulte moyen) : 40 mg par jour maximum (généralement répartis en 2 à 4 prises). ⚠️ Alerte Risques : Chute de la vigilance (danger absolu pour la conduite)",
+    variants: [
+      { qty: 4, price: 50 },
+      { qty: 8, price: 90 },
+      { qty: 12, price: 130 },
+    ],
   },
   {
     title: "La Kéta Needles",
@@ -71,7 +92,11 @@ const ARRIVALS: Arrival[] = [
     symbol: "K",
     number: "19",
     description: "Notre needles, explosive.",
-    variants: [{ qty: 1, price: 20 }, { qty: 5, price: 80 }, { qty: 10, price: 140 }],
+    variants: [
+      { qty: 1, price: 20 },
+      { qty: 5, price: 80 },
+      { qty: 10, price: 140 },
+    ],
   },
   {
     title: "Dry Speed",
@@ -80,9 +105,13 @@ const ARRIVALS: Arrival[] = [
     symbol: "Sp",
     number: "08",
     description: "Du speed reçu en pâte, séché par nos soins.",
-    variants: [{ qty: 1, price: 15 }, { qty: 5, price: 60 }, { qty: 10, price: 100 }],
+    variants: [
+      { qty: 1, price: 15 },
+      { qty: 5, price: 60 },
+      { qty: 10, price: 100 },
+    ],
   },
-]
+];
 
 export function NewArrivals({ isAdmin = false }: { isAdmin?: boolean }) {
   const { addToCart } = useCart()
