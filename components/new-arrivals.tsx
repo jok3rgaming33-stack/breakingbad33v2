@@ -61,7 +61,7 @@ const ARRIVALS: Arrival[] = [
     alt: "Détends-toi",
     symbol: "Va",
     number: "28",
-    description: "Comprimés sécables en 10mg.",
+    description: "Mental : Calme immédiat de l'anxiété et forte somnolence.Physique : Relâchement musculaire total et anti-convulsivant.🚨 Posologie maximale (Adulte moyen) :40 mg par jour maximum (généralement répartis en 2 à 4 prises).⚠️ Alerte Risques : Chute de la vigilance (danger absolu pour la conduite)",
     variants: [{ qty: 4, price: 50 }, { qty: 8, price: 90 }, { qty: 12, price: 130 }],
   },
   {
