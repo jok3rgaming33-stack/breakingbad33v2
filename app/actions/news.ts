@@ -15,8 +15,9 @@ export type SlideInput = {
   buttonText?: string | null
   buttonLink?: string | null
   promoCode?: string | null
-  promoType?: "percent" | "fixed" | null
+  promoType?: "percent" | "fixed" | "produit" | null
   promoValue?: number | null
+  productName?: string | null
   minAmount?: number | null
   isSingleUse?: boolean
 }
@@ -98,6 +99,7 @@ export async function upsertSlide(newsId: number, input: SlideInput) {
     promoCode: input.promoCode?.trim()?.toUpperCase() || null,
     promoType: input.promoType ?? null,
     promoValue: input.promoValue ?? null,
+    productName: input.promoType === "produit" ? input.productName?.trim() || null : null,
     minAmount: input.minAmount ?? null,
     isSingleUse: input.isSingleUse ?? true,
   }
@@ -185,6 +187,7 @@ export async function getActiveNewsForUser(userToken: string | null | undefined)
             promoCode: null,
             promoType: null,
             promoValue: null,
+            productName: null,
             minAmount: null,
             isSingleUse: true,
             promoUsed: false,
@@ -253,9 +256,10 @@ export async function redeemPromo(userToken: string | null | undefined, slideId:
     ok: true as const,
     promo: {
       code: slide.promoCode,
-      type: (slide.promoType as "percent" | "fixed" | null) ?? "fixed",
+      type: (slide.promoType as "percent" | "fixed" | "produit" | null) ?? "fixed",
       value: slide.promoValue ?? 0,
       minAmount: slide.minAmount ?? 0,
+      productName: slide.productName ?? null,
     },
   }
 }

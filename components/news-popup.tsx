@@ -18,6 +18,7 @@ type Slide = {
   promoCode: string | null
   promoType: string | null
   promoValue: number | null
+  productName: string | null
   minAmount: number | null
   isSingleUse: boolean
   promoUsed: boolean
@@ -96,8 +97,15 @@ export function NewsPopup({ token }: { token?: string }) {
 
   const hasPromo = Boolean(slide?.promoCode)
   const isClaimed = slide ? claimed[slide.id] || slide.promoUsed : false
-  const promoLabel =
-    slide?.promoType === "percent" ? `-${slide.promoValue}%` : `-${slide?.promoValue}€`
+  const hasValue = (slide?.promoValue ?? 0) > 0
+  // Libellé du badge promo ; null si la promo n'a pas de valeur exploitable.
+  const promoLabel = !hasValue
+    ? null
+    : slide?.promoType === "percent"
+      ? `-${slide.promoValue}%`
+      : slide?.promoType === "produit"
+        ? `${slide.promoValue}× offert${(slide.promoValue ?? 0) > 1 ? "s" : ""}`
+        : `-${slide?.promoValue}€`
 
   return (
     <div
@@ -140,10 +148,17 @@ export function NewsPopup({ token }: { token?: string }) {
               <div className="flex items-center gap-2">
                 <Ticket className="h-5 w-5 text-accent" aria-hidden="true" />
                 <span className="font-mono text-lg font-bold text-accent">{slide?.promoCode}</span>
-                <span className="ml-auto rounded-full bg-accent px-2.5 py-1 text-xs font-bold text-accent-foreground">
-                  {promoLabel}
-                </span>
+                {promoLabel && (
+                  <span className="ml-auto rounded-full bg-accent px-2.5 py-1 text-xs font-bold text-accent-foreground">
+                    {promoLabel}
+                  </span>
+                )}
               </div>
+              {slide?.promoType === "produit" && slide?.productName && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {slide.promoValue}× {slide.productName} offert{(slide.promoValue ?? 0) > 1 ? "s" : ""} (présent dans le panier).
+                </p>
+              )}
               {!!slide?.minAmount && slide.minAmount > 0 && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Valable dès {slide.minAmount}€ d&apos;achat.
