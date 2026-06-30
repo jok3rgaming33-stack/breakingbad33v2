@@ -1,8 +1,9 @@
 "use server"
 
 import { db } from "@/lib/db"
-import { products, type Product, type ProductVariant } from "@/lib/db/schema"
+import { products, categories, type Product, type ProductVariant, type ProductMedia, type Category } from "@/lib/db/schema"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
+import { notifyRestock } from "@/app/actions/restock"
 import { revalidatePath } from "next/cache"
 import { asc, eq, sql } from "drizzle-orm"
 
@@ -11,8 +12,8 @@ export async function listProducts(): Promise<Product[]> {
   return db.select().from(products).orderBy(asc(products.section), asc(products.sortOrder), asc(products.id))
 }
 
-// Produits d'une section donnée (boutique client).
-export async function getProductsBySection(section: "featured" | "arrival"): Promise<Product[]> {
+// Produits d'une section (clé de catégorie) donnée, pour la boutique client.
+export async function getProductsBySection(section: string): Promise<Product[]> {
   return db
     .select()
     .from(products)
@@ -20,11 +21,24 @@ export async function getProductsBySection(section: "featured" | "arrival"): Pro
     .orderBy(asc(products.sortOrder), asc(products.id))
 }
 
+// Catégories + leurs produits, pour un rendu dynamique de la boutique.
+export async function getCategoriesWithProducts(): Promise<{ category: Category; items: Product[] }[]> {
+  const [cats, prods] = await Promise.all([
+    db.select().from(categories).orderBy(asc(categories.sortOrder), asc(categories.id)),
+    db.select().from(products).orderBy(asc(products.sortOrder), asc(products.id)),
+  ])
+  return cats.map((category) => ({
+    category,
+    items: prods.filter((p) => p.section === category.key),
+  }))
+}
+
 export type ProductInput = {
   id?: number
   title: string
-  section: "featured" | "arrival"
+  section: string
   image?: string | null
+  media?: ProductMedia[]
   symbol?: string | null
   number?: string | null
   description?: string | null
@@ -52,8 +66,11 @@ export async function saveProduct(input: ProductInput) {
 
   const values = {
     title,
-    section: input.section === "arrival" ? "arrival" : "featured",
+    section: input.section?.trim() || "featured",
     image: input.image?.trim() || null,
+    media: Array.isArray(input.media)
+      ? input.media.filter((m) => m && (m.type === "image" || m.type === "video") && m.url).slice(0, 12)
+      : [],
     symbol: input.symbol?.trim() || null,
     number: input.number?.trim() || null,
     description: input.description?.trim() || null,
@@ -67,7 +84,12 @@ export async function saveProduct(input: ProductInput) {
   }
 
   if (input.id) {
+    const before = await db.select({ stock: products.stock }).from(products).where(eq(products.id, input.id)).limit(1)
     await db.update(products).set(values).where(eq(products.id, input.id))
+    // Si le stock repasse de 0 à disponible via l'édition, on notifie les alertes.
+    if ((before[0]?.stock ?? 0) <= 0 && values.stock > 0) {
+      await notifyRestock(input.id)
+    }
   } else {
     await db.insert(products).values(values)
   }
@@ -91,10 +113,30 @@ export async function deleteProduct(id: number) {
 export async function adjustStock(id: number, delta: number) {
   if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
   if (!id || !Number.isFinite(delta)) return { ok: false as const }
-  await db
+  // On capture le stock avant pour détecter un passage de 0 -> disponible.
+  const before = await db.select({ stock: products.stock }).from(products).where(eq(products.id, id)).limit(1)
+  const rows = await db
     .update(products)
     .set({ stock: sql`GREATEST(0, ${products.stock} + ${Math.trunc(delta)})` })
     .where(eq(products.id, id))
+    .returning({ stock: products.stock })
+  const wasOut = (before[0]?.stock ?? 0) <= 0
+  const nowAvailable = (rows[0]?.stock ?? 0) > 0
+  if (wasOut && nowAvailable) {
+    // Notifie les clients ayant demandé une alerte de disponibilité.
+    await notifyRestock(id)
+  }
+  revalidatePath("/")
+  revalidatePath("/admin")
+  return { ok: true as const }
+}
+
+// Réordonne les produits d'une section selon la liste d'ids fournie.
+export async function reorderProducts(orderedIds: number[]) {
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
+  await Promise.all(
+    orderedIds.map((id, idx) => db.update(products).set({ sortOrder: idx }).where(eq(products.id, id))),
+  )
   revalidatePath("/")
   revalidatePath("/admin")
   return { ok: true as const }

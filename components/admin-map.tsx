@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import type { OrderThread } from "@/lib/db/schema"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { isClosedStatus } from "@/lib/order-status"
-import { Map as MapIcon, MapPinOff, Route, RotateCcw, Truck, Store, Loader2, Clock } from "lucide-react"
+import { Map as MapIcon, MapPinOff, Route, RotateCcw, Truck, Store, Loader2, Clock, Save, Check } from "lucide-react"
+import { getMapOrigin, setMapOrigin } from "@/app/actions/settings"
 import "leaflet/dist/leaflet.css"
 
 // Point de départ par défaut (modifiable en cliquant sur la carte)
@@ -166,6 +167,35 @@ export function AdminMap({ threads }: { threads: OrderThread[] }) {
   const [ready, setReady] = useState(false)
 
   const [departure, setDeparture] = useState(DEFAULT_ORIGIN)
+  const [savingOrigin, setSavingOrigin] = useState(false)
+  const [savedOrigin, setSavedOrigin] = useState(false)
+
+  // Charge le point de départ enregistré (persisté en base par l'admin).
+  useEffect(() => {
+    let cancelled = false
+    getMapOrigin()
+      .then((o) => {
+        if (!cancelled && Number.isFinite(o.lat) && Number.isFinite(o.lng)) {
+          setDeparture({ lat: o.lat, lng: o.lng })
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Enregistre le point de départ courant comme valeur par défaut persistée.
+  const saveOrigin = async () => {
+    setSavingOrigin(true)
+    setSavedOrigin(false)
+    const res = await setMapOrigin({ lat: departure.lat, lng: departure.lng })
+    setSavingOrigin(false)
+    if (res.ok) {
+      setSavedOrigin(true)
+      setTimeout(() => setSavedOrigin(false), 2000)
+    }
+  }
 
   // Commandes géolocalisées NON livrées/annulées (les livrées sont retirées de la carte)
   const located = useMemo<Located[]>(
@@ -490,8 +520,24 @@ export function AdminMap({ threads }: { threads: OrderThread[] }) {
               </button>
               <button
                 type="button"
+                onClick={saveOrigin}
+                disabled={savingOrigin}
+                className="ml-auto flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/25 disabled:opacity-50"
+                title="Enregistrer ce point de départ comme valeur par défaut"
+              >
+                {savingOrigin ? (
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                ) : savedOrigin ? (
+                  <Check className="h-3 w-3" aria-hidden="true" />
+                ) : (
+                  <Save className="h-3 w-3" aria-hidden="true" />
+                )}
+                {savedOrigin ? "Enregistré" : "Mémoriser"}
+              </button>
+              <button
+                type="button"
                 onClick={() => setDeparture(DEFAULT_ORIGIN)}
-                className="ml-auto flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary"
+                className="flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary"
                 title="Réinitialiser le point de départ"
               >
                 <RotateCcw className="h-3 w-3" aria-hidden="true" /> Départ

@@ -13,18 +13,20 @@ import { AdminMap } from "@/components/admin-map"
 import { AdminNews } from "@/components/admin-news"
 import { AdminProducts } from "@/components/admin-products"
 import { AdminPromos } from "@/components/admin-promos"
+import { AdminLogistics } from "@/components/admin-logistics"
 import { adminLogout } from "@/app/actions/admin-auth"
-import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck } from "lucide-react"
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 
-type TabId = "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "news" | "admins" | "profits"
+type TabId = "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "messagerie", label: "Messagerie", icon: MessageSquare },
   { id: "produits", label: "Produits", icon: Package },
   { id: "promos", label: "Codes promo", icon: Ticket },
   { id: "carte", label: "Carte interactive", icon: Map },
+  { id: "logistique", label: "Logistique", icon: Truck },
   { id: "commandes", label: "Récap commandes", icon: ListOrdered },
   { id: "utilisateurs", label: "Utilisateurs", icon: Users },
   { id: "verifications", label: "Vérifications", icon: ShieldCheck },
@@ -122,6 +124,8 @@ export function AdminPanel({
           <AdminPromos />
         ) : tab === "carte" ? (
           <AdminMap threads={initialThreads} />
+        ) : tab === "logistique" ? (
+          <AdminLogistics />
         ) : tab === "news" ? (
           <AdminNews />
         ) : tab === "admins" ? (

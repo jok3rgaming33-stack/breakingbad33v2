@@ -14,8 +14,7 @@ import { NewsPopup } from "@/components/news-popup"
 import { DeliveryInfoModal } from "@/components/delivery-info-modal"
 import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
-import { FeaturedProducts } from "@/components/featured-products"
-import { NewArrivals } from "@/components/new-arrivals"
+import { ShopSections } from "@/components/shop-sections"
 import { ViewSwitcher } from "@/components/view-switcher"
 
 export default function Home() {
@@ -103,8 +102,7 @@ export default function Home() {
         ) : (
           <div className="bg-background text-foreground">
             <Hero />
-            <FeaturedProducts />
-            <NewArrivals />
+            <ShopSections />
           </div>
         )}
       </main>
