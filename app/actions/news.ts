@@ -155,14 +155,8 @@ export async function getActiveNewsForUser(userToken: string | null | undefined)
     .orderBy(desc(news.updatedAt))
 
   for (const item of active) {
-    if (token) {
-      const [seen] = await db
-        .select({ id: userNewsReads.id })
-        .from(userNewsReads)
-        .where(and(eq(userNewsReads.userToken, token), eq(userNewsReads.newsId, item.id)))
-        .limit(1)
-      if (seen) continue
-    }
+    // Note : on n'ignore plus les news déjà vues — le popup réapparaît à chaque visite
+    // tant que la news est active (comportement souhaité).
     const slides = await db
       .select()
       .from(newsSlides)
