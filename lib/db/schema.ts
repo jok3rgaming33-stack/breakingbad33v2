@@ -59,9 +59,32 @@ export const loyaltyCodes = pgTable("loyalty_codes", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Vérification d'identité (selfie photo + vidéo) exigée à la 1re commande.
+// Les fichiers sont stockés dans un Blob privé ; supprimés après validation.
+export const userVerifications = pgTable("user_verifications", {
+  id: serial("id").primaryKey(),
+  userToken: text("user_token").notNull().unique(),
+  pseudo: text("pseudo"),
+  photoPathname: text("photo_pathname"),
+  videoPathname: text("video_pathname"),
+  siteName: text("site_name"),
+  recordedAt: text("recorded_at"),
+  status: text("status").notNull().default("pending"), // 'pending' | 'validated'
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  validatedAt: timestamp("validated_at", { withTimezone: true }),
+})
+
+// Journal des créations de compte par IP (limite 1/mois/IP, conservé même après suppression).
+export const accountCreations = pgTable("account_creations", {
+  id: serial("id").primaryKey(),
+  ip: text("ip").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export type Product = typeof products.$inferSelect
 export type PromoCode = typeof promoCodes.$inferSelect
 export type LoyaltyCode = typeof loyaltyCodes.$inferSelect
+export type UserVerification = typeof userVerifications.$inferSelect
 
 export const orderThreads = pgTable("order_threads", {
   id: serial("id").primaryKey(),

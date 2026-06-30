@@ -133,12 +133,18 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
   const createAnonymousAccess = async () => {
     if (creating) return
     setCreating(true)
+    setError("")
     const pseudo = generateShortPseudo()
     const key = generateSecretKey()
     try {
       // Persiste le compte en base : la clé secrète devient l'identifiant durable.
       const res = await createAccount(key, pseudo)
-      const finalPseudo = res.ok && res.pseudo ? res.pseudo : pseudo
+      // Blocage VPN / limite mensuelle par IP : on affiche le motif et on s'arrête.
+      if (!res.ok) {
+        setError(res.error ?? "Impossible de créer le compte. Réessaie dans un instant.")
+        return
+      }
+      const finalPseudo = res.pseudo ?? pseudo
       setGeneratedPseudo(finalPseudo)
       setGeneratedKey(key)
       localStorage.setItem("authToken", key)
@@ -350,6 +356,12 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
               )}
               <span>{creating ? "Création..." : "Créer mon accès anonyme"}</span>
             </button>
+            {error && !showResultModal && (
+              <p className="mt-3 flex items-start gap-1.5 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                <span>{error}</span>
+              </p>
+            )}
           </div>
 
           <div className="rounded-3xl border border-border bg-background/40 p-8 backdrop-blur-xl">

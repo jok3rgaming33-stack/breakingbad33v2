@@ -1,0 +1,223 @@
+"use client"
+
+import { useState } from "react"
+import type { VerificationRow } from "@/app/actions/verification"
+import { validateAndPurge } from "@/app/actions/verification"
+import { ShieldCheck, ShieldAlert, Loader2, Check, Image as ImageIcon, Video, Trash2, AlertTriangle } from "lucide-react"
+
+function fileUrl(pathname: string) {
+  return `/api/verification/file?pathname=${encodeURIComponent(pathname)}`
+}
+
+function formatDate(value: Date | string) {
+  return new Date(value).toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+export function AdminVerifications({ initialVerifications }: { initialVerifications: VerificationRow[] }) {
+  const [rows, setRows] = useState<VerificationRow[]>(initialVerifications)
+  const [confirm, setConfirm] = useState<VerificationRow | null>(null)
+  const [pendingId, setPendingId] = useState<number | null>(null)
+
+  const pending = rows.filter((r) => r.status === "pending")
+  const validated = rows.filter((r) => r.status === "validated")
+
+  const handleValidate = async (row: VerificationRow) => {
+    setPendingId(row.id)
+    try {
+      const res = await validateAndPurge(row.id)
+      if (res.ok) {
+        setRows((prev) =>
+          prev.map((r) =>
+            r.id === row.id ? { ...r, status: "validated", photoPathname: null, videoPathname: null } : r,
+          ),
+        )
+      }
+    } finally {
+      setPendingId(null)
+      setConfirm(null)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent">
+            <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div>
+            <h2 className="text-lg font-bold">Vérifications d&apos;identité</h2>
+            <p className="text-xs text-muted-foreground">
+              Selfies de 1re commande. Valide la 1re livraison pour supprimer définitivement les fichiers.
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <div className="rounded-2xl border border-border bg-card px-4 py-2.5 text-center">
+            <div className="text-xl font-bold text-accent">{pending.length}</div>
+            <div className="text-[11px] text-muted-foreground">En attente</div>
+          </div>
+          <div className="rounded-2xl border border-border bg-card px-4 py-2.5 text-center">
+            <div className="text-xl font-bold text-muted-foreground">{validated.length}</div>
+            <div className="text-[11px] text-muted-foreground">Validées</div>
+          </div>
+        </div>
+      </div>
+
+      {pending.length === 0 && validated.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-border bg-card px-6 py-16 text-center text-muted-foreground">
+          Aucune vérification soumise pour le moment.
+        </div>
+      )}
+
+      {/* En attente */}
+      {pending.length > 0 && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {pending.map((row) => (
+            <div key={row.id} className="overflow-hidden rounded-2xl border border-accent/30 bg-card">
+              <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+                <div>
+                  <div className="font-semibold">{row.pseudo ?? "Client"}</div>
+                  <div className="text-[11px] text-muted-foreground">Soumis le {formatDate(row.createdAt)}</div>
+                </div>
+                <span className="flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-[11px] font-semibold text-accent">
+                  <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+                  En attente
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-px bg-border">
+                <div className="bg-card p-2">
+                  <div className="mb-1 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                    <ImageIcon className="h-3 w-3" aria-hidden="true" />
+                    Photo
+                  </div>
+                  {row.photoPathname ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={fileUrl(row.photoPathname) || "/placeholder.svg"}
+                      alt={`Selfie photo de ${row.pseudo ?? "client"}`}
+                      className="aspect-[3/4] w-full rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="flex aspect-[3/4] items-center justify-center rounded-lg bg-background/40 text-xs text-muted-foreground">
+                      —
+                    </div>
+                  )}
+                </div>
+                <div className="bg-card p-2">
+                  <div className="mb-1 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                    <Video className="h-3 w-3" aria-hidden="true" />
+                    Vidéo
+                  </div>
+                  {row.videoPathname ? (
+                    <video
+                      src={fileUrl(row.videoPathname)}
+                      controls
+                      playsInline
+                      className="aspect-[3/4] w-full rounded-lg bg-black object-cover"
+                    />
+                  ) : (
+                    <div className="flex aspect-[3/4] items-center justify-center rounded-lg bg-background/40 text-xs text-muted-foreground">
+                      —
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="px-4 py-3 text-xs text-muted-foreground">
+                <div>
+                  Site prononcé&nbsp;: <span className="font-medium text-foreground">{row.siteName ?? "—"}</span>
+                </div>
+                <div>
+                  Date/heure prononcée&nbsp;: <span className="font-medium text-foreground">{row.recordedAt ?? "—"}</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setConfirm(row)}
+                disabled={pendingId === row.id}
+                className="flex w-full items-center justify-center gap-2 border-t border-border bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {pendingId === row.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Check className="h-4 w-4" aria-hidden="true" />
+                )}
+                Valider la 1re livraison &amp; supprimer
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Validées */}
+      {validated.length > 0 && (
+        <div className="rounded-2xl border border-border bg-card">
+          <div className="border-b border-border px-4 py-3 text-sm font-semibold">Vérifications validées</div>
+          <ul className="divide-y divide-border">
+            {validated.map((row) => (
+              <li key={row.id} className="flex items-center justify-between px-4 py-3 text-sm">
+                <span className="font-medium">{row.pseudo ?? "Client"}</span>
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  Fichiers supprimés
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Confirmation */}
+      {confirm && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-background/90 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirmer la validation"
+        >
+          <div className="w-full max-w-sm rounded-3xl border border-accent/40 bg-card p-6">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/15 text-accent">
+                <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <h3 className="text-lg font-bold">Valider la 1re livraison ?</h3>
+            </div>
+            <p className="mb-6 text-sm text-muted-foreground">
+              La photo et la vidéo de{" "}
+              <span className="font-semibold text-foreground">{confirm.pseudo ?? "ce client"}</span> seront{" "}
+              <span className="font-semibold text-foreground">définitivement supprimées</span>. Cette action est
+              irréversible.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirm(null)}
+                className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => handleValidate(confirm)}
+                disabled={pendingId === confirm.id}
+                className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {pendingId === confirm.id && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                Valider &amp; supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
