@@ -9,11 +9,13 @@ import { revalidatePath } from "next/cache"
 import { and, asc, desc, eq, sql } from "drizzle-orm"
 
 // Forme renvoyée au panier lorsqu'un code est validé.
+// type 'produit' : offre `value` unité(s) du produit `productName`.
 export type ValidatedPromo = {
   code: string
-  type: "percent" | "fixed"
+  type: "percent" | "fixed" | "produit"
   value: number
   minAmount: number
+  productName?: string | null
 }
 
 // --- Codes promo globaux (admin) ---
