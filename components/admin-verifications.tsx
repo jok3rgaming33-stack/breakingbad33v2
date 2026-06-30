@@ -23,6 +23,7 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
   const [rows, setRows] = useState<VerificationRow[]>(initialVerifications)
   const [confirm, setConfirm] = useState<VerificationRow | null>(null)
   const [pendingId, setPendingId] = useState<number | null>(null)
+  const [photoView, setPhotoView] = useState<VerificationRow | null>(null)
 
   const pending = rows.filter((r) => r.status === "pending")
   const validated = rows.filter((r) => r.status === "validated")
@@ -32,10 +33,9 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
     try {
       const res = await validateAndPurge(row.id)
       if (res.ok) {
+        // La vidéo est supprimée ; la photo est conservée et reste consultable.
         setRows((prev) =>
-          prev.map((r) =>
-            r.id === row.id ? { ...r, status: "validated", photoPathname: null, videoPathname: null } : r,
-          ),
+          prev.map((r) => (r.id === row.id ? { ...r, status: "validated", videoPathname: null } : r)),
         )
       }
     } finally {
@@ -54,7 +54,7 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
           <div>
             <h2 className="text-lg font-bold">Vérifications d&apos;identité</h2>
             <p className="text-xs text-muted-foreground">
-              Selfies de 1re commande. Valide la 1re livraison pour supprimer définitivement les fichiers.
+              Selfies de 1re commande. Valider la 1re livraison supprime la vidéo&nbsp;; la photo reste consultable.
             </p>
           </div>
         </div>
@@ -151,25 +151,44 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
                 ) : (
                   <Check className="h-4 w-4" aria-hidden="true" />
                 )}
-                Valider la 1re livraison &amp; supprimer
+                Valider la 1re livraison
               </button>
             </div>
           ))}
         </div>
       )}
 
-      {/* Validées */}
+      {/* Validées : photo conservée, consultable à la demande. */}
       {validated.length > 0 && (
         <div className="rounded-2xl border border-border bg-card">
           <div className="border-b border-border px-4 py-3 text-sm font-semibold">Vérifications validées</div>
           <ul className="divide-y divide-border">
             {validated.map((row) => (
-              <li key={row.id} className="flex items-center justify-between px-4 py-3 text-sm">
-                <span className="font-medium">{row.pseudo ?? "Client"}</span>
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                  Fichiers supprimés
-                </span>
+              <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <div className="min-w-0">
+                  <div className="font-medium">{row.pseudo ?? "Client"}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Validée{row.recordedAt ? ` · ${row.recordedAt}` : ""}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    Vidéo supprimée
+                  </span>
+                  {row.photoPathname ? (
+                    <button
+                      type="button"
+                      onClick={() => setPhotoView(row)}
+                      className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                      Voir la photo
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground">Photo indisponible</span>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -192,10 +211,10 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
               <h3 className="text-lg font-bold">Valider la 1re livraison ?</h3>
             </div>
             <p className="mb-6 text-sm text-muted-foreground">
-              La photo et la vidéo de{" "}
-              <span className="font-semibold text-foreground">{confirm.pseudo ?? "ce client"}</span> seront{" "}
-              <span className="font-semibold text-foreground">définitivement supprimées</span>. Cette action est
-              irréversible.
+              La vidéo de{" "}
+              <span className="font-semibold text-foreground">{confirm.pseudo ?? "ce client"}</span> sera{" "}
+              <span className="font-semibold text-foreground">définitivement supprimée</span>. La photo sera conservée
+              et restera consultable depuis ce panel. Cette action est irréversible.
             </p>
             <div className="flex justify-end gap-3">
               <button
@@ -212,9 +231,44 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
                 className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {pendingId === confirm.id && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-                Valider &amp; supprimer
+                Valider la livraison
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Visualisation de la photo conservée */}
+      {photoView && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-background/90 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Photo de vérification"
+          onClick={() => setPhotoView(null)}
+        >
+          <div
+            className="w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+              <div className="font-semibold">{photoView.pseudo ?? "Client"}</div>
+              <button
+                type="button"
+                onClick={() => setPhotoView(null)}
+                className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary"
+              >
+                Fermer
+              </button>
+            </div>
+            {photoView.photoPathname && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={fileUrl(photoView.photoPathname) || "/placeholder.svg"}
+                alt={`Selfie photo de ${photoView.pseudo ?? "client"}`}
+                className="max-h-[70vh] w-full object-contain bg-black"
+              />
+            )}
           </div>
         </div>
       )}
