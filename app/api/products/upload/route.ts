@@ -24,8 +24,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           maximumSizeInBytes: 200 * 1024 * 1024, // 200 Mo (couvre les vidéos)
         }
       },
-      // Callback côté serveur après upload (non utilisé : l'URL est gérée côté client).
-      onUploadCompleted: async () => {},
     })
 
     return NextResponse.json(jsonResponse)
