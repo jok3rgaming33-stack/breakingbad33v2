@@ -10,12 +10,14 @@ export type CartItem = {
   qty: number
 }
 
-// Promo issue d'une news. type: "percent" (%), "fixed" (€).
+// Promo issue d'une news ou de l'admin.
+// type: "percent" (%), "fixed" (€), "produit" (value unités offertes de productName).
 export type CartPromo = {
   code: string
-  type: "percent" | "fixed"
+  type: "percent" | "fixed" | "produit"
   value: number
   minAmount: number
+  productName?: string | null
 }
 
 type CartContextType = {
@@ -95,9 +97,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const promoDiscount = useMemo(() => {
     if (!promo) return 0
     if (subtotal < promo.minAmount) return 0
+    if (promo.type === "produit") {
+      // Offre `value` unité(s) du produit nommé : on déduit son prix unitaire * nb offert.
+      const target = items.find((i) => i.title.toLowerCase() === (promo.productName ?? "").trim().toLowerCase())
+      if (!target) return 0
+      const freeQty = Math.min(promo.value, target.qty)
+      return Math.min(target.price * freeQty, subtotal)
+    }
     const raw = promo.type === "percent" ? Math.round((subtotal * promo.value) / 100) : promo.value
     return Math.min(raw, subtotal)
-  }, [promo, subtotal])
+  }, [promo, subtotal, items])
 
   return (
     <CartContext.Provider

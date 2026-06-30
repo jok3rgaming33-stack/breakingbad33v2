@@ -39,8 +39,9 @@ export const products = pgTable("products", {
 export const promoCodes = pgTable("promo_codes", {
   id: serial("id").primaryKey(),
   code: text("code").notNull().unique(),
-  type: text("type").notNull().default("fixed"), // 'percent' | 'fixed'
-  value: integer("value").notNull().default(0),
+  type: text("type").notNull().default("fixed"), // 'percent' | 'fixed' | 'produit'
+  value: integer("value").notNull().default(0), // % / € / nombre de produits offerts
+  productName: text("product_name"), // nom du produit offert (type 'produit')
   minAmount: integer("min_amount").notNull().default(0),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
