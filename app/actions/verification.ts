@@ -103,21 +103,20 @@ export async function listVerifications(): Promise<VerificationRow[]> {
   return rows
 }
 
-// Valide la 1re livraison : supprime les fichiers du Blob et marque "validated".
+// Valide la 1re livraison : supprime UNIQUEMENT la vidéo du Blob et marque "validated".
+// La photo est conservée et reste accessible à la demande depuis le panel admin.
 export async function validateAndPurge(id: number) {
   if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
   const rows = await db.select().from(userVerifications).where(eq(userVerifications.id, id)).limit(1)
   const row = rows[0]
   if (!row) return { ok: false as const, error: "Introuvable." }
 
-  // Suppression des médias (best-effort).
-  for (const path of [row.photoPathname, row.videoPathname]) {
-    if (path) {
-      try {
-        await del(path)
-      } catch (err) {
-        console.log("[v0] del blob error:", err)
-      }
+  // Suppression de la vidéo uniquement (best-effort) ; la photo est conservée.
+  if (row.videoPathname) {
+    try {
+      await del(row.videoPathname)
+    } catch (err) {
+      console.log("[v0] del blob error:", err)
     }
   }
 
@@ -125,7 +124,6 @@ export async function validateAndPurge(id: number) {
     .update(userVerifications)
     .set({
       status: "validated",
-      photoPathname: null,
       videoPathname: null,
       validatedAt: new Date(),
     })
