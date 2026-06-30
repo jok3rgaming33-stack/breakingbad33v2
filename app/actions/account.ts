@@ -1,15 +1,17 @@
 "use server"
 
 import { db } from "@/lib/db"
-import { users, orderThreads } from "@/lib/db/schema"
-import { eq, desc, sql } from "drizzle-orm"
+import { users, orderThreads, accountCreations } from "@/lib/db/schema"
+import { eq, desc, sql, and, gte } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { isClosedStatus, normalizeStatus } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { notifyVendor } from "@/lib/push"
+import { getClientIp, isVpnOrProxy } from "@/lib/ip-check"
 
 // Crée (ou réenregistre) un compte anonyme : associe une clé secrète à un pseudo.
 // Idempotent : si la clé existe déjà, on conserve le pseudo d'origine.
+// Applique une limite d'1 création par mois et par IP, et bloque les VPN/proxies.
 export async function createAccount(token: string, pseudo: string) {
   const t = token?.trim()
   const p = pseudo?.trim()
@@ -20,7 +22,41 @@ export async function createAccount(token: string, pseudo: string) {
     return { ok: true as const, pseudo: existing[0].pseudo }
   }
 
+  // --- Contrôles anti-comptes multiples (uniquement pour un NOUVEAU compte) ---
+  const ip = await getClientIp()
+
+  // 1) Blocage des VPN / proxies.
+  if (await isVpnOrProxy(ip)) {
+    return {
+      ok: false as const,
+      error:
+        "La création de compte via VPN ou proxy n'est pas autorisée. Désactive-le puis réessaie.",
+    }
+  }
+
+  // 2) Limite d'un compte par mois et par IP.
+  if (ip) {
+    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const recent = await db
+      .select({ id: accountCreations.id })
+      .from(accountCreations)
+      .where(and(eq(accountCreations.ip, ip), gte(accountCreations.createdAt, monthAgo)))
+      .limit(1)
+    if (recent.length > 0) {
+      return {
+        ok: false as const,
+        error:
+          "Un compte a déjà été créé depuis cette connexion ce mois-ci. Une seule création par mois est autorisée.",
+      }
+    }
+  }
+
   await db.insert(users).values({ token: t, pseudo: p })
+
+  // Journalise l'IP pour faire respecter la limite mensuelle.
+  if (ip) {
+    await db.insert(accountCreations).values({ ip })
+  }
 
   // Notifie le vendeur de l'arrivée d'un nouveau membre.
   await notifyVendor({

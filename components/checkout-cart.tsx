@@ -4,6 +4,8 @@ import { useMemo, useState } from "react"
 import { useCart } from "@/components/cart-provider"
 import { createOrderThread } from "@/app/actions/messaging"
 import { validateCode, markLoyaltyCodeUsed } from "@/app/actions/promo"
+import { needsVerification, submitVerification } from "@/app/actions/verification"
+import { SelfieVerificationModal, type VerificationMetadata } from "@/components/selfie-verification-modal"
 import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus } from "lucide-react"
 
 type UserData = { pseudo?: string } | null
@@ -47,6 +49,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const [placed, setPlaced] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // Vérification d'identité obligatoire à la 1re commande.
+  const [showVerification, setShowVerification] = useState(false)
+  const [verifSubmitting, setVerifSubmitting] = useState(false)
+  const [verifError, setVerifError] = useState<string | null>(null)
 
   const name = userData?.pseudo ?? "Invité"
 
@@ -121,8 +128,65 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     !!date &&
     (isMeetup ? !!meetupHour : !!address.trim() && !!slot && distanceKm != null)
 
+  // Point d'entrée : à la 1re commande, on impose d'abord la vérification d'identité.
   const handleValidate = async () => {
     if (!canValidate || submitting) return
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") ?? undefined : undefined
+    try {
+      if (await needsVerification(token)) {
+        setShowVerification(true)
+        return
+      }
+    } catch {
+      // En cas d'erreur de contrôle, on n'empêche pas la commande légitime.
+    }
+    await placeOrder()
+  }
+
+  // Upload des médias de vérification puis enregistrement, et poursuite de la commande.
+  const handleVerificationComplete = async (photo: File, video: File, meta: VerificationMetadata) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") ?? "" : ""
+    if (!token) {
+      setVerifError("Session expirée. Reconnecte-toi.")
+      return
+    }
+    setVerifSubmitting(true)
+    setVerifError(null)
+    try {
+      const upload = async (file: File, kind: "photo" | "video") => {
+        const fd = new FormData()
+        fd.append("file", file)
+        fd.append("token", token)
+        fd.append("kind", kind)
+        const res = await fetch("/api/verification/upload", { method: "POST", body: fd })
+        if (!res.ok) throw new Error("upload failed")
+        const data = (await res.json()) as { pathname: string }
+        return data.pathname
+      }
+      const [photoPathname, videoPathname] = await Promise.all([upload(photo, "photo"), upload(video, "video")])
+      const saved = await submitVerification({
+        token,
+        photoPathname,
+        videoPathname,
+        siteName: meta.siteName,
+        recordedAt: meta.recordedAt,
+      })
+      if (!saved.ok) {
+        setVerifError(saved.error ?? "Échec de l'enregistrement.")
+        return
+      }
+      setShowVerification(false)
+      await placeOrder()
+    } catch (err) {
+      console.log("[v0] verification upload error:", err)
+      setVerifError("Échec de l'envoi des fichiers. Réessaie.")
+    } finally {
+      setVerifSubmitting(false)
+    }
+  }
+
+  const placeOrder = async () => {
+    if (submitting) return
 
     const lines = items.map((i) => `• ${i.qty}x ${i.title} — ${i.price * i.qty}€`).join("\n")
     const productsShort = items.map((i) => `${i.qty}x ${i.title}`).join(", ")
@@ -200,6 +264,14 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   }
 
   return (
+    <>
+    {showVerification && (
+      <SelfieVerificationModal
+        onComplete={handleVerificationComplete}
+        submitting={verifSubmitting}
+        submitError={verifError}
+      />
+    )}
     <div
       className="fixed inset-0 z-[150] flex justify-end bg-background/80 backdrop-blur-sm"
       role="dialog"
@@ -535,5 +607,6 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         )}
       </div>
     </div>
+    </>
   )
 }

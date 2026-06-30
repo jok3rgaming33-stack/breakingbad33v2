@@ -1,6 +1,7 @@
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { getThreads } from "@/app/actions/messaging"
 import { listUsers } from "@/app/actions/account"
+import { listVerifications } from "@/app/actions/verification"
 import { AdminGate } from "@/components/admin-gate"
 import { AdminPanel } from "@/components/admin-panel"
 
@@ -18,7 +19,7 @@ export default async function AdminPage() {
     return <AdminGate />
   }
 
-  const [threads, usersList] = await Promise.all([getThreads(), listUsers()])
+  const [threads, usersList, verifications] = await Promise.all([getThreads(), listUsers(), listVerifications()])
 
-  return <AdminPanel initialThreads={threads} initialUsers={usersList} />
+  return <AdminPanel initialThreads={threads} initialUsers={usersList} initialVerifications={verifications} />
 }
