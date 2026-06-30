@@ -2,29 +2,14 @@
 
 import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
-import { scryptSync, randomBytes, timingSafeEqual } from "crypto"
 import { db } from "@/lib/db"
 import { adminAccounts } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import { verifyTurnstile } from "@/lib/turnstile"
+import { verifyPassword } from "@/lib/admin-password"
 
 const COOKIE_NAME = "admin_session"
 const ADMIN_PSEUDO = "Heisenberg"
-
-// --- Hachage de mot de passe (scrypt natif, aucune dépendance externe) ---
-export function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString("hex")
-  const hash = scryptSync(password, salt, 64).toString("hex")
-  return `${salt}:${hash}`
-}
-
-function verifyPassword(password: string, stored: string): boolean {
-  const [salt, hash] = stored.split(":")
-  if (!salt || !hash) return false
-  const candidate = scryptSync(password, salt, 64)
-  const original = Buffer.from(hash, "hex")
-  return candidate.length === original.length && timingSafeEqual(candidate, original)
-}
 
 // Vérifie un token : super-admin (env) ou compte admin actif en base.
 export async function isAdminToken(token: string) {

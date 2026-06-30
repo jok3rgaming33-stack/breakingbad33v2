@@ -9,6 +9,7 @@ import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { notifyVendor } from "@/lib/push"
 import { getClientIp, isVpnOrProxy } from "@/lib/ip-check"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
+import { USER_FLAGS } from "@/lib/user-flags"
 
 // Crée (ou réenregistre) un compte anonyme : associe une clé secrète à un pseudo.
 // Idempotent : si la clé existe déjà, on conserve le pseudo d'origine.
@@ -127,10 +128,6 @@ export type AdminUserRow = {
   loyaltyAdjustment: number
   flags: string[]
 }
-
-// Étiquettes possibles posées par l'admin sur un compte client.
-export const USER_FLAGS = ["absent", "suspect", "fidele", "banni"] as const
-export type UserFlag = (typeof USER_FLAGS)[number]
 
 // Répertoire de tous les comptes enregistrés, avec nombre de commandes et total dépensé.
 export async function listUsers(): Promise<AdminUserRow[]> {

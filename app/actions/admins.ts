@@ -4,7 +4,8 @@ import { db } from "@/lib/db"
 import { adminAccounts } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
-import { isAdminAuthenticated, hashPassword } from "./admin-auth"
+import { isAdminAuthenticated } from "./admin-auth"
+import { hashPassword } from "@/lib/admin-password"
 
 export type AdminRow = {
   id: number
