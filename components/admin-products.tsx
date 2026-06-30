@@ -4,6 +4,7 @@ import { useState, useRef } from "react"
 import useSWR from "swr"
 import { Plus, Trash2, Pencil, Minus, X, Loader2, PackagePlus, Save, GripVertical, Upload, FolderPlus, Check, Film } from "lucide-react"
 import { BADGE_OPTIONS } from "@/lib/badges"
+import { uploadMedia } from "@/lib/upload-media"
 import { listProducts, saveProduct, deleteProduct, adjustStock, reorderProducts, type ProductInput } from "@/app/actions/products"
 import { listCategories, createCategory, renameCategory, deleteCategory, reorderCategories } from "@/app/actions/categories"
 import type { Product, ProductVariant, ProductMedia, Category } from "@/lib/db/schema"
@@ -570,18 +571,11 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
     setErr(null)
     const added: ProductMedia[] = []
     for (const file of Array.from(files)) {
-      const fd = new FormData()
-      fd.append("file", file)
       try {
-        const res = await fetch("/api/products/upload", { method: "POST", body: fd })
-        const data = await res.json()
-        if (res.ok && data.url) {
-          added.push({ type: data.type, url: data.url })
-        } else {
-          setErr(data.error ?? "Échec de l'envoi d'un fichier.")
-        }
-      } catch {
-        setErr("Échec de l'envoi.")
+        const { url, type } = await uploadMedia(file)
+        added.push({ type, url })
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Échec de l'envoi.")
       }
     }
     // La première image importée devient l'image principale si aucune n'est définie.

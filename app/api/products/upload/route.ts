@@ -1,39 +1,37 @@
-import { put } from "@vercel/blob"
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
 import { type NextRequest, NextResponse } from "next/server"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 
-// Upload public d'un média produit (image ou vidéo) depuis mobile/PC.
-// Réservé à l'admin authentifié. Les médias produits sont publics (vitrine).
-export async function POST(request: NextRequest) {
+// Upload CLIENT direct vers Blob (images/vidéos produits & slides News).
+// Le fichier est envoyé directement du navigateur vers Blob : cela contourne la
+// limite de 4,5 Mo des fonctions serverless Vercel (photos de téléphone, vidéos...).
+// Cette route ne fait que générer un token signé, après vérification admin.
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const body = (await request.json()) as HandleUploadBody
+
   try {
-    if (!(await isAdminAuthenticated())) {
-      return NextResponse.json({ error: "Non autorisé." }, { status: 401 })
-    }
+    const jsonResponse = await handleUpload({
+      body,
+      request,
+      onBeforeGenerateToken: async () => {
+        // Sécurité : seul un admin authentifié peut obtenir un token d'upload.
+        if (!(await isAdminAuthenticated())) {
+          throw new Error("Non autorisé.")
+        }
+        return {
+          allowedContentTypes: ["image/*", "video/*"],
+          addRandomSuffix: true,
+          maximumSizeInBytes: 200 * 1024 * 1024, // 200 Mo (couvre les vidéos)
+        }
+      },
+    })
 
-    const formData = await request.formData()
-    const file = formData.get("file") as File | null
-    if (!file) return NextResponse.json({ error: "Fichier manquant." }, { status: 400 })
-
-    const isVideo = file.type.startsWith("video/")
-    const isImage = file.type.startsWith("image/")
-    if (!isVideo && !isImage) {
-      return NextResponse.json({ error: "Format non supporté (image ou vidéo)." }, { status: 415 })
-    }
-
-    // Limites : image 15 Mo, vidéo 100 Mo.
-    const maxBytes = isVideo ? 100 * 1024 * 1024 : 15 * 1024 * 1024
-    if (file.size > maxBytes) {
-      return NextResponse.json({ error: "Fichier trop volumineux." }, { status: 413 })
-    }
-
-    const ext = (file.name.split(".").pop() || (isVideo ? "mp4" : "jpg")).toLowerCase().replace(/[^a-z0-9]/g, "")
-    const pathname = `products/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
-
-    const blob = await put(pathname, file, { access: "public", addRandomSuffix: true })
-
-    return NextResponse.json({ url: blob.url, type: isVideo ? "video" : "image" })
+    return NextResponse.json(jsonResponse)
   } catch (error) {
-    console.error("[v0] product media upload error:", error)
-    return NextResponse.json({ error: "Échec de l'envoi." }, { status: 500 })
+    console.error("[v0] blob client upload error:", error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Échec de l'envoi." },
+      { status: 400 },
+    )
   }
 }

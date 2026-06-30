@@ -12,6 +12,7 @@ import {
   publishAndNotify,
   type SlideInput,
 } from "@/app/actions/news"
+import { uploadMedia } from "@/lib/upload-media"
 import {
   Newspaper,
   Plus,
@@ -172,12 +173,8 @@ export function AdminNews() {
     setUploadError(null)
     setUploadingIdx(idx)
     try {
-      const fd = new FormData()
-      fd.append("file", file)
-      const res = await fetch("/api/products/upload", { method: "POST", body: fd })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || "Échec de l'envoi.")
-      updateSlideField(idx, { imageUrl: data.url })
+      const { url } = await uploadMedia(file)
+      updateSlideField(idx, { imageUrl: url })
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Échec de l'envoi.")
     } finally {
