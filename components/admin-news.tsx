@@ -23,6 +23,8 @@ import {
   Ticket,
   Save,
   CheckCircle2,
+  Upload,
+  X,
 } from "lucide-react"
 
 type NewsRow = {
@@ -60,6 +62,9 @@ export function AdminNews() {
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [busy, setBusy] = useState(false)
   const [publishedId, setPublishedId] = useState<number | null>(null)
+  // Index du slide en cours d'upload d'image (pour afficher le spinner localement).
+  const [uploadingIdx, setUploadingIdx] = useState<number | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   const refreshList = async () => {
     setLoading(true)
@@ -156,6 +161,28 @@ export function AdminNews() {
 
   const updateSlideField = (idx: number, patch: Partial<Slide>) => {
     setSlides((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)))
+  }
+
+  // Upload d'une image depuis l'appareil vers Blob, puis renseigne l'URL du slide.
+  const handleImageUpload = async (idx: number, file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setUploadError("Veuillez sélectionner une image.")
+      return
+    }
+    setUploadError(null)
+    setUploadingIdx(idx)
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      const res = await fetch("/api/products/upload", { method: "POST", body: fd })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || "Échec de l'envoi.")
+      updateSlideField(idx, { imageUrl: data.url })
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Échec de l'envoi.")
+    } finally {
+      setUploadingIdx(null)
+    }
   }
 
   const saveSlide = async (idx: number) => {
@@ -368,14 +395,57 @@ export function AdminNews() {
                   rows={2}
                   className="w-full resize-none rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                 />
-                <div className="flex items-center gap-2">
-                  <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  <input
-                    value={s.imageUrl ?? ""}
-                    onChange={(e) => updateSlideField(idx, { imageUrl: e.target.value })}
-                    placeholder="URL de l'image (ex. /images/promo.png)"
-                    className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
-                  />
+                <div className="flex flex-col gap-2">
+                  {s.imageUrl ? (
+                    <div className="relative overflow-hidden rounded-xl border border-border">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={s.imageUrl || "/placeholder.svg"} alt="Aperçu du slide" className="max-h-40 w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => updateSlideField(idx, { imageUrl: "" })}
+                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+                        aria-label="Retirer l'image"
+                      >
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="flex items-center gap-2">
+                    <label
+                      className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2.5 text-sm font-medium transition-colors hover:border-accent ${
+                        uploadingIdx === idx ? "pointer-events-none opacity-60" : ""
+                      }`}
+                    >
+                      {uploadingIdx === idx ? (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Upload className="h-4 w-4" aria-hidden="true" />
+                      )}
+                      Importer
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0]
+                          if (f) handleImageUpload(idx, f)
+                          e.target.value = ""
+                        }}
+                      />
+                    </label>
+                    <div className="flex w-full items-center gap-2">
+                      <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <input
+                        value={s.imageUrl ?? ""}
+                        onChange={(e) => updateSlideField(idx, { imageUrl: e.target.value })}
+                        placeholder="ou colle une URL d'image"
+                        className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
+                      />
+                    </div>
+                  </div>
+                  {uploadError && uploadingIdx === null && (
+                    <p className="text-xs text-destructive">{uploadError}</p>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <input
