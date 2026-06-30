@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from "react"
 import { Plus, CheckCircle2, Copy, AlertTriangle, Loader2, History } from "lucide-react"
 import { adminLogin } from "@/app/actions/admin-auth"
 import { createAccount, ensureAccount, getAccount, getCustomerStats } from "@/app/actions/account"
+import { verifyHuman } from "@/app/actions/security"
+import { TurnstileWidget } from "@/components/turnstile-widget"
 
 const CRYSTAL_COUNT = 4
 
@@ -17,6 +19,12 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
   const [creating, setCreating] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [stats, setStats] = useState<{ points: number; active: number; past: number } | null>(null)
+  // Tokens Turnstile (un par formulaire) + signaux de réinitialisation.
+  const [captchaCreate, setCaptchaCreate] = useState("")
+  const [captchaLogin, setCaptchaLogin] = useState("")
+  const [resetCreate, setResetCreate] = useState(0)
+  const [resetLogin, setResetLogin] = useState(0)
+  const hasTurnstile = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // Canvas Cristaux
@@ -132,16 +140,29 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
 
   const createAnonymousAccess = async () => {
     if (creating) return
+    // CAPTCHA obligatoire avant toute création de compte.
+    if (hasTurnstile && !captchaCreate) {
+      setError("Merci de valider le test anti-robot avant de continuer.")
+      return
+    }
     setCreating(true)
     setError("")
     const pseudo = generateShortPseudo()
     const key = generateSecretKey()
     try {
+      // Vérification serveur du token Turnstile AVANT toute action.
+      const human = await verifyHuman(captchaCreate)
+      if (!human.ok) {
+        setError(human.error ?? "Vérification anti-robot échouée.")
+        setResetCreate((n) => n + 1) // token consommé : on réinitialise le widget
+        return
+      }
       // Persiste le compte en base : la clé secrète devient l'identifiant durable.
       const res = await createAccount(key, pseudo)
       // Blocage VPN / limite mensuelle par IP : on affiche le motif et on s'arrête.
       if (!res.ok) {
         setError(res.error ?? "Impossible de créer le compte. Réessaie dans un instant.")
+        setResetCreate((n) => n + 1)
         return
       }
       const finalPseudo = res.pseudo ?? pseudo
@@ -153,6 +174,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
       setShowResultModal(true)
     } catch {
       setError("Impossible de créer le compte. Réessaie dans un instant.")
+      setResetCreate((n) => n + 1)
     } finally {
       setCreating(false)
     }
@@ -165,10 +187,22 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
       return
     }
     if (loggingIn) return
+    // CAPTCHA obligatoire avant toute connexion.
+    if (hasTurnstile && !captchaLogin) {
+      setError("Merci de valider le test anti-robot avant de continuer.")
+      return
+    }
     setError("")
     setLoggingIn(true)
 
     try {
+      // Vérification serveur du token Turnstile AVANT toute action.
+      const human = await verifyHuman(captchaLogin)
+      if (!human.ok) {
+        setError(human.error ?? "Vérification anti-robot échouée.")
+        setResetLogin((n) => n + 1)
+        return
+      }
       // Vérifie côté serveur si ce token correspond à l'accès admin (Heisenberg)
       const res = await adminLogin(token)
       if (res.ok && res.pseudo) {
@@ -200,6 +234,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
       setIsLoggedIn(true)
     } catch {
       setError("Connexion impossible. Réessaie dans un instant.")
+      setResetLogin((n) => n + 1)
     } finally {
       setLoggingIn(false)
     }
@@ -344,9 +379,12 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
           </div>
 
           <div className="mb-6">
+            <div className="mb-4 flex justify-center">
+              <TurnstileWidget onVerify={setCaptchaCreate} resetSignal={resetCreate} />
+            </div>
             <button
               onClick={createAnonymousAccess}
-              disabled={creating}
+              disabled={creating || (hasTurnstile && !captchaCreate)}
               className="flex w-full items-center justify-center gap-3 rounded-2xl bg-accent py-5 text-xl font-semibold text-accent-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {creating ? (
@@ -378,9 +416,12 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
               aria-label="Clé secrète"
             />
             {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
+            <div className="mb-3 flex justify-center">
+              <TurnstileWidget onVerify={setCaptchaLogin} resetSignal={resetLogin} />
+            </div>
             <button
               onClick={loginWithKey}
-              disabled={loggingIn}
+              disabled={loggingIn || (hasTurnstile && !captchaLogin)}
               className="mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-foreground py-4 text-lg font-semibold text-background transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loggingIn && <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />}

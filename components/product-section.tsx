@@ -8,15 +8,18 @@ import { FlaskConical, Sparkles, X as CloseIcon } from "lucide-react"
 import { ProductBadges } from "@/components/product-badge"
 import { resolveBadges } from "@/lib/badges"
 import { getProductsBySection, decrementStock } from "@/app/actions/products"
+import { requestRestockAlert, hasRestockAlert } from "@/app/actions/restock"
+import { BellRing, BellPlus } from "lucide-react"
 import type { Product, ProductVariant } from "@/lib/db/schema"
 
 type SectionConfig = {
-  section: "featured" | "arrival"
+  section: string
   icon: "flask" | "sparkles"
   eyebrow: string
   title: string
   gridCols: string
   imageSize: string
+  anchor?: string
 }
 
 // Prix effectif d'une variante après remise produit éventuelle.
@@ -40,6 +43,21 @@ export function ProductSection({ config }: { config: SectionConfig }) {
   const [variantIdx, setVariantIdx] = useState(0)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
+  // Produits pour lesquels le client a activé une alerte de disponibilité.
+  const [alerted, setAlerted] = useState<Record<number, boolean>>({})
+  const [alerting, setAlerting] = useState<number | null>(null)
+
+  const requestAlert = async (product: Product) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null
+    if (!token) return
+    setAlerting(product.id)
+    const existing = await hasRestockAlert(product.id, token)
+    if (!existing) {
+      await requestRestockAlert(product.id, token)
+    }
+    setAlerted((prev) => ({ ...prev, [product.id]: true }))
+    setAlerting(null)
+  }
 
   const openModal = (product: Product) => {
     setSelected(product)
@@ -65,10 +83,9 @@ export function ProductSection({ config }: { config: SectionConfig }) {
   }, [isModalOpen, isAnimating])
 
   const Icon = config.icon === "flask" ? FlaskConical : Sparkles
-  const sectionProps =
-    config.section === "featured"
-      ? { id: "featured", className: "mx-auto max-w-[1200px] px-4 pb-20 pt-10 scroll-mt-20" }
-      : { className: "mx-auto max-w-[1200px] px-4 py-20" }
+  const sectionProps = config.anchor
+    ? { id: config.anchor, className: "mx-auto max-w-[1200px] px-4 pb-20 pt-10 scroll-mt-20" }
+    : { className: "mx-auto max-w-[1200px] px-4 py-20" }
 
   const handleAdd = async () => {
     if (!selected) return
@@ -134,12 +151,32 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                   <p className="mb-3 text-xs text-zinc-500">
                     {out ? "Rupture de stock" : `Dès ${minPrice}€ · stock ${product.stock}`}
                   </p>
-                  <button
-                    disabled={out}
-                    className="w-full rounded-full border border-white/10 py-2 text-xs text-white transition-colors hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-white"
-                  >
-                    {out ? "Indisponible" : "Détails"}
-                  </button>
+                  {out ? (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (!alerted[product.id]) requestAlert(product)
+                      }}
+                      disabled={alerting === product.id || alerted[product.id]}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[#3e6757]/60 bg-[#3e6757]/10 py-2 text-xs font-medium text-[#7fae9b] transition-colors hover:bg-[#3e6757]/20 disabled:opacity-70"
+                    >
+                      {alerted[product.id] ? (
+                        <>
+                          <BellRing className="h-3.5 w-3.5" aria-hidden="true" />
+                          Alerte activée
+                        </>
+                      ) : (
+                        <>
+                          <BellPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                          {alerting === product.id ? "…" : "Alerte dispo"}
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button className="w-full rounded-full border border-white/10 py-2 text-xs text-white transition-colors hover:bg-white hover:text-black">
+                      Détails
+                    </button>
+                  )}
                 </div>
               )
             })}

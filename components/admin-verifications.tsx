@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import type { VerificationRow } from "@/app/actions/verification"
-import { validateAndPurge } from "@/app/actions/verification"
+import { validateAndPurge, deleteVerificationPhoto } from "@/app/actions/verification"
 import { ShieldCheck, ShieldAlert, Loader2, Check, Image as ImageIcon, Video, Trash2, AlertTriangle } from "lucide-react"
 
 function fileUrl(pathname: string) {
@@ -24,9 +24,26 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
   const [confirm, setConfirm] = useState<VerificationRow | null>(null)
   const [pendingId, setPendingId] = useState<number | null>(null)
   const [photoView, setPhotoView] = useState<VerificationRow | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   const pending = rows.filter((r) => r.status === "pending")
   const validated = rows.filter((r) => r.status === "validated")
+
+  const handleDeletePhoto = async (row: VerificationRow) => {
+    if (!window.confirm(`Supprimer définitivement la photo de ${row.pseudo ?? "ce client"} ?`)) return
+    setDeletingId(row.id)
+    try {
+      const res = await deleteVerificationPhoto(row.id)
+      if (res.ok) {
+        setRows((prev) =>
+          prev.map((r) => (r.id === row.id ? { ...r, photoPathname: null, videoPathname: null } : r)),
+        )
+        setPhotoView(null)
+      }
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   const handleValidate = async (row: VerificationRow) => {
     setPendingId(row.id)
@@ -177,14 +194,29 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
                     Vidéo supprimée
                   </span>
                   {row.photoPathname ? (
-                    <button
-                      type="button"
-                      onClick={() => setPhotoView(row)}
-                      className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary"
-                    >
-                      <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                      Voir la photo
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setPhotoView(row)}
+                        className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary"
+                      >
+                        <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                        Voir la photo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePhoto(row)}
+                        disabled={deletingId === row.id}
+                        className="flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
+                      >
+                        {deletingId === row.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        )}
+                        Supprimer la photo
+                      </button>
+                    </>
                   ) : (
                     <span className="text-[11px] text-muted-foreground">Photo indisponible</span>
                   )}
@@ -269,6 +301,21 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
                 className="max-h-[70vh] w-full object-contain bg-black"
               />
             )}
+            <div className="border-t border-border px-4 py-3">
+              <button
+                type="button"
+                onClick={() => handleDeletePhoto(photoView)}
+                disabled={deletingId === photoView.id}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
+              >
+                {deletingId === photoView.id ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                Supprimer définitivement la photo
+              </button>
+            </div>
           </div>
         </div>
       )}

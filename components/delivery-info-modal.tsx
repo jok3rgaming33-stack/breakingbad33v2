@@ -1,18 +1,22 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import useSWR from "swr"
 import { X as CloseIcon, Truck, Store, MapPin, Clock, BadgeEuro, Info, Users } from "lucide-react"
+import { getLogisticsContent } from "@/app/actions/settings"
 
 type DeliveryInfoModalProps = {
   isOpen: boolean
   onClose: () => void
 }
 
-const DELIVERY_SLOTS = ["14H - 17H", "18H - 20H", "21H - 02H"]
 const MEETUP_HOURS = ["14H", "15H", "16H", "17H", "18H", "19H", "20H", "21H", "22H", "23H", "00H"]
 
 export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
   const [isAnimating, setIsAnimating] = useState(false)
+  const { data: content } = useSWR(isOpen ? "logistics-content" : null, () => getLogisticsContent(), {
+    revalidateOnFocus: false,
+  })
 
   useEffect(() => {
     if (isOpen) {
@@ -100,8 +104,12 @@ export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#3e6757]/20 text-[#3e6757]">
                 <Truck className="h-5 w-5" aria-hidden="true" />
               </span>
-              <h3 className="text-xl font-semibold text-white">Livraison à domicile</h3>
+              <h3 className="text-xl font-semibold text-white">{content?.deliveryTitle ?? "Livraison à domicile"}</h3>
             </div>
+
+            {content?.deliveryBody && (
+              <p className="mb-4 whitespace-pre-line text-sm leading-relaxed text-zinc-300">{content.deliveryBody}</p>
+            )}
 
             <ul className="space-y-3 text-sm text-zinc-300">
               <li className="flex items-start gap-3">
@@ -136,8 +144,12 @@ export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#3e6757]/20 text-[#3e6757]">
                 <Store className="h-5 w-5" aria-hidden="true" />
               </span>
-              <h3 className="text-xl font-semibold text-white">Retrait sur place (Meet-up)</h3>
+              <h3 className="text-xl font-semibold text-white">{content?.meetupTitle ?? "Retrait sur place (Meet-up)"}</h3>
             </div>
+
+            {content?.meetupBody && (
+              <p className="mb-4 whitespace-pre-line text-sm leading-relaxed text-zinc-300">{content.meetupBody}</p>
+            )}
 
             <ul className="space-y-3 text-sm text-zinc-300">
               <li className="flex items-start gap-3">
@@ -178,9 +190,9 @@ export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
           {/* Note finale */}
           <div className="mt-6 flex items-start gap-3 rounded-2xl border border-white/10 bg-[#050505]/60 p-5 text-sm text-zinc-300">
             <Users className="mt-0.5 h-4 w-4 shrink-0 text-[#3e6757]" aria-hidden="true" />
-            <span>
-              Il est possible que lors du choix de votre jour et créneau horaire vous ne soyez pas seul(e). Nous vous
-              garantissons une livraison optimale en prenant en compte les attentes de chacun(e).
+            <span className="whitespace-pre-line">
+              {content?.note ||
+                "Il est possible que lors du choix de votre jour et créneau horaire vous ne soyez pas seul(e). Nous vous garantissons une livraison optimale en prenant en compte les attentes de chacun(e)."}
             </span>
           </div>
         </div>
