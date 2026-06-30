@@ -122,10 +122,40 @@ export function AdminNews() {
     }
   }
 
+  // Enregistre le titre et tous les slides actuellement à l'écran (upsert).
+  const persistAll = async () => {
+    if (!selectedId) return
+    await updateNews(selectedId, { title })
+    // On enregistre chaque slide dans l'ordre d'affichage.
+    for (let i = 0; i < slides.length; i++) {
+      const s = slides[i]
+      const input: SlideInput = {
+        id: s.id || undefined,
+        order: i,
+        title: s.title,
+        content: s.content,
+        imageUrl: s.imageUrl,
+        buttonText: s.buttonText,
+        buttonLink: s.buttonLink,
+        promoCode: s.promoCode,
+        promoType: (s.promoType as "percent" | "fixed" | "produit" | null) ?? "fixed",
+        promoValue: s.promoValue,
+        productName: s.productName,
+        minAmount: s.minAmount,
+        isSingleUse: s.isSingleUse,
+      }
+      await upsertSlide(selectedId, input)
+    }
+    const data = await getNewsWithSlides(selectedId)
+    if (data) setSlides(data.slides as Slide[])
+  }
+
   const handlePublish = async () => {
     if (!selectedId) return
     setBusy(true)
     try {
+      // On enregistre d'abord tout le contenu pour ne jamais publier une annonce vide.
+      await persistAll()
       const res = await publishAndNotify(selectedId)
       if (res.ok) {
         setPublishedId(selectedId)
