@@ -9,8 +9,9 @@ import type { PromoCode } from "@/lib/db/schema"
 export function AdminPromos() {
   const { data: codes, mutate, isLoading } = useSWR("admin-promos", () => listPromoCodes())
   const [code, setCode] = useState("")
-  const [type, setType] = useState<"fixed" | "percent">("fixed")
+  const [type, setType] = useState<"fixed" | "percent" | "produit">("fixed")
   const [value, setValue] = useState(10)
+  const [productName, setProductName] = useState("")
   const [minAmount, setMinAmount] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -18,7 +19,7 @@ export function AdminPromos() {
   const handleCreate = async () => {
     setSaving(true)
     setError(null)
-    const res = await savePromoCode({ code, type, value, minAmount, active: true })
+    const res = await savePromoCode({ code, type, value, productName, minAmount, active: true })
     setSaving(false)
     if (!res.ok) {
       setError(res.error ?? "Erreur.")
@@ -26,12 +27,21 @@ export function AdminPromos() {
     }
     setCode("")
     setValue(10)
+    setProductName("")
     setMinAmount(0)
     mutate()
   }
 
   const toggleActive = async (c: PromoCode) => {
-    await savePromoCode({ id: c.id, code: c.code, type: c.type as "fixed" | "percent", value: c.value, minAmount: c.minAmount, active: !c.active })
+    await savePromoCode({
+      id: c.id,
+      code: c.code,
+      type: c.type as "fixed" | "percent" | "produit",
+      value: c.value,
+      productName: c.productName,
+      minAmount: c.minAmount,
+      active: !c.active,
+    })
     mutate()
   }
 
@@ -59,15 +69,29 @@ export function AdminPromos() {
           </label>
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium">Type</span>
-            <select value={type} onChange={(e) => setType(e.target.value as "fixed" | "percent")} className="input">
+            <select value={type} onChange={(e) => setType(e.target.value as "fixed" | "percent" | "produit")} className="input">
               <option value="fixed">Montant €</option>
               <option value="percent">Pourcentage %</option>
+              <option value="produit">Produit offert</option>
             </select>
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium">Valeur ({type === "percent" ? "%" : "€"})</span>
+            <span className="mb-1.5 block text-sm font-medium">
+              Valeur ({type === "percent" ? "%" : type === "produit" ? "nb offert" : "€"})
+            </span>
             <input type="number" min={0} value={value} onChange={(e) => setValue(Number(e.target.value))} className="input" />
           </label>
+          {type === "produit" && (
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium">Nom du produit</span>
+              <input
+                value={productName}
+                onChange={(e) => setProductName(e.target.value)}
+                className="input"
+                placeholder="Ex. X-Taze"
+              />
+            </label>
+          )}
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium">Min. d'achat (€)</span>
             <input type="number" min={0} value={minAmount} onChange={(e) => setMinAmount(Number(e.target.value))} className="input" />
@@ -102,7 +126,11 @@ export function AdminPromos() {
                 <div>
                   <div className="font-mono font-bold">{c.code}</div>
                   <div className="text-xs text-muted-foreground">
-                    {c.type === "percent" ? `-${c.value}%` : `-${c.value}€`}
+                    {c.type === "percent"
+                      ? `-${c.value}%`
+                      : c.type === "produit"
+                        ? `${c.value} × ${c.productName ?? "produit"} offert${c.value > 1 ? "s" : ""}`
+                        : `-${c.value}€`}
                     {c.minAmount > 0 ? ` · min. ${c.minAmount}€` : ""}
                     {c.active ? "" : " · désactivé"}
                   </div>

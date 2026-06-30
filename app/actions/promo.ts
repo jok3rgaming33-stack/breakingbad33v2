@@ -27,18 +27,24 @@ export async function listPromoCodes(): Promise<PromoCode[]> {
 export async function savePromoCode(input: {
   id?: number
   code: string
-  type: "percent" | "fixed"
+  type: "percent" | "fixed" | "produit"
   value: number
+  productName?: string | null
   minAmount?: number
   active?: boolean
 }) {
   if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
   const code = input.code?.trim().toUpperCase()
   if (!code) return { ok: false as const, error: "Code requis" }
+  const type = ["percent", "fixed", "produit"].includes(input.type) ? input.type : "fixed"
+  if (type === "produit" && !input.productName?.trim()) {
+    return { ok: false as const, error: "Nom du produit requis" }
+  }
   const values = {
     code,
-    type: input.type === "percent" ? "percent" : "fixed",
+    type,
     value: Math.max(0, Math.trunc(Number(input.value) || 0)),
+    productName: type === "produit" ? input.productName!.trim() : null,
     minAmount: Math.max(0, Math.trunc(Number(input.minAmount) || 0)),
     active: input.active ?? true,
   }
@@ -122,7 +128,16 @@ export async function validateCode(rawCode: string, subtotal: number, token?: st
     const p = promo[0]
     if (!p.active) return { ok: false, error: "Ce code n'est plus actif." }
     if (subtotal < p.minAmount) return { ok: false, error: `Minimum ${p.minAmount}€ d'achat requis.` }
-    return { ok: true, promo: { code: p.code, type: p.type as "percent" | "fixed", value: p.value, minAmount: p.minAmount } }
+    return {
+      ok: true,
+      promo: {
+        code: p.code,
+        type: p.type as "percent" | "fixed" | "produit",
+        value: p.value,
+        minAmount: p.minAmount,
+        productName: p.productName,
+      },
+    }
   }
 
   // 2) Code fidélité (usage unique)
