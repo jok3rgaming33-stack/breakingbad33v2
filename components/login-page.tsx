@@ -24,7 +24,15 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
   const [captchaLogin, setCaptchaLogin] = useState("")
   const [resetCreate, setResetCreate] = useState(0)
   const [resetLogin, setResetLogin] = useState(0)
+  // Le widget anti-robot n'a pas pu se charger (blocage navigateur, réseau, domaine non autorisé).
+  const [captchaCreateError, setCaptchaCreateError] = useState(false)
+  const [captchaLoginError, setCaptchaLoginError] = useState(false)
   const hasTurnstile = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
+  // Valeur envoyée au serveur : token réel, ou sentinel si le widget est indisponible.
+  const createCaptchaValue = captchaCreateError ? "unavailable" : captchaCreate
+  const loginCaptchaValue = captchaLoginError ? "unavailable" : captchaLogin
+  const createCaptchaReady = !hasTurnstile || Boolean(captchaCreate) || captchaCreateError
+  const loginCaptchaReady = !hasTurnstile || Boolean(captchaLogin) || captchaLoginError
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // Canvas Cristaux
@@ -140,8 +148,8 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
 
   const createAnonymousAccess = async () => {
     if (creating) return
-    // CAPTCHA obligatoire avant toute création de compte.
-    if (hasTurnstile && !captchaCreate) {
+    // CAPTCHA requis, sauf s'il est indisponible (on bascule alors sur l'anti-abus serveur).
+    if (hasTurnstile && !captchaCreate && !captchaCreateError) {
       setError("Merci de valider le test anti-robot avant de continuer.")
       return
     }
@@ -151,7 +159,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
     const key = generateSecretKey()
     try {
       // Vérification serveur du token Turnstile AVANT toute action.
-      const human = await verifyHuman(captchaCreate)
+      const human = await verifyHuman(createCaptchaValue)
       if (!human.ok) {
         setError(human.error ?? "Vérification anti-robot échouée.")
         setResetCreate((n) => n + 1) // token consommé : on réinitialise le widget
@@ -187,8 +195,8 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
       return
     }
     if (loggingIn) return
-    // CAPTCHA obligatoire avant toute connexion.
-    if (hasTurnstile && !captchaLogin) {
+    // CAPTCHA requis, sauf s'il est indisponible (on bascule alors sur l'anti-abus serveur).
+    if (hasTurnstile && !captchaLogin && !captchaLoginError) {
       setError("Merci de valider le test anti-robot avant de continuer.")
       return
     }
@@ -197,7 +205,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
 
     try {
       // Vérification serveur du token Turnstile AVANT toute action.
-      const human = await verifyHuman(captchaLogin)
+      const human = await verifyHuman(loginCaptchaValue)
       if (!human.ok) {
         setError(human.error ?? "Vérification anti-robot échouée.")
         setResetLogin((n) => n + 1)
@@ -379,12 +387,24 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
           </div>
 
           <div className="mb-6">
-            <div className="mb-4 flex justify-center">
-              <TurnstileWidget onVerify={setCaptchaCreate} resetSignal={resetCreate} />
+            <div className="mb-4 flex flex-col items-center justify-center gap-2">
+              <TurnstileWidget
+                onVerify={(t) => {
+                  setCaptchaCreate(t)
+                  if (t) setCaptchaCreateError(false)
+                }}
+                onError={() => setCaptchaCreateError(true)}
+                resetSignal={resetCreate}
+              />
+              {captchaCreateError && (
+                <p className="text-center text-xs text-muted-foreground">
+                  Le test anti-robot n&apos;a pas pu se charger sur ton appareil. Tu peux continuer normalement.
+                </p>
+              )}
             </div>
             <button
               onClick={createAnonymousAccess}
-              disabled={creating || (hasTurnstile && !captchaCreate)}
+              disabled={creating || !createCaptchaReady}
               className="flex w-full items-center justify-center gap-3 rounded-2xl bg-accent py-5 text-xl font-semibold text-accent-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {creating ? (
@@ -416,12 +436,24 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
               aria-label="Clé secrète"
             />
             {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
-            <div className="mb-3 flex justify-center">
-              <TurnstileWidget onVerify={setCaptchaLogin} resetSignal={resetLogin} />
+            <div className="mb-3 flex flex-col items-center justify-center gap-2">
+              <TurnstileWidget
+                onVerify={(t) => {
+                  setCaptchaLogin(t)
+                  if (t) setCaptchaLoginError(false)
+                }}
+                onError={() => setCaptchaLoginError(true)}
+                resetSignal={resetLogin}
+              />
+              {captchaLoginError && (
+                <p className="text-center text-xs text-muted-foreground">
+                  Le test anti-robot n&apos;a pas pu se charger sur ton appareil. Tu peux continuer normalement.
+                </p>
+              )}
             </div>
             <button
               onClick={loginWithKey}
-              disabled={loggingIn || (hasTurnstile && !captchaLogin)}
+              disabled={loggingIn || !loginCaptchaReady}
               className="mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-foreground py-4 text-lg font-semibold text-background transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loggingIn && <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />}

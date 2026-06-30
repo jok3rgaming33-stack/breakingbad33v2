@@ -5,6 +5,12 @@ import "server-only"
 export async function verifyTurnstile(token: string | null | undefined): Promise<boolean> {
   const secret = process.env.TURNSTILE_SECRET_KEY
   if (!secret) return true // non configuré : on ne bloque pas
+  // Le widget n'a pas pu se charger côté client (blocage navigateur, réseau, domaine non
+  // autorisé...). On ne verrouille pas l'utilisateur : l'anti-abus IP/VPN reste actif.
+  if (token === "unavailable") {
+    console.log("[v0] turnstile widget unavailable on client, failing open")
+    return true
+  }
   if (!token) return false
 
   try {
