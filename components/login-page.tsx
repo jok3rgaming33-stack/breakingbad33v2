@@ -24,7 +24,15 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
   const [captchaLogin, setCaptchaLogin] = useState("")
   const [resetCreate, setResetCreate] = useState(0)
   const [resetLogin, setResetLogin] = useState(0)
+  // Le widget anti-robot n'a pas pu se charger (blocage navigateur, réseau, domaine non autorisé).
+  const [captchaCreateError, setCaptchaCreateError] = useState(false)
+  const [captchaLoginError, setCaptchaLoginError] = useState(false)
   const hasTurnstile = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
+  // Valeur envoyée au serveur : token réel, ou sentinel si le widget est indisponible.
+  const createCaptchaValue = captchaCreateError ? "unavailable" : captchaCreate
+  const loginCaptchaValue = captchaLoginError ? "unavailable" : captchaLogin
+  const createCaptchaReady = !hasTurnstile || Boolean(captchaCreate) || captchaCreateError
+  const loginCaptchaReady = !hasTurnstile || Boolean(captchaLogin) || captchaLoginError
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // Canvas Cristaux
@@ -140,8 +148,8 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
 
   const createAnonymousAccess = async () => {
     if (creating) return
-    // CAPTCHA obligatoire avant toute création de compte.
-    if (hasTurnstile && !captchaCreate) {
+    // CAPTCHA requis, sauf s'il est indisponible (on bascule alors sur l'anti-abus serveur).
+    if (hasTurnstile && !captchaCreate && !captchaCreateError) {
       setError("Merci de valider le test anti-robot avant de continuer.")
       return
     }
@@ -151,7 +159,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
     const key = generateSecretKey()
     try {
       // Vérification serveur du token Turnstile AVANT toute action.
-      const human = await verifyHuman(captchaCreate)
+      const human = await verifyHuman(createCaptchaValue)
       if (!human.ok) {
         setError(human.error ?? "Vérification anti-robot échouée.")
         setResetCreate((n) => n + 1) // token consommé : on réinitialise le widget

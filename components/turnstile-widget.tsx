@@ -20,10 +20,13 @@ const SCRIPT_SRC =
 
 export function TurnstileWidget({
   onVerify,
+  onError,
   className,
   resetSignal,
 }: {
   onVerify: (token: string) => void
+  // Appelé si le widget ne peut pas se charger ou échoue (panne / blocage navigateur).
+  onError?: () => void
   className?: string
   // Incrémenter cette valeur réinitialise le widget (token à usage unique).
   resetSignal?: number
@@ -48,6 +51,14 @@ export function TurnstileWidget({
   useEffect(() => {
     if (!siteKey || !ref.current) return
 
+    let settled = false
+    const fail = () => {
+      if (settled) return
+      settled = true
+      // Le widget est indisponible : on prévient le parent pour ne pas bloquer l'accès.
+      onError?.()
+    }
+
     const render = () => {
       if (!window.turnstile || !ref.current) return
       // Évite un double rendu.
@@ -55,9 +66,12 @@ export function TurnstileWidget({
       widgetId.current = window.turnstile.render(ref.current, {
         sitekey: siteKey,
         theme: "dark",
-        callback: (token: string) => onVerify(token),
+        callback: (token: string) => {
+          settled = true
+          onVerify(token)
+        },
         "expired-callback": () => onVerify(""),
-        "error-callback": () => onVerify(""),
+        "error-callback": () => fail(),
       })
     }
 
@@ -70,11 +84,16 @@ export function TurnstileWidget({
         script.src = SCRIPT_SRC
         script.async = true
         script.defer = true
+        script.onerror = () => fail() // script Cloudflare bloqué / inaccessible
         document.head.appendChild(script)
       }
     }
 
+    // Filet de sécurité : si rien ne s'est passé après 8s, on considère le widget indisponible.
+    const timeout = window.setTimeout(fail, 8000)
+
     return () => {
+      window.clearTimeout(timeout)
       if (widgetId.current && window.turnstile) {
         try {
           window.turnstile.remove(widgetId.current)
@@ -84,7 +103,7 @@ export function TurnstileWidget({
         widgetId.current = null
       }
     }
-  }, [siteKey, onVerify])
+  }, [siteKey, onVerify, onError])
 
   // Sans clé configurée, rien à afficher (la vérif serveur fait fail-open).
   if (!siteKey) return null
