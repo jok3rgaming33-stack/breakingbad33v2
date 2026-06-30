@@ -46,6 +46,7 @@ type Slide = {
   promoCode: string | null
   promoType: string | null
   promoValue: number | null
+  productName: string | null
   minAmount: number | null
   isSingleUse: boolean
 }
@@ -146,6 +147,7 @@ export function AdminNews() {
         promoCode: "",
         promoType: "fixed",
         promoValue: null,
+        productName: "",
         minAmount: null,
         isSingleUse: true,
       },
@@ -170,8 +172,9 @@ export function AdminNews() {
         buttonText: s.buttonText,
         buttonLink: s.buttonLink,
         promoCode: s.promoCode,
-        promoType: (s.promoType as "percent" | "fixed" | null) ?? "fixed",
+        promoType: (s.promoType as "percent" | "fixed" | "produit" | null) ?? "fixed",
         promoValue: s.promoValue,
+        productName: s.productName,
         minAmount: s.minAmount,
         isSingleUse: s.isSingleUse,
       }
@@ -410,6 +413,7 @@ export function AdminNews() {
                       >
                         <option value="fixed">€ fixe</option>
                         <option value="percent">% pourcent</option>
+                        <option value="produit">Produit offert</option>
                       </select>
                       <input
                         type="number"
@@ -417,7 +421,7 @@ export function AdminNews() {
                         onChange={(e) =>
                           updateSlideField(idx, { promoValue: e.target.value ? Number(e.target.value) : null })
                         }
-                        placeholder="Valeur"
+                        placeholder={s.promoType === "produit" ? "Nb offert" : "Valeur"}
                         className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                       />
                       <input
@@ -430,6 +434,14 @@ export function AdminNews() {
                         className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                       />
                     </div>
+                    {s.promoType === "produit" && (
+                      <input
+                        value={s.productName ?? ""}
+                        onChange={(e) => updateSlideField(idx, { productName: e.target.value })}
+                        placeholder="Nom du produit offert (ex. X-Taze)"
+                        className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
+                      />
+                    )}
                     <label className="flex items-center gap-2 text-xs text-muted-foreground">
                       <input
                         type="checkbox"

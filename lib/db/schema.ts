@@ -141,7 +141,8 @@ export const news = pgTable("news", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
-// Slides d'une news. promoType = 'percent' | 'fixed' (montant en €), promoValue = valeur.
+// Slides d'une news. promoType = 'percent' | 'fixed' (€) | 'produit' (nb d'unités offertes).
+// promoValue = valeur ; productName = produit offert (type 'produit').
 export const newsSlides = pgTable("news_slides", {
   id: serial("id").primaryKey(),
   newsId: integer("news_id").notNull(),
@@ -154,6 +155,7 @@ export const newsSlides = pgTable("news_slides", {
   promoCode: text("promo_code"),
   promoType: text("promo_type"),
   promoValue: integer("promo_value"),
+  productName: text("product_name"),
   minAmount: integer("min_amount"),
   isSingleUse: boolean("is_single_use").notNull().default(true),
 })
