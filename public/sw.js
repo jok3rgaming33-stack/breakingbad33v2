@@ -21,8 +21,9 @@ self.addEventListener("push", (event) => {
   const title = data.title || "BreakingBad33"
   const options = {
     body: data.body || "",
-    icon: "/images/icon-maskable-512.png",
-    badge: "/images/icon-maskable-512.png",
+    // Logo du site (fond plein) pour éviter le rectangle blanc des icônes maskable.
+    icon: "/images/logoapp.png",
+    badge: "/images/logoapp.png",
     tag: data.tag || undefined,
     data: { url: data.url || "/" },
     vibrate: [80, 40, 80],
