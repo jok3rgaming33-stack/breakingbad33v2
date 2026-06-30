@@ -8,6 +8,7 @@ import { isClosedStatus, normalizeStatus } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { notifyVendor } from "@/lib/push"
 import { getClientIp, isVpnOrProxy } from "@/lib/ip-check"
+import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 
 // Crée (ou réenregistre) un compte anonyme : associe une clé secrète à un pseudo.
 // Idempotent : si la clé existe déjà, on conserve le pseudo d'origine.
@@ -124,7 +125,12 @@ export type AdminUserRow = {
   orderCount: number
   totalSpent: number
   loyaltyAdjustment: number
+  flags: string[]
 }
+
+// Étiquettes possibles posées par l'admin sur un compte client.
+export const USER_FLAGS = ["absent", "suspect", "fidele", "banni"] as const
+export type UserFlag = (typeof USER_FLAGS)[number]
 
 // Répertoire de tous les comptes enregistrés, avec nombre de commandes et total dépensé.
 export async function listUsers(): Promise<AdminUserRow[]> {
@@ -135,14 +141,24 @@ export async function listUsers(): Promise<AdminUserRow[]> {
       token: users.token,
       createdAt: users.createdAt,
       loyaltyAdjustment: users.loyaltyAdjustment,
+      flags: users.flags,
       orderCount: sql<number>`count(${orderThreads.id})::int`,
       totalSpent: sql<number>`coalesce(sum(${orderThreads.total}), 0)::int`,
     })
     .from(users)
     .leftJoin(orderThreads, eq(orderThreads.customerToken, users.token))
-    .groupBy(users.id, users.pseudo, users.token, users.createdAt, users.loyaltyAdjustment)
+    .groupBy(users.id, users.pseudo, users.token, users.createdAt, users.loyaltyAdjustment, users.flags)
     .orderBy(desc(users.createdAt))
   return rows
+}
+
+// Met à jour les étiquettes (flags) d'un compte client (réservé admin).
+export async function setUserFlags(id: number, flags: string[]) {
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
+  const clean = Array.from(new Set(flags.filter((f) => (USER_FLAGS as readonly string[]).includes(f))))
+  await db.update(users).set({ flags: clean }).where(eq(users.id, id))
+  revalidatePath("/admin")
+  return { ok: true as const, flags: clean }
 }
 
 // Définit l'ajustement manuel des points fidélité d'un compte (réservé admin).

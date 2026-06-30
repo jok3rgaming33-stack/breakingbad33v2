@@ -1,10 +1,22 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useRef, useEffect } from "react"
 import type { AdminUserRow } from "@/app/actions/account"
-import { deleteUserAccount, setLoyaltyAdjustment } from "@/app/actions/account"
-import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle, Pencil, Check, X } from "lucide-react"
+import { deleteUserAccount, setLoyaltyAdjustment, setUserFlags } from "@/app/actions/account"
+import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle, Pencil, Check, X, Copy, Tag, ChevronDown } from "lucide-react"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
+
+// Étiquettes (flags) sélectionnables pour signaler un compte.
+const FLAG_OPTIONS: { value: string; label: string; className: string }[] = [
+  { value: "absent", label: "Absent lors de la livraison", className: "bg-amber-500/15 text-amber-500 border-amber-500/30" },
+  { value: "suspect", label: "Profil suspect", className: "bg-orange-500/15 text-orange-500 border-orange-500/30" },
+  { value: "fidele", label: "Client fidèle", className: "bg-accent/15 text-accent border-accent/30" },
+  { value: "banni", label: "Banni(e)", className: "bg-destructive/15 text-destructive border-destructive/30" },
+]
+
+function flagMeta(value: string) {
+  return FLAG_OPTIONS.find((f) => f.value === value)
+}
 
 function formatDate(value: Date | string) {
   const d = new Date(value)
@@ -22,6 +34,75 @@ function shortToken(token: string) {
   return `${token.slice(0, 8)}…${token.slice(-4)}`
 }
 
+// Menu déroulant multi-sélection des signalements d'un compte.
+function FlagSelector({
+  user,
+  onToggle,
+}: {
+  user: AdminUserRow
+  onToggle: (u: AdminUserRow, value: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onClick)
+    return () => document.removeEventListener("mousedown", onClick)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex max-w-[220px] items-center gap-1.5 rounded-lg border border-border bg-background/60 px-2.5 py-1.5 text-xs transition-colors hover:bg-secondary"
+      >
+        {user.flags.length === 0 ? (
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <Tag className="h-3.5 w-3.5" aria-hidden="true" />
+            Aucun
+          </span>
+        ) : (
+          <span className="flex flex-wrap items-center gap-1">
+            {user.flags.map((f) => {
+              const m = flagMeta(f)
+              return (
+                <span key={f} className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${m?.className ?? ""}`}>
+                  {m?.label ?? f}
+                </span>
+              )
+            })}
+          </span>
+        )}
+        <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 w-60 rounded-xl border border-border bg-card p-1.5 shadow-lg">
+          {FLAG_OPTIONS.map((opt) => {
+            const active = user.flags.includes(opt.value)
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onToggle(user, opt.value)}
+                className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-secondary"
+              >
+                <span className={`rounded-full border px-2 py-0.5 font-semibold ${opt.className}`}>{opt.label}</span>
+                {active && <Check className="h-3.5 w-3.5 text-accent" aria-hidden="true" />}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [users, setUsers] = useState<AdminUserRow[]>(initialUsers)
   const [query, setQuery] = useState("")
@@ -31,8 +112,50 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState("")
   const [savingId, setSavingId] = useState<number | null>(null)
+  const [copiedId, setCopiedId] = useState<number | null>(null)
 
   const totalPoints = (u: AdminUserRow) => Math.max(0, computeLoyaltyPoints(u.totalSpent) + u.loyaltyAdjustment)
+
+  const copyToken = async (u: AdminUserRow) => {
+    let ok = false
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(u.token)
+        ok = true
+      }
+    } catch {
+      ok = false
+    }
+    if (!ok) {
+      try {
+        const ta = document.createElement("textarea")
+        ta.value = u.token
+        ta.style.position = "fixed"
+        ta.style.top = "-9999px"
+        document.body.appendChild(ta)
+        ta.select()
+        ok = document.execCommand("copy")
+        document.body.removeChild(ta)
+      } catch {
+        ok = false
+      }
+    }
+    if (ok) {
+      setCopiedId(u.id)
+      setTimeout(() => setCopiedId(null), 2000)
+    }
+  }
+
+  const toggleFlag = async (u: AdminUserRow, value: string) => {
+    const next = u.flags.includes(value) ? u.flags.filter((f) => f !== value) : [...u.flags, value]
+    // Optimiste : on met à jour l'UI puis on persiste.
+    setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, flags: next } : x)))
+    const res = await setUserFlags(u.id, next)
+    if (!res.ok) {
+      // Revert en cas d'échec.
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, flags: u.flags } : x)))
+    }
+  }
 
   const startEdit = (u: AdminUserRow) => {
     setEditingId(u.id)
@@ -117,6 +240,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
               <tr className="border-b border-border bg-background/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Pseudo</th>
                 <th className="px-4 py-3 font-medium">Token</th>
+                <th className="px-4 py-3 font-medium">Signalement</th>
                 <th className="px-4 py-3 font-medium">Inscrit le</th>
                 <th className="px-4 py-3 font-medium">Commandes</th>
                 <th className="px-4 py-3 font-medium">Points</th>
@@ -126,7 +250,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                     Aucun compte à afficher.
                   </td>
                 </tr>
@@ -135,9 +259,22 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                   <tr key={u.id} className="border-b border-border/60 last:border-0 hover:bg-secondary/40">
                     <td className="px-4 py-3 font-medium">{u.pseudo}</td>
                     <td className="px-4 py-3">
-                      <span className="rounded-lg border border-border bg-background/60 px-2 py-1 font-mono text-xs">
+                      <button
+                        type="button"
+                        onClick={() => copyToken(u)}
+                        title="Copier le token complet"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background/60 px-2 py-1 font-mono text-xs transition-colors hover:bg-secondary"
+                      >
                         {shortToken(u.token)}
-                      </span>
+                        {copiedId === u.id ? (
+                          <Check className="h-3 w-3 text-accent" aria-hidden="true" />
+                        ) : (
+                          <Copy className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                        )}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <FlagSelector user={u} onToggle={toggleFlag} />
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{formatDate(u.createdAt)}</td>
                     <td className="px-4 py-3">

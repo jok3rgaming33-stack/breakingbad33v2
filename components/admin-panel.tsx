@@ -8,16 +8,17 @@ import { VendorInbox } from "@/components/vendor-inbox"
 import { AdminOrdersRecap } from "@/components/admin-orders-recap"
 import { AdminUsers } from "@/components/admin-users"
 import { AdminVerifications } from "@/components/admin-verifications"
+import { AdminAdmins } from "@/components/admin-admins"
 import { AdminMap } from "@/components/admin-map"
 import { AdminNews } from "@/components/admin-news"
 import { AdminProducts } from "@/components/admin-products"
 import { AdminPromos } from "@/components/admin-promos"
 import { adminLogout } from "@/app/actions/admin-auth"
-import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog } from "lucide-react"
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 
-type TabId = "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "news" | "profits"
+type TabId = "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "news" | "admins" | "profits"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "messagerie", label: "Messagerie", icon: MessageSquare },
@@ -28,6 +29,7 @@ const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "utilisateurs", label: "Utilisateurs", icon: Users },
   { id: "verifications", label: "Vérifications", icon: ShieldCheck },
   { id: "news", label: "News", icon: Newspaper },
+  { id: "admins", label: "Admins", icon: UserCog },
   { id: "profits", label: "Profits", icon: TrendingUp },
 ]
 
@@ -122,6 +124,8 @@ export function AdminPanel({
           <AdminMap threads={initialThreads} />
         ) : tab === "news" ? (
           <AdminNews />
+        ) : tab === "admins" ? (
+          <AdminAdmins />
         ) : (
           <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border bg-card px-6 py-20 text-center">
             <Construction className="mb-4 h-12 w-12 text-accent" aria-hidden="true" />

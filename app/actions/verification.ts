@@ -132,3 +132,29 @@ export async function validateAndPurge(id: number) {
   revalidatePath("/admin")
   return { ok: true as const }
 }
+
+// Supprime définitivement la photo de vérification (et la vidéo si encore présente).
+export async function deleteVerificationPhoto(id: number) {
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
+  const rows = await db.select().from(userVerifications).where(eq(userVerifications.id, id)).limit(1)
+  const row = rows[0]
+  if (!row) return { ok: false as const, error: "Introuvable." }
+
+  for (const path of [row.photoPathname, row.videoPathname]) {
+    if (path) {
+      try {
+        await del(path)
+      } catch (err) {
+        console.log("[v0] del blob error:", err)
+      }
+    }
+  }
+
+  await db
+    .update(userVerifications)
+    .set({ photoPathname: null, videoPathname: null })
+    .where(eq(userVerifications.id, id))
+
+  revalidatePath("/admin")
+  return { ok: true as const }
+}

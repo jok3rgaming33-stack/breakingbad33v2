@@ -9,19 +9,25 @@ export const users = pgTable("users", {
   loyaltyAdjustment: integer("loyalty_adjustment").notNull().default(0),
   // Points déjà consommés par la génération de codes de réduction.
   loyaltySpent: integer("loyalty_spent").notNull().default(0),
+  // Étiquettes posées par l'admin : 'absent' | 'suspect' | 'fidele' | 'banni'.
+  flags: jsonb("flags").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
 // Variante de prix d'un produit (quantité -> prix).
 export type ProductVariant = { qty: number; price: number }
 
+// Média additionnel d'un produit (image ou vidéo importée).
+export type ProductMedia = { type: "image" | "video"; url: string }
+
 // Produits de la boutique, éditables depuis le panel admin.
-// section = 'featured' (vedette) | 'arrival' (nouveautés).
+// section = clé de catégorie (voir table categories).
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   section: text("section").notNull().default("featured"),
   image: text("image"),
+  media: jsonb("media").$type<ProductMedia[]>().notNull().default([]),
   symbol: text("symbol"),
   number: text("number"),
   description: text("description"),
@@ -187,3 +193,43 @@ export type OrderThread = typeof orderThreads.$inferSelect
 export type ThreadMessage = typeof threadMessages.$inferSelect
 export type ProductBadge = typeof productBadges.$inferSelect
 export type PushSubscription = typeof pushSubscriptions.$inferSelect
+
+// Comptes admin (gestion à plusieurs). passwordHash optionnel (token recommandé).
+export const adminAccounts = pgTable("admin_accounts", {
+  id: serial("id").primaryKey(),
+  pseudo: text("pseudo").notNull(),
+  token: text("token").notNull().unique(),
+  passwordHash: text("password_hash"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Catégories de produits dynamiques (créées/renommées/réordonnées par l'admin).
+export const categories = pgTable("categories", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Demandes d'alerte de disponibilité : notifier le client au réapprovisionnement.
+export const restockAlerts = pgTable("restock_alerts", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id").notNull(),
+  userToken: text("user_token").notNull(),
+  notified: boolean("notified").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Réglages applicatifs clé/valeur (point de départ carte, contenu modale logistique).
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<Record<string, unknown>>().notNull().default({}),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type AdminAccount = typeof adminAccounts.$inferSelect
+export type Category = typeof categories.$inferSelect
+export type RestockAlert = typeof restockAlerts.$inferSelect
+export type AppSetting = typeof appSettings.$inferSelect
