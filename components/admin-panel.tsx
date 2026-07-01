@@ -14,6 +14,7 @@ import { AdminNews } from "@/components/admin-news"
 import { AdminProducts } from "@/components/admin-products"
 import { AdminPromos } from "@/components/admin-promos"
 import { AdminLogistics } from "@/components/admin-logistics"
+import { AdminCartSettings } from "@/components/admin-cart-settings"
 import { adminLogout } from "@/app/actions/admin-auth"
 import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck } from "lucide-react"
 import Link from "next/link"
@@ -125,7 +126,10 @@ export function AdminPanel({
         ) : tab === "carte" ? (
           <AdminMap threads={initialThreads} />
         ) : tab === "logistique" ? (
-          <AdminLogistics />
+          <div className="space-y-8">
+            <AdminCartSettings />
+            <AdminLogistics />
+          </div>
         ) : tab === "news" ? (
           <AdminNews />
         ) : tab === "admins" ? (

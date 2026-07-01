@@ -1,10 +1,12 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import useSWR from "swr"
 import { useCart } from "@/components/cart-provider"
 import { createOrderThread } from "@/app/actions/messaging"
 import { validateCode, markLoyaltyCodeUsed } from "@/app/actions/promo"
 import { needsVerification, submitVerification } from "@/app/actions/verification"
+import { getCartConfig, type CartConfig, type DeliverySlot, type MeetupSlot } from "@/app/actions/settings"
 import { SelfieVerificationModal, type VerificationMetadata } from "@/components/selfie-verification-modal"
 import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus } from "lucide-react"
 
@@ -18,14 +20,49 @@ type CheckoutCartProps = {
 const FEE_NEAR = 10 // <= 10 km
 const FEE_FAR = 20 // > 10 km
 
-const DELIVERY_SLOTS = ["14H - 17H", "18H - 20H", "21H - 02H"]
-const MEETUP_HOURS = ["14H", "15H", "16H", "17H", "18H", "19H", "20H", "21H", "22H", "23H", "00H"]
+// Config par défaut utilisée le temps du chargement (évite un panier vide).
+const FALLBACK_CONFIG: CartConfig = {
+  minDeliveryAmount: 50,
+  deliverySlots: [
+    { id: "d1", label: "14H - 17H", startHour: 14, endHour: 17 },
+    { id: "d2", label: "18H - 20H", startHour: 18, endHour: 20 },
+    { id: "d3", label: "21H - 02H", startHour: 21, endHour: 2 },
+  ],
+  meetupSlots: [
+    { id: "m14", label: "14H", hour: 14 },
+    { id: "m18", label: "18H", hour: 18 },
+    { id: "m20", label: "20H", hour: 20 },
+  ],
+}
 
 // Date du jour + n jours au format yyyy-mm-dd
 function dateOffset(days: number) {
   const d = new Date()
   d.setDate(d.getDate() + days)
   return d.toISOString().split("T")[0]
+}
+
+// Construit un Date à partir d'une date yyyy-mm-dd et d'une heure (24h).
+// afterMidnight décale d'un jour (créneaux/heures qui basculent après minuit).
+function slotDate(dateStr: string, hour: number, afterMidnight: boolean) {
+  const [y, m, d] = dateStr.split("-").map(Number)
+  const dt = new Date(y, (m ?? 1) - 1, d ?? 1, hour, 0, 0, 0)
+  if (afterMidnight) dt.setDate(dt.getDate() + 1)
+  return dt
+}
+
+// Un créneau de livraison est encore proposable si sa fin n'est pas dépassée.
+function deliverySlotAvailable(dateStr: string, s: DeliverySlot, now: Date) {
+  const crosses = s.endHour <= s.startHour // passe minuit
+  const end = slotDate(dateStr, s.endHour, crosses)
+  return end.getTime() > now.getTime()
+}
+
+// Une heure de meet-up est encore proposable si elle n'est pas dépassée.
+function meetupSlotAvailable(dateStr: string, s: MeetupSlot, now: Date) {
+  const afterMidnight = s.hour < 12 // ex. 00H = lendemain matin dans le cycle de soirée
+  const t = slotDate(dateStr, s.hour, afterMidnight)
+  return t.getTime() > now.getTime()
 }
 
 export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
@@ -56,6 +93,42 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const [verifError, setVerifError] = useState<string | null>(null)
 
   const name = userData?.pseudo ?? "Invité"
+
+  // Config des créneaux (gérée depuis le panel admin), avec fallback pendant le chargement.
+  const { data: cfg } = useSWR("cart-config", () => getCartConfig(), {
+    fallbackData: FALLBACK_CONFIG,
+    revalidateOnFocus: false,
+  })
+  const config = cfg ?? FALLBACK_CONFIG
+
+  // La livraison n'est proposée qu'au-dessus du montant minimum.
+  const deliveryAllowed = subtotal >= config.minDeliveryAmount
+
+  // Si le panier repasse sous le minimum, on bascule automatiquement en meet-up.
+  useEffect(() => {
+    if (!deliveryAllowed && !isMeetup) setIsMeetup(true)
+  }, [deliveryAllowed, isMeetup])
+
+  // Créneaux proposés : on masque ceux déjà passés pour une commande du jour même.
+  const now = new Date()
+  const availableDeliverySlots = useMemo(() => {
+    if (!date) return config.deliverySlots
+    return config.deliverySlots.filter((s) => deliverySlotAvailable(date, s, now))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.deliverySlots, date])
+  const availableMeetupSlots = useMemo(() => {
+    if (!date) return config.meetupSlots
+    return config.meetupSlots.filter((s) => meetupSlotAvailable(date, s, now))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.meetupSlots, date])
+
+  // Si le créneau sélectionné n'est plus disponible (ex. changement de date), on le réinitialise.
+  useEffect(() => {
+    if (slot && !availableDeliverySlots.some((s) => s.label === slot)) setSlot("")
+  }, [availableDeliverySlots, slot])
+  useEffect(() => {
+    if (meetupHour && !availableMeetupSlots.some((s) => s.label === meetupHour)) setMeetupHour("")
+  }, [availableMeetupSlots, meetupHour])
 
   // Frais de livraison selon la distance
   const deliveryFee = useMemo(() => {
@@ -372,10 +445,17 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
               <div className="mt-6 grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsMeetup(false)}
+                  onClick={() => deliveryAllowed && setIsMeetup(false)}
+                  disabled={!deliveryAllowed}
+                  aria-disabled={!deliveryAllowed}
+                  title={
+                    !deliveryAllowed
+                      ? `Livraison disponible à partir de ${config.minDeliveryAmount}€ d'achat`
+                      : undefined
+                  }
                   className={`flex items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-colors ${
                     !isMeetup ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
-                  }`}
+                  } ${!deliveryAllowed ? "cursor-not-allowed opacity-40" : ""}`}
                 >
                   <Truck className="h-4 w-4" aria-hidden="true" />
                   Livraison
@@ -391,6 +471,16 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   Retrait (meet-up)
                 </button>
               </div>
+              {!deliveryAllowed && (
+                <p className="mt-2 rounded-xl border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                  La livraison est disponible à partir de{" "}
+                  <span className="font-semibold text-foreground">{config.minDeliveryAmount}€</span> d&apos;achat. Ajoute{" "}
+                  <span className="font-semibold text-foreground">
+                    {Math.max(0, config.minDeliveryAmount - subtotal)}€
+                  </span>{" "}
+                  pour y accéder, ou choisis le retrait (meet-up).
+                </p>
+              )}
 
               {/* Adresse de livraison */}
               <div className={`mt-5 ${isMeetup ? "pointer-events-none opacity-40" : ""}`}>
@@ -519,33 +609,47 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   <Clock className="h-4 w-4 text-accent" aria-hidden="true" />
                   {isMeetup ? "Heure de retrait (14H - 00H)" : "Créneau horaire"}
                 </div>
-                {!isMeetup ? (
-                  <div className="grid grid-cols-3 gap-2">
-                    {DELIVERY_SLOTS.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => setSlot(s)}
-                        className={`rounded-xl border p-2.5 text-xs font-medium transition-colors ${
-                          slot === s ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
-                        }`}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
+                {!date ? (
+                  <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
+                    Choisis d&apos;abord une date pour voir les créneaux disponibles.
+                  </p>
+                ) : !isMeetup ? (
+                  availableDeliverySlots.length === 0 ? (
+                    <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
+                      Plus aucun créneau de livraison disponible pour cette date. Choisis une autre date.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      {availableDeliverySlots.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => setSlot(s.label)}
+                          className={`rounded-xl border p-2.5 text-xs font-medium transition-colors ${
+                            slot === s.label ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  )
+                ) : availableMeetupSlots.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
+                    Plus aucune heure de meet-up disponible pour cette date. Choisis une autre date.
+                  </p>
                 ) : (
                   <div className="grid grid-cols-4 gap-2">
-                    {MEETUP_HOURS.map((h) => (
+                    {availableMeetupSlots.map((s) => (
                       <button
-                        key={h}
+                        key={s.id}
                         type="button"
-                        onClick={() => setMeetupHour(h)}
+                        onClick={() => setMeetupHour(s.label)}
                         className={`rounded-xl border p-2.5 text-xs font-medium transition-colors ${
-                          meetupHour === h ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
+                          meetupHour === s.label ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
                         }`}
                       >
-                        {h}
+                        {s.label}
                       </button>
                     ))}
                   </div>
