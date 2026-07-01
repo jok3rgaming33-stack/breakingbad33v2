@@ -9,6 +9,7 @@ export const BADGE_OPTIONS = [
   { key: "arrivage", label: "Arrivage", className: "bg-sky-400 text-black" },
   { key: "reappro", label: "En réappro", className: "bg-amber-500 text-black" },
   { key: "fin_de_stock", label: "Fin de stock", className: "bg-zinc-600 text-white" },
+  { key: "bientot_dispo", label: "Bientôt dispo", className: "bg-teal-600 text-white" },
 ] as const
 
 export type BadgeKey = (typeof BADGE_OPTIONS)[number]["key"]
