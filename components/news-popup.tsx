@@ -127,14 +127,15 @@ export function NewsPopup({ token }: { token?: string }) {
           <X className="h-5 w-5" aria-hidden="true" />
         </button>
 
-        {/* Image */}
+        {/* Image — hauteur libre pour afficher l'image entière sans rognage */}
         {slide?.imageUrl && (
-          <div className="aspect-[16/10] w-full overflow-hidden bg-secondary">
+          <div className="w-full overflow-hidden bg-secondary">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={slide.imageUrl}
               alt={slide.title ?? ""}
-              className="h-full w-full object-cover"
+              className="w-full object-contain"
+              style={{ maxHeight: "420px" }}
             />
           </div>
         )}
