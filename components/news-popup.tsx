@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import Image from "next/image"
 import { X, ChevronLeft, ChevronRight, Ticket, Check, Loader2 } from "lucide-react"
 import { getActiveNewsForUser, markNewsRead, redeemPromo } from "@/app/actions/news"
 import { useCart } from "@/components/cart-provider"
@@ -130,8 +129,13 @@ export function NewsPopup({ token }: { token?: string }) {
 
         {/* Image */}
         {slide?.imageUrl && (
-          <div className="relative aspect-[16/10] w-full bg-secondary">
-            <Image src={slide.imageUrl || "/placeholder.svg"} alt={slide.title ?? ""} fill className="object-cover" />
+          <div className="aspect-[16/10] w-full overflow-hidden bg-secondary">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={slide.imageUrl}
+              alt={slide.title ?? ""}
+              className="h-full w-full object-cover"
+            />
           </div>
         )}
 
