@@ -3,8 +3,9 @@
 import { useMemo, useState, useRef, useEffect } from "react"
 import type { AdminUserRow } from "@/app/actions/account"
 import { deleteUserAccount, setLoyaltyAdjustment, setUserFlags } from "@/app/actions/account"
-import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle, Pencil, Check, X, Copy, Tag, ChevronDown } from "lucide-react"
+import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle, Pencil, Check, X, Copy, Tag, ChevronDown, MessageSquare, Send } from "lucide-react"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
+import { createGeneralInquiryThread } from "@/app/actions/messaging"
 
 // Étiquettes (flags) sélectionnables pour signaler un compte.
 const FLAG_OPTIONS: { value: string; label: string; className: string }[] = [
@@ -113,6 +114,10 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [editValue, setEditValue] = useState("")
   const [savingId, setSavingId] = useState<number | null>(null)
   const [copiedId, setCopiedId] = useState<number | null>(null)
+  const [contactUser, setContactUser] = useState<AdminUserRow | null>(null)
+  const [contactMsg, setContactMsg] = useState("")
+  const [contactSending, setContactSending] = useState(false)
+  const [contactDone, setContactDone] = useState(false)
 
   const totalPoints = (u: AdminUserRow) => Math.max(0, computeLoyaltyPoints(u.totalSpent) + u.loyaltyAdjustment)
 
@@ -185,6 +190,28 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
       (u) => u.pseudo.toLowerCase().includes(q) || u.token.toLowerCase().includes(q),
     )
   }, [users, query])
+
+  const handleContact = async () => {
+    if (!contactUser || !contactMsg.trim()) return
+    setContactSending(true)
+    try {
+      const res = await createGeneralInquiryThread({
+        customerName: contactUser.pseudo,
+        customerToken: contactUser.token,
+        message: `[Message de l'équipe] ${contactMsg.trim()}`,
+      })
+      if (res.ok) {
+        setContactDone(true)
+        setContactMsg("")
+        setTimeout(() => {
+          setContactUser(null)
+          setContactDone(false)
+        }, 2000)
+      }
+    } finally {
+      setContactSending(false)
+    }
+  }
 
   const handleDelete = async (user: AdminUserRow) => {
     setPendingId(user.id)
@@ -345,19 +372,29 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setConfirmUser(u)}
-                        disabled={pendingId === u.id}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
-                      >
-                        {pendingId === u.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        )}
-                        Supprimer
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setContactUser(u); setContactMsg(""); setContactDone(false) }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+                        >
+                          <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+                          Contacter
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmUser(u)}
+                          disabled={pendingId === u.id}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
+                        >
+                          {pendingId === u.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          )}
+                          Supprimer
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -366,6 +403,86 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
           </table>
         </div>
       </div>
+
+      {/* Modale de contact client */}
+      {contactUser && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-background/90 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Contacter ${contactUser.pseudo}`}
+        >
+          <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6">
+            <div className="mb-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/15 text-accent">
+                  <MessageSquare className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold">Contacter un client</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Un fil de messagerie sera ouvert avec{" "}
+                    <span className="font-semibold text-foreground">{contactUser.pseudo}</span>.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContactUser(null)}
+                className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                aria-label="Fermer"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            {contactDone ? (
+              <div className="flex flex-col items-center gap-3 py-6 text-center">
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-accent/15 text-accent">
+                  <Check className="h-6 w-6" aria-hidden="true" />
+                </span>
+                <p className="font-semibold">Message envoyé !</p>
+                <p className="text-sm text-muted-foreground">
+                  Le fil de messagerie est ouvert. Le client recevra une notification push.
+                </p>
+              </div>
+            ) : (
+              <>
+                <textarea
+                  value={contactMsg}
+                  onChange={(e) => setContactMsg(e.target.value)}
+                  placeholder={`Écris ton message à ${contactUser.pseudo}…`}
+                  rows={4}
+                  autoFocus
+                  className="w-full resize-none rounded-xl border border-border bg-background/60 p-3 text-sm outline-none transition-colors focus:border-accent"
+                />
+                <div className="mt-4 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setContactUser(null)}
+                    className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleContact}
+                    disabled={contactSending || !contactMsg.trim()}
+                    className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    {contactSending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Send className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    Envoyer
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Confirmation de suppression */}
       {confirmUser && (

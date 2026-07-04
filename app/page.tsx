@@ -12,6 +12,7 @@ import { MyOrdersModal } from "@/components/my-orders-modal"
 import { MessagerieModal } from "@/components/messagerie-modal"
 import { NewsPopup } from "@/components/news-popup"
 import { DeliveryInfoModal } from "@/components/delivery-info-modal"
+import { HowItWorksModal } from "@/components/how-it-works-modal"
 import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
 import { ShopSections } from "@/components/shop-sections"
@@ -24,6 +25,7 @@ export default function Home() {
   const [isOrdersOpen, setIsOrdersOpen] = useState(false)
   const [isDeliveryOpen, setIsDeliveryOpen] = useState(false)
   const [isMessagingOpen, setIsMessagingOpen] = useState(false)
+  const [isHowItWorksOpen, setIsHowItWorksOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [userData, setUserData] = useState<{ pseudo?: string; token?: string } | null>(null)
 
@@ -93,6 +95,7 @@ export default function Home() {
         onOpenOrders={() => setIsOrdersOpen(true)}
         onOpenDelivery={() => setIsDeliveryOpen(true)}
         onOpenMessaging={() => setIsMessagingOpen(true)}
+        onOpenHowItWorks={() => setIsHowItWorksOpen(true)}
         isAdmin={isAdmin}
       />
 
@@ -119,6 +122,8 @@ export default function Home() {
       <MyOrdersModal isOpen={isOrdersOpen} onClose={() => setIsOrdersOpen(false)} userData={userData} />
 
       <DeliveryInfoModal isOpen={isDeliveryOpen} onClose={() => setIsDeliveryOpen(false)} />
+
+      <HowItWorksModal isOpen={isHowItWorksOpen} onClose={() => setIsHowItWorksOpen(false)} />
 
       <MessagerieModal isOpen={isMessagingOpen} onClose={() => setIsMessagingOpen(false)} userData={userData} />
 
