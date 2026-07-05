@@ -67,15 +67,6 @@ export async function saveProduct(input: ProductInput) {
   const stock = Math.max(0, Math.trunc(Number(input.stock) || 0))
   const variants = sanitizeVariants(input.variants)
 
-  // Vérifie que le stock est suffisant pour distribuer les variantes
-  const totalVariantQty = variants.reduce((sum, v) => sum + v.qty, 0)
-  if (totalVariantQty > stock) {
-    return {
-      ok: false as const,
-      error: `Les variantes utilisent ${totalVariantQty} unités, mais le stock n'en a que ${stock}.`,
-    }
-  }
-
   const values = {
     title,
     section: input.section?.trim() || "featured",

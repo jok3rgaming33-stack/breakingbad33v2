@@ -88,16 +88,6 @@ export function AdminProducts() {
 
   const handleSave = async () => {
     if (!form) return
-
-    // Vérification : stock suffisant pour les variantes
-    const variantQtySum = form.variants.reduce((sum, v) => sum + v.qty, 0)
-    if (variantQtySum > form.stock) {
-      setError(
-        `Les variantes utilisent ${variantQtySum} unités, mais le stock n'en a que ${form.stock}. Baisse les quantités ou augmente le stock.`
-      )
-      return
-    }
-
     setSaving(true)
     setError(null)
     const input: ProductInput = {
@@ -150,18 +140,8 @@ export function AdminProducts() {
     setForm({ ...form, variants })
   }
 
-  // Calcule la quantité totale distribuée par les variantes
-  const totalVariantQty = (form?.variants ?? []).reduce((sum, v) => sum + v.qty, 0)
-  const stockOk = totalVariantQty <= form!.stock
-
   const addVariant = () => {
     if (!form) return
-    // Vérifie si ajouter une variante (par défaut qty=1) dépasse le stock
-    const newTotal = totalVariantQty + 1
-    if (newTotal > form.stock) {
-      setError(`Impossible d'ajouter : les variantes utilisent ${totalVariantQty}/${form.stock} unités en stock.`)
-      return
-    }
     setForm({ ...form, variants: [...form.variants, { qty: 1, price: 0 }] })
   }
 
@@ -375,34 +355,11 @@ export function AdminProducts() {
                   <button
                     type="button"
                     onClick={addVariant}
-                    disabled={totalVariantQty >= form.stock}
-                    className="flex items-center gap-1 text-xs text-accent hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={totalVariantQty >= form.stock ? `Variantes : ${totalVariantQty}/${form.stock} unités utilisées` : undefined}
+                    className="flex items-center gap-1 text-xs text-accent hover:underline"
                   >
                     <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Ajouter
                   </button>
                 </div>
-
-                {/* Avertissement si variantes dépassent stock */}
-                {!stockOk && (
-                  <div className="mb-3 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2">
-                    <p className="text-xs font-semibold text-destructive">
-                      ⚠ Stock insuffisant pour distribuer les variantes
-                    </p>
-                    <p className="text-xs text-destructive/80 mt-1">
-                      Les variantes utilisent <span className="font-semibold">{totalVariantQty}</span> unités, mais le stock n&apos;en
-                      a que <span className="font-semibold">{form.stock}</span>. Baisse les quantités ou augmente le stock.
-                    </p>
-                  </div>
-                )}
-
-                {stockOk && totalVariantQty > 0 && (
-                  <div className="mb-3 rounded-xl border border-[#3e6757]/40 bg-[#3e6757]/10 px-3 py-2">
-                    <p className="text-xs text-[#7fd1b0]">
-                      ✓ Variantes : <span className="font-semibold">{totalVariantQty}/{form.stock}</span> unités distribuées
-                    </p>
-                  </div>
-                )}
 
                 <div className="space-y-2">
                   {form.variants.map((v, i) => (

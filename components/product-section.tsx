@@ -241,12 +241,16 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                 onChange={(e) => setVariantIdx(Number(e.target.value))}
                 className="mb-6 w-full rounded-2xl border border-white/10 bg-[#050505] px-4 py-3 text-sm text-white outline-none transition-colors focus:border-[#3e6757]"
               >
-                {selected.variants.map((v: ProductVariant, i: number) => (
-                  <option key={`${v.qty}-${i}`} value={i}>
-                    {v.qty} — {effectivePrice(v.price, selected)}€
-                    {effectivePrice(v.price, selected) !== v.price ? ` (au lieu de ${v.price}€)` : ""}
-                  </option>
-                ))}
+                {selected.variants.map((v: ProductVariant, i: number) => {
+                  // On n'affiche que les variantes que le stock peut couvrir.
+                  if (v.qty > selected.stock) return null
+                  return (
+                    <option key={`${v.qty}-${i}`} value={i}>
+                      {v.qty} — {effectivePrice(v.price, selected)}€
+                      {effectivePrice(v.price, selected) !== v.price ? ` (au lieu de ${v.price}€)` : ""}
+                    </option>
+                  )
+                })}
               </select>
 
               <div className="mb-6 text-2xl font-semibold text-white">
