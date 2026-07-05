@@ -64,6 +64,18 @@ export async function saveProduct(input: ProductInput) {
   const title = input.title?.trim()
   if (!title) return { ok: false as const, error: "Titre requis" }
 
+  const stock = Math.max(0, Math.trunc(Number(input.stock) || 0))
+  const variants = sanitizeVariants(input.variants)
+
+  // Vérifie que le stock est suffisant pour distribuer les variantes
+  const totalVariantQty = variants.reduce((sum, v) => sum + v.qty, 0)
+  if (totalVariantQty > stock) {
+    return {
+      ok: false as const,
+      error: `Les variantes utilisent ${totalVariantQty} unités, mais le stock n'en a que ${stock}.`,
+    }
+  }
+
   const values = {
     title,
     section: input.section?.trim() || "featured",
@@ -75,8 +87,8 @@ export async function saveProduct(input: ProductInput) {
     number: input.number?.trim() || null,
     description: input.description?.trim() || null,
     fullDescription: input.fullDescription?.trim() || null,
-    stock: Math.max(0, Math.trunc(Number(input.stock) || 0)),
-    variants: sanitizeVariants(input.variants),
+    stock,
+    variants,
     badges: Array.isArray(input.badges) ? input.badges.filter(Boolean) : [],
     discountType: input.discountType ?? null,
     discountValue: input.discountValue != null ? Math.max(0, Math.trunc(input.discountValue)) : null,
