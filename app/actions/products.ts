@@ -72,7 +72,7 @@ export async function saveProduct(input: ProductInput) {
     section: input.section?.trim() || "featured",
     image: input.image?.trim() || null,
     media: Array.isArray(input.media)
-      ? input.media.filter((m) => m && (m.type === "image" || m.type === "video") && m.url).slice(0, 12)
+      ? input.media.filter((m) => m && (m.type === "image" || m.type === "video") && m.url)
       : [],
     symbol: input.symbol?.trim() || null,
     number: input.number?.trim() || null,

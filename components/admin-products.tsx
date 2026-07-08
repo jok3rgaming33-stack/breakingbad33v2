@@ -630,7 +630,6 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
         type="file"
         accept="image/*,video/*"
         multiple
-        capture="environment"
         onChange={(e) => handleFiles(e.target.files)}
         className="hidden"
       />
@@ -646,16 +645,26 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
       {err && <p className="mt-1.5 text-xs text-destructive">{err}</p>}
 
       {form.media.length > 0 && (
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="mt-3 grid grid-cols-3 gap-2">
           {form.media.map((m) => (
-            <div key={m.url} className="group relative aspect-square overflow-hidden rounded-lg border border-border bg-background">
+            <div key={m.url} className="group relative overflow-hidden rounded-lg border border-border bg-black">
               {m.type === "video" ? (
-                <div className="flex h-full w-full items-center justify-center bg-black/60">
-                  <Film className="h-6 w-6 text-white/70" aria-hidden="true" />
-                </div>
+                <video
+                  src={m.url}
+                  className="w-full object-contain"
+                  style={{ maxHeight: "120px" }}
+                  muted
+                  playsInline
+                  preload="metadata"
+                />
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={m.url || "/placeholder.svg"} alt="Média produit" className="h-full w-full object-cover" />
+                <img
+                  src={m.url}
+                  alt="Média produit"
+                  className="w-full object-contain"
+                  style={{ maxHeight: "120px" }}
+                />
               )}
               <button
                 type="button"
