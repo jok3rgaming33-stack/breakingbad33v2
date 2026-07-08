@@ -12,7 +12,7 @@ export function ShopSections() {
   if (!categories) {
     return (
       <div className="mx-auto max-w-[1200px] px-4 py-20">
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-72 animate-pulse rounded-3xl border border-white/10 bg-[#0a0a0a]" />
           ))}
@@ -31,8 +31,8 @@ export function ShopSections() {
             icon: idx === 0 ? "flask" : "sparkles",
             eyebrow: idx === 0 ? "Laboratoire Clandestin" : "Sélection",
             title: cat.name,
-            gridCols: idx === 0 ? "md:grid-cols-2 lg:grid-cols-4" : "md:grid-cols-2 lg:grid-cols-5",
-            imageSize: idx === 0 ? "h-40 w-40" : "h-32 w-32",
+            gridCols: "md:grid-cols-2 lg:grid-cols-5",
+            imageSize: "h-32 w-32",
             anchor: idx === 0 ? "featured" : undefined,
           }}
         />
