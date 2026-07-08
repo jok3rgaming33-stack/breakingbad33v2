@@ -1,11 +1,13 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Plus, CheckCircle2, Copy, AlertTriangle, Loader2, History } from "lucide-react"
+import { Plus, CheckCircle2, Copy, AlertTriangle, Loader2, History, HelpCircle, KeyRound, X, Send, MessageCircleWarning } from "lucide-react"
 import { adminLogin } from "@/app/actions/admin-auth"
 import { createAccount, ensureAccount, getAccount, getCustomerStats } from "@/app/actions/account"
 import { verifyHuman } from "@/app/actions/security"
 import { TurnstileWidget } from "@/components/turnstile-widget"
+import { HowItWorksModal } from "@/components/how-it-works-modal"
+import { createGeneralInquiryThread } from "@/app/actions/messaging"
 
 const CRYSTAL_COUNT = 4
 
@@ -254,6 +256,13 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
   }
 
   const [copiedField, setCopiedField] = useState<"pseudo" | "key" | null>(null)
+  const [showHowItWorks, setShowHowItWorks] = useState(false)
+  const [showLostKey, setShowLostKey] = useState(false)
+  const [lostKeyPseudo, setLostKeyPseudo] = useState("")
+  const [lostKeyMessage, setLostKeyMessage] = useState("")
+  const [lostKeySending, setLostKeySending] = useState(false)
+  const [lostKeySent, setLostKeySent] = useState(false)
+  const [lostKeyError, setLostKeyError] = useState("")
 
   const copyToClipboard = async (text: string, field: "pseudo" | "key") => {
     let success = false
@@ -285,6 +294,25 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
     if (success) {
       setCopiedField(field)
       window.setTimeout(() => setCopiedField(null), 2000)
+    }
+  }
+
+  const sendLostKeyRequest = async () => {
+    const pseudo = lostKeyPseudo.trim()
+    const msg = lostKeyMessage.trim()
+    if (!pseudo) { setLostKeyError("Indique ton pseudo pour qu'on te retrouve."); return }
+    setLostKeySending(true)
+    setLostKeyError("")
+    try {
+      await createGeneralInquiryThread({
+        customerName: pseudo,
+        message: `[CLE PERDUE] Pseudo : ${pseudo}\n\n${msg || "Le client a perdu sa clé et demande de l'aide."}`,
+      })
+      setLostKeySent(true)
+    } catch {
+      setLostKeyError("Envoi impossible, réessaie dans un instant.")
+    } finally {
+      setLostKeySending(false)
     }
   }
 
@@ -376,6 +404,14 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
               eakingBad<span className="text-accent">33</span>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowHowItWorks(true)}
+            className="flex items-center gap-2 rounded-2xl border border-border bg-background/50 px-4 py-2 text-sm font-medium text-muted-foreground backdrop-blur transition-colors hover:border-accent/50 hover:text-foreground"
+          >
+            <HelpCircle className="h-4 w-4" aria-hidden="true" />
+            Comment ça marche
+          </button>
         </div>
       </header>
 
@@ -459,11 +495,123 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
               {loggingIn && <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />}
               {loggingIn ? "Connexion..." : "Se connecter avec ma clé"}
             </button>
+            <button
+              type="button"
+              onClick={() => { setShowLostKey(true); setLostKeySent(false); setLostKeyError("") }}
+              className="mt-3 flex w-full items-center justify-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+              Clé perdue
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Modale Comment ça marche */}
+      <HowItWorksModal isOpen={showHowItWorks} onClose={() => setShowHowItWorks(false)} />
+
+      {/* Modale Clé perdue */}
+      {showLostKey && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-border bg-card shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-border px-6 py-5">
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-destructive/30 bg-destructive/10 text-destructive">
+                  <MessageCircleWarning className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div>
+                  <h2 className="font-bold leading-tight">Clé perdue</h2>
+                  <p className="text-xs text-muted-foreground">Contacte l&apos;admin pour obtenir de l&apos;aide</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLostKey(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-secondary"
+                aria-label="Fermer"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              {lostKeySent ? (
+                <div className="flex flex-col items-center gap-4 py-4 text-center">
+                  <CheckCircle2 className="h-14 w-14 text-accent" aria-hidden="true" />
+                  <p className="font-semibold text-lg">Demande envoyée !</p>
+                  <p className="text-sm text-muted-foreground">
+                    L&apos;admin a reçu ta demande et te répondra dès que possible via la messagerie.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowLostKey(false)}
+                    className="mt-2 rounded-2xl bg-accent px-6 py-2.5 text-sm font-semibold text-accent-foreground hover:brightness-110"
+                  >
+                    Fermer
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="mb-5 text-sm text-muted-foreground leading-relaxed">
+                    Si tu as perdu ta clé secrète, indique ton pseudo ci-dessous et décris ta situation.
+                    L&apos;admin sera notifié immédiatement et pourra vérifier ton compte.
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium" htmlFor="lostKeyPseudo">
+                        Ton pseudo
+                      </label>
+                      <input
+                        id="lostKeyPseudo"
+                        type="text"
+                        value={lostKeyPseudo}
+                        onChange={(e) => setLostKeyPseudo(e.target.value)}
+                        placeholder="Ex: CoolFox"
+                        className="w-full rounded-2xl border border-input bg-background/60 px-4 py-3 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium" htmlFor="lostKeyMessage">
+                        Message (optionnel)
+                      </label>
+                      <textarea
+                        id="lostKeyMessage"
+                        value={lostKeyMessage}
+                        onChange={(e) => setLostKeyMessage(e.target.value)}
+                        placeholder="Décris ta situation, date de dernière connexion, etc."
+                        rows={3}
+                        className="w-full resize-none rounded-2xl border border-input bg-background/60 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                    {lostKeyError && (
+                      <p className="flex items-center gap-1.5 text-sm text-destructive">
+                        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        {lostKeyError}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={sendLostKeyRequest}
+                      disabled={lostKeySending}
+                      className="mt-1 flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-colors hover:brightness-110 disabled:opacity-60"
+                    >
+                      {lostKeySending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Send className="h-4 w-4" aria-hidden="true" />
+                      )}
+                      {lostKeySending ? "Envoi..." : "Envoyer ma demande"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal création compte */}
       {showResultModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/90 p-4">
           <div className="w-full max-w-md rounded-3xl border border-accent/40 bg-card p-8">
