@@ -7,25 +7,7 @@ import Image from "next/image"
 import { FlaskConical, Sparkles, X as CloseIcon } from "lucide-react"
 import { ProductBadges } from "@/components/product-badge"
 import { resolveBadges } from "@/lib/badges"
-import { mediaUrl } from "@/lib/media-url"
-
-const VIDEO_EXTS = [".mp4", ".webm", ".mov", ".ogg", ".m4v"]
-
-/** Détecte si une URL pointe vers une vidéo.
- *  Gère les URLs directes ET les URLs proxy (/api/media?url=<blob_url>). */
-function isVideoUrl(url: string): boolean {
-  // Pour les URLs proxy, on inspecte l'URL blob encodée dans le paramètre.
-  if (url.startsWith("/api/media?")) {
-    try {
-      const inner = new URLSearchParams(url.slice(url.indexOf("?"))).get("url") ?? ""
-      return isVideoUrl(inner)
-    } catch {
-      return false
-    }
-  }
-  const clean = url.split("?")[0].toLowerCase()
-  return VIDEO_EXTS.some((ext) => clean.endsWith(ext))
-}
+import { BlobMedia, isVideoUrl, toProxyUrl } from "@/components/blob-media"
 import { getProductsBySection, decrementStock } from "@/app/actions/products"
 import { requestRestockAlert, hasRestockAlert } from "@/app/actions/restock"
 import { BellRing, BellPlus } from "lucide-react"
@@ -156,24 +138,11 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                   {/* Zone image/video — couvre tout le haut de la card */}
                   <div className="relative aspect-[4/5] w-full overflow-hidden bg-[#111]">
                     {product.image ? (
-                      isVideoUrl(product.image) ? (
-                        // eslint-disable-next-line jsx-a11y/media-has-caption
-                        <video
-                          src={mediaUrl(product.image)}
-                          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          autoPlay
-                          muted
-                          loop
-                          playsInline
-                        />
-                      ) : (
-                        <Image
-                          src={mediaUrl(product.image)}
-                          alt={product.title}
-                          fill
-                          className="object-cover transition-transform duration-500 group-hover:scale-105"
-                        />
-                      )
+                      <BlobMedia
+                        src={product.image}
+                        alt={product.title}
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-zinc-700">
                         <FlaskConical className="h-12 w-12" />
@@ -262,17 +231,13 @@ export function ProductSection({ config }: { config: SectionConfig }) {
               <div className="relative h-64 w-64">
                 {selected.image && (
                   isVideoUrl(selected.image) ? (
-                    // eslint-disable-next-line jsx-a11y/media-has-caption
-                    <video
-                      src={mediaUrl(selected.image)}
-                      autoPlay
-                      muted
-                      loop
-                      playsInline
+                    <BlobMedia
+                      src={selected.image}
+                      alt={selected.title}
                       className="h-full w-full object-contain"
                     />
                   ) : (
-                    <Image src={mediaUrl(selected.image) || "/placeholder.svg"} alt={selected.title} fill className="object-contain" />
+                    <Image src={toProxyUrl(selected.image) || "/placeholder.svg"} alt={selected.title} fill className="object-contain" />
                   )
                 )}
               </div>

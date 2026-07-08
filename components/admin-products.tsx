@@ -2,10 +2,10 @@
 
 import { useState, useRef } from "react"
 import useSWR from "swr"
-import { Plus, Trash2, Pencil, Minus, X, Loader2, PackagePlus, Save, GripVertical, Upload, FolderPlus, Check, Film } from "lucide-react"
+import { Plus, Trash2, Pencil, Minus, X, Loader2, PackagePlus, Save, GripVertical, Upload, FolderPlus, Check } from "lucide-react"
 import { BADGE_OPTIONS } from "@/lib/badges"
 import { uploadMedia } from "@/lib/upload-media"
-import { mediaUrl } from "@/lib/media-url"
+import { BlobMedia } from "@/components/blob-media"
 import { listProducts, saveProduct, deleteProduct, adjustStock, reorderProducts, type ProductInput } from "@/app/actions/products"
 import { listCategories, createCategory, renameCategory, deleteCategory, reorderCategories } from "@/app/actions/categories"
 import type { Product, ProductVariant, ProductMedia, Category } from "@/lib/db/schema"
@@ -649,24 +649,12 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
         <div className="mt-3 grid grid-cols-3 gap-2">
           {form.media.map((m) => (
             <div key={m.url} className="group relative overflow-hidden rounded-lg border border-border bg-black">
-              {m.type === "video" ? (
-                <video
-                  src={mediaUrl(m.url)}
-                  className="w-full object-contain"
-                  style={{ maxHeight: "120px" }}
-                  muted
-                  playsInline
-                  preload="metadata"
-                />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={mediaUrl(m.url)}
-                  alt="Média produit"
-                  className="w-full object-contain"
-                  style={{ maxHeight: "120px" }}
-                />
-              )}
+              <BlobMedia
+                src={m.url}
+                alt="Média produit"
+                className="w-full object-contain"
+                videoProps={{ muted: true, playsInline: true, preload: "metadata", autoPlay: false, loop: false, style: { maxHeight: "120px" } }}
+              />
               <button
                 type="button"
                 onClick={() => removeMedia(m.url)}
