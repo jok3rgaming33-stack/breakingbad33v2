@@ -130,53 +130,68 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                 <div
                   key={product.id}
                   onClick={() => !out && openModal(product)}
-                  className={`group relative flex flex-col items-center overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] p-6 text-center transition-all ${
+                  className={`group relative flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] transition-all ${
                     out ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:border-[#3e6757]/50"
                   }`}
                 >
-                  <ProductBadges badges={badges} />
-                  <div className={`relative mb-6 ${config.imageSize}`}>
+                  {/* Zone image — couvre tout le haut de la card */}
+                  <div className="relative aspect-[4/5] w-full overflow-hidden bg-[#111]">
                     {product.image ? (
-                      <Image src={product.image || "/placeholder.svg"} alt={product.title} fill className="object-contain" />
+                      <Image
+                        src={product.image}
+                        alt={product.title}
+                        fill
+                        className="object-cover transition-transform duration-500 group-hover:scale-105"
+                      />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center rounded-2xl bg-white/5 text-zinc-600">
-                        <FlaskConical className="h-10 w-10" />
+                      <div className="flex h-full w-full items-center justify-center text-zinc-700">
+                        <FlaskConical className="h-12 w-12" />
                       </div>
                     )}
+                    {/* Dégradé bas pour lisibilité du contenu */}
+                    <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[#0a0a0a] to-transparent" />
+                    {/* Badges superposés en haut à gauche */}
+                    <div className="absolute left-3 top-3">
+                      <ProductBadges badges={badges} />
+                    </div>
                   </div>
-                  {product.symbol && (
-                    <span className="mb-1 font-mono text-xs uppercase tracking-[0.2em] text-[#3e6757]">{product.symbol}</span>
-                  )}
-                  <h3 className="mb-2 text-lg font-semibold text-white">{product.title}</h3>
-                  <p className="mb-3 text-xs text-zinc-500">
-                    {out ? "Rupture de stock" : `Dès ${minPrice}€ · stock ${product.stock}`}
-                  </p>
-                  {out ? (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (!alerted[product.id]) requestAlert(product)
-                      }}
-                      disabled={alerting === product.id || alerted[product.id]}
-                      className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[#3e6757]/60 bg-[#3e6757]/10 py-2 text-xs font-medium text-[#7fae9b] transition-colors hover:bg-[#3e6757]/20 disabled:opacity-70"
-                    >
-                      {alerted[product.id] ? (
-                        <>
-                          <BellRing className="h-3.5 w-3.5" aria-hidden="true" />
-                          Alerte activée
-                        </>
-                      ) : (
-                        <>
-                          <BellPlus className="h-3.5 w-3.5" aria-hidden="true" />
-                          {alerting === product.id ? "…" : "Alerte dispo"}
-                        </>
-                      )}
-                    </button>
-                  ) : (
-                    <button className="w-full rounded-full border border-white/10 py-2 text-xs text-white transition-colors hover:bg-white hover:text-black">
-                      Détails
-                    </button>
-                  )}
+
+                  {/* Zone contenu */}
+                  <div className="flex flex-col gap-2 p-4">
+                    {product.symbol && (
+                      <span className="font-mono text-xs uppercase tracking-[0.2em] text-[#3e6757]">{product.symbol}</span>
+                    )}
+                    <h3 className="text-base font-semibold leading-tight text-white">{product.title}</h3>
+                    <p className="text-xs text-zinc-500">
+                      {out ? "Rupture de stock" : `Dès ${minPrice}€ · stock ${product.stock}`}
+                    </p>
+                    {out ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (!alerted[product.id]) requestAlert(product)
+                        }}
+                        disabled={alerting === product.id || alerted[product.id]}
+                        className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-full border border-[#3e6757]/60 bg-[#3e6757]/10 py-2 text-xs font-medium text-[#7fae9b] transition-colors hover:bg-[#3e6757]/20 disabled:opacity-70"
+                      >
+                        {alerted[product.id] ? (
+                          <>
+                            <BellRing className="h-3.5 w-3.5" aria-hidden="true" />
+                            Alerte activée
+                          </>
+                        ) : (
+                          <>
+                            <BellPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                            {alerting === product.id ? "…" : "Alerte dispo"}
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <button className="mt-1 w-full rounded-full border border-white/10 py-2 text-xs text-white transition-colors hover:bg-white hover:text-black">
+                        Détails
+                      </button>
+                    )}
+                  </div>
                 </div>
               )
             })}
