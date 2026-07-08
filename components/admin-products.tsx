@@ -5,6 +5,7 @@ import useSWR from "swr"
 import { Plus, Trash2, Pencil, Minus, X, Loader2, PackagePlus, Save, GripVertical, Upload, FolderPlus, Check, Film } from "lucide-react"
 import { BADGE_OPTIONS } from "@/lib/badges"
 import { uploadMedia } from "@/lib/upload-media"
+import { mediaUrl } from "@/lib/media-url"
 import { listProducts, saveProduct, deleteProduct, adjustStock, reorderProducts, type ProductInput } from "@/app/actions/products"
 import { listCategories, createCategory, renameCategory, deleteCategory, reorderCategories } from "@/app/actions/categories"
 import type { Product, ProductVariant, ProductMedia, Category } from "@/lib/db/schema"
@@ -650,7 +651,7 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
             <div key={m.url} className="group relative overflow-hidden rounded-lg border border-border bg-black">
               {m.type === "video" ? (
                 <video
-                  src={m.url}
+                  src={mediaUrl(m.url)}
                   className="w-full object-contain"
                   style={{ maxHeight: "120px" }}
                   muted
@@ -660,7 +661,7 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={m.url}
+                  src={mediaUrl(m.url)}
                   alt="Média produit"
                   className="w-full object-contain"
                   style={{ maxHeight: "120px" }}

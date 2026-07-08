@@ -7,6 +7,7 @@ import Image from "next/image"
 import { FlaskConical, Sparkles, X as CloseIcon } from "lucide-react"
 import { ProductBadges } from "@/components/product-badge"
 import { resolveBadges } from "@/lib/badges"
+import { mediaUrl } from "@/lib/media-url"
 import { getProductsBySection, decrementStock } from "@/app/actions/products"
 import { requestRestockAlert, hasRestockAlert } from "@/app/actions/restock"
 import { BellRing, BellPlus } from "lucide-react"
@@ -138,7 +139,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                   <div className="relative aspect-[4/5] w-full overflow-hidden bg-[#111]">
                     {product.image ? (
                       <Image
-                        src={product.image}
+                        src={mediaUrl(product.image)}
                         alt={product.title}
                         fill
                         className="object-cover transition-transform duration-500 group-hover:scale-105"
@@ -230,7 +231,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
             <div className="relative z-20 flex w-full items-center justify-center bg-[#050505]/50 p-12 md:w-1/2">
               <div className="relative h-64 w-64">
                 {selected.image && (
-                  <Image src={selected.image || "/placeholder.svg"} alt={selected.title} fill className="object-contain" />
+                  <Image src={mediaUrl(selected.image) || "/placeholder.svg"} alt={selected.title} fill className="object-contain" />
                 )}
               </div>
             </div>

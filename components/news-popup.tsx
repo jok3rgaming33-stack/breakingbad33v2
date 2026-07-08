@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { X, ChevronLeft, ChevronRight, Ticket, Check, Loader2 } from "lucide-react"
 import { getActiveNewsForUser, markNewsRead, redeemPromo } from "@/app/actions/news"
+import { mediaUrl } from "@/lib/media-url"
 import { useCart } from "@/components/cart-provider"
 
 type Slide = {
@@ -132,10 +133,9 @@ export function NewsPopup({ token }: { token?: string }) {
           <div className="w-full overflow-hidden bg-secondary">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={slide.imageUrl}
+              src={mediaUrl(slide.imageUrl)}
               alt={slide.title ?? ""}
-              className="w-full object-contain"
-              style={{ maxHeight: "420px" }}
+              className="h-full w-full object-contain"
             />
           </div>
         )}

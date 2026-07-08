@@ -24,11 +24,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const blob = await put(file.name, file, {
-      access: "public",
+      access: "private",
       addRandomSuffix: true,
     })
 
-    return NextResponse.json({ url: blob.url, type: isVideo ? "video" : "image" })
+    // On retourne l'URL proxy plutôt que l'URL Blob brute.
+    // /api/media se charge de générer un token signé côté serveur.
+    const proxyUrl = `/api/media?url=${encodeURIComponent(blob.url)}`
+    return NextResponse.json({ url: proxyUrl, type: isVideo ? "video" : "image" })
   } catch (error) {
     console.error("[upload] error:", error)
     return NextResponse.json(
