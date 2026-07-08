@@ -342,7 +342,7 @@ export function AdminProducts() {
                 <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="input" />
               </Field>
 
-              <Field label="Description complète">
+              <Field label="Description compl��te">
                 <textarea value={form.fullDescription} onChange={(e) => setForm({ ...form, fullDescription: e.target.value })} rows={3} className="input resize-none" />
               </Field>
 
@@ -608,12 +608,12 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
         setErr(e instanceof Error ? e.message : "Échec de l'envoi.")
       }
     }
-    // La première image importée devient l'image principale si aucune n'est définie.
-    const firstImage = added.find((m) => m.type === "image")
+    // Le premier média importé (image OU vidéo) devient l'image principale si aucune n'est définie.
+    const firstMedia = added[0]
     setForm({
       ...form,
       media: [...form.media, ...added],
-      image: form.image || firstImage?.url || "",
+      image: form.image || firstMedia?.url || "",
     })
     setUploading(false)
     if (inputRef.current) inputRef.current.value = ""

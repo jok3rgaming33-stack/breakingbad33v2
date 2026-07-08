@@ -157,12 +157,17 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                   }`}
                 >
                   {/* Zone image/video — couvre tout le haut de la card */}
+                  {(() => {
+                    // Fallback : si image principale est null, prendre le premier média
+                    const mainUrl = product.image || product.media?.[0]?.url || null
+                    const mainType = mainUrl ? (getMediaType(mainUrl, product.media) ?? product.media?.find(m => m.url === mainUrl)?.type) : undefined
+                    return (
                   <div className="relative aspect-[4/5] w-full overflow-hidden bg-[#111]">
-                    {product.image ? (
+                    {mainUrl ? (
                       <BlobMedia
-                        src={product.image}
+                        src={mainUrl}
                         alt={product.title}
-                        mediaType={getMediaType(product.image, product.media)}
+                        mediaType={mainType}
                         className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                       />
                     ) : (
@@ -177,6 +182,8 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                       <ProductBadges badges={badges} />
                     </div>
                   </div>
+                    )
+                  })()}
 
                   {/* Zone contenu */}
                   <div className="flex flex-col gap-2 p-4">
