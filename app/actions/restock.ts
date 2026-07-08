@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { restockAlerts, products } from "@/lib/db/schema"
-import { notifyCustomer } from "@/lib/push"
+import { notifyCustomer, notifyAllClients } from "@/lib/push"
 import { and, eq } from "drizzle-orm"
 
 // Le client demande à être prévenu quand un produit en rupture revient en stock.
@@ -50,19 +50,21 @@ export async function notifyRestock(productId: number) {
     .from(restockAlerts)
     .where(and(eq(restockAlerts.productId, productId), eq(restockAlerts.notified, false)))
 
-  if (alerts.length === 0) return
+  const payload = {
+    title: "Produit de nouveau disponible",
+    body: `${product.title} est de retour en stock. Commande vite avant rupture !`,
+    url: "/",
+    tag: `restock-${productId}`,
+  }
 
-  await Promise.all(
-    alerts.map((a) =>
-      notifyCustomer(a.userToken, {
-        title: "Produit de nouveau disponible",
-        body: `${product.title} est de retour en stock. Commande vite avant rupture !`,
-        url: "/",
-        tag: `restock-${productId}`,
-      }),
-    ),
-  )
+  // 1. Notifie tous les clients abonnés aux push (diffusion générale).
+  await notifyAllClients(payload)
 
-  // Une fois notifiés, on retire les alertes pour éviter les doublons.
-  await db.delete(restockAlerts).where(and(eq(restockAlerts.productId, productId), eq(restockAlerts.notified, false)))
+  // 2. En plus, notifie individuellement les clients ayant demandé une alerte explicite
+  //    (au cas où ils ne sont pas abonnés aux push globaux).
+  if (alerts.length > 0) {
+    await Promise.all(alerts.map((a) => notifyCustomer(a.userToken, payload)))
+    // Supprime les alertes individuelles traitées.
+    await db.delete(restockAlerts).where(and(eq(restockAlerts.productId, productId), eq(restockAlerts.notified, false)))
+  }
 }
