@@ -62,23 +62,28 @@ export function BlobVideo({ src, ...props }: BlobVideoProps) {
 }
 
 /**
- * Composant universel image OU vidéo selon l'extension.
+ * Composant universel image OU vidéo.
+ * - Si `mediaType` est fourni, il est utilisé directement (fiable).
+ * - Sinon, détection par l'extension de l'URL (fallback).
  * Passe automatiquement par le proxy Blob privé.
  */
 export function BlobMedia({
   src,
   alt = "",
   className,
+  mediaType,
   videoProps,
 }: {
   src: string | null | undefined
   alt?: string
   className?: string
+  mediaType?: "image" | "video"
   videoProps?: Omit<VideoHTMLAttributes<HTMLVideoElement>, "src" | "className">
 }) {
   if (!src) return null
   const proxied = toProxyUrl(src)
-  if (isVideoUrl(src)) {
+  const isVideo = mediaType === "video" || (mediaType === undefined && isVideoUrl(src))
+  if (isVideo) {
     return (
       <video
         src={proxied}

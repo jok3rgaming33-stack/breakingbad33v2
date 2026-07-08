@@ -7,7 +7,7 @@ import Image from "next/image"
 import { FlaskConical, Sparkles, X as CloseIcon } from "lucide-react"
 import { ProductBadges } from "@/components/product-badge"
 import { resolveBadges } from "@/lib/badges"
-import { BlobMedia, isVideoUrl, toProxyUrl } from "@/components/blob-media"
+import { BlobMedia } from "@/components/blob-media"
 import { getProductsBySection, decrementStock } from "@/app/actions/products"
 import { requestRestockAlert, hasRestockAlert } from "@/app/actions/restock"
 import { BellRing, BellPlus } from "lucide-react"
@@ -141,6 +141,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                       <BlobMedia
                         src={product.image}
                         alt={product.title}
+                        mediaType={product.media?.find((m) => m.url === product.image)?.type}
                         className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                       />
                     ) : (
@@ -230,15 +231,12 @@ export function ProductSection({ config }: { config: SectionConfig }) {
             <div className="relative z-20 flex w-full items-center justify-center bg-[#050505]/50 p-12 md:w-1/2">
               <div className="relative h-64 w-64">
                 {selected.image && (
-                  isVideoUrl(selected.image) ? (
-                    <BlobMedia
-                      src={selected.image}
-                      alt={selected.title}
-                      className="h-full w-full object-contain"
-                    />
-                  ) : (
-                    <Image src={toProxyUrl(selected.image) || "/placeholder.svg"} alt={selected.title} fill className="object-contain" />
-                  )
+                  <BlobMedia
+                    src={selected.image}
+                    alt={selected.title}
+                    mediaType={selected.media?.find((m) => m.url === selected.image)?.type}
+                    className="h-full w-full object-contain"
+                  />
                 )}
               </div>
             </div>

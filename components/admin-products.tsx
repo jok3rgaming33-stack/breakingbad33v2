@@ -652,6 +652,7 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
               <BlobMedia
                 src={m.url}
                 alt="Média produit"
+                mediaType={m.type}
                 className="w-full object-contain"
                 videoProps={{ muted: true, playsInline: true, preload: "metadata", autoPlay: false, loop: false, style: { maxHeight: "120px" } }}
               />
