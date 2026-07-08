@@ -1,44 +1,48 @@
-import { getDownloadUrl } from "@vercel/blob"
+import { get } from "@vercel/blob"
 import { type NextRequest, NextResponse } from "next/server"
 
-// Proxy ouvert (sans auth) pour servir les médias Blob privés.
-// Sécurité : on valide que l'URL appartient bien au store Vercel Blob
-// avant de générer l'URL signée, pour éviter tout SSRF.
-const BLOB_HOSTNAMES = ["private.blob.vercel-storage.com", "blob.vercel-storage.com"]
+export const dynamic = "force-dynamic"
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
+/**
+ * Proxy pour les médias Vercel Blob (store privé).
+ * GET /api/media?url=<blobUrl>
+ *
+ * Stream le contenu directement — pas de redirection 302 qui casse les <video>.
+ * Ouvert sans auth (images/vidéos produits visibles par tous les visiteurs).
+ * Sécurité : on valide que l'URL appartient bien au store Blob.
+ */
+export async function GET(request: NextRequest): Promise<NextResponse | Response> {
   const { searchParams } = new URL(request.url)
   const blobUrl = searchParams.get("url")
 
-  // Passe-passe : si c'est déjà une URL locale (/api/media?url=...) ou relative, on retourne tel quel.
   if (!blobUrl) {
-    return new NextResponse("Paramètre url manquant.", { status: 400 })
+    return NextResponse.json({ error: "Paramètre url manquant" }, { status: 400 })
   }
 
-  // Si l'URL ne commence pas par http, c'est une URL relative — pas de proxy nécessaire.
-  if (!blobUrl.startsWith("http")) {
-    return NextResponse.redirect(blobUrl, { status: 302 })
-  }
-
-  // Validation : l'URL doit pointer vers notre store Blob.
-  let parsed: URL
-  try {
-    parsed = new URL(blobUrl)
-  } catch {
-    return new NextResponse("URL invalide.", { status: 400 })
-  }
-
-  const isBlob = BLOB_HOSTNAMES.some((h) => parsed.hostname.endsWith(h))
-  if (!isBlob) {
-    return new NextResponse("URL non autorisée.", { status: 403 })
+  if (!blobUrl.includes(".blob.vercel-storage.com")) {
+    return NextResponse.json({ error: "URL non autorisée" }, { status: 403 })
   }
 
   try {
-    // getDownloadUrl génère une URL signée synchronement depuis l'URL blob.
-    const downloadUrl = getDownloadUrl(blobUrl)
-    return NextResponse.redirect(downloadUrl, { status: 302 })
+    const result = await get(blobUrl, { access: "private" })
+
+    if (!result) {
+      return NextResponse.json({ error: "Fichier introuvable" }, { status: 404 })
+    }
+
+    if (result.statusCode === 304) {
+      return new Response(null, { status: 304 })
+    }
+
+    const headers = new Headers()
+    headers.set("Content-Type", result.blob.contentType)
+    headers.set("Content-Length", String(result.blob.size))
+    // Cache CDN 1h
+    headers.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
+
+    return new Response(result.stream, { headers })
   } catch (error) {
     console.error("[media proxy] error:", error)
-    return new NextResponse("Erreur lors de la génération du lien.", { status: 500 })
+    return NextResponse.json({ error: "Erreur lors de la récupération" }, { status: 500 })
   }
 }
