@@ -1,37 +1,39 @@
-import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
+import { put } from "@vercel/blob"
 import { type NextRequest, NextResponse } from "next/server"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 
-// Upload CLIENT direct vers Blob (images/vidéos produits & slides News).
-// Le fichier est envoyé directement du navigateur vers Blob : cela contourne la
-// limite de 4,5 Mo des fonctions serverless Vercel (photos de téléphone, vidéos...).
-// Cette route ne fait que générer un token signé, après vérification admin.
+// Upload SERVEUR vers Blob : le fichier transite par cette route API,
+// ce qui évite tout problème CORS (pas d'appel direct du navigateur vers Blob).
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const body = (await request.json()) as HandleUploadBody
-
   try {
-    const jsonResponse = await handleUpload({
-      body,
-      request,
-      onBeforeGenerateToken: async () => {
-        // Sécurité : seul un admin authentifié peut obtenir un token d'upload.
-        if (!(await isAdminAuthenticated())) {
-          throw new Error("Non autorisé.")
-        }
-        return {
-          allowedContentTypes: ["image/*", "video/*"],
-          addRandomSuffix: true,
-          maximumSizeInBytes: 200 * 1024 * 1024, // 200 Mo (couvre les vidéos)
-        }
-      },
+    if (!(await isAdminAuthenticated())) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 401 })
+    }
+
+    const formData = await request.formData()
+    const file = formData.get("file") as File | null
+
+    if (!file) {
+      return NextResponse.json({ error: "Aucun fichier reçu." }, { status: 400 })
+    }
+
+    const isVideo = file.type.startsWith("video/")
+    const isImage = file.type.startsWith("image/")
+    if (!isVideo && !isImage) {
+      return NextResponse.json({ error: "Format non supporté (image ou vidéo)." }, { status: 400 })
+    }
+
+    const blob = await put(file.name, file, {
+      access: "public",
+      addRandomSuffix: true,
     })
 
-    return NextResponse.json(jsonResponse)
+    return NextResponse.json({ url: blob.url, type: isVideo ? "video" : "image" })
   } catch (error) {
-    console.error("[v0] blob client upload error:", error)
+    console.error("[upload] error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Échec de l'envoi." },
-      { status: 400 },
+      { status: 500 },
     )
   }
 }
