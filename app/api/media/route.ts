@@ -7,11 +7,11 @@ export const dynamic = "force-dynamic"
  * Proxy pour les médias Vercel Blob (store privé).
  * GET /api/media?url=<blobUrl>
  *
- * Stream le contenu directement — pas de redirection 302 qui casse les <video>.
- * Ouvert sans auth (images/vidéos produits visibles par tous les visiteurs).
- * Sécurité : on valide que l'URL appartient bien au store Blob.
+ * - Stream le contenu directement (pas de redirect 302 qui casse les <video>)
+ * - Transmet le header Range pour le support lecture vidéo sur mobile
+ * - Répond 206 Partial Content si Blob répond 206
  */
-export async function GET(request: NextRequest): Promise<NextResponse | Response> {
+export async function GET(request: NextRequest): Promise<Response> {
   const { searchParams } = new URL(request.url)
   const blobUrl = searchParams.get("url")
 
@@ -24,23 +24,38 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
   }
 
   try {
-    const result = await get(blobUrl, { access: "private" })
+    // Transmet le header Range si le navigateur en envoie un (obligatoire pour les vidéos).
+    const rangeHeader = request.headers.get("range")
+    const extraHeaders: HeadersInit = rangeHeader ? { Range: rangeHeader } : {}
+
+    const result = await get(blobUrl, {
+      access: "private",
+      headers: extraHeaders,
+    })
 
     if (!result) {
       return NextResponse.json({ error: "Fichier introuvable" }, { status: 404 })
     }
 
     if (result.statusCode === 304) {
-      return new Response(null, { status: 304 })
+      return new Response(null, { status: 304, headers: result.headers })
     }
 
-    const headers = new Headers()
-    headers.set("Content-Type", result.blob.contentType)
-    headers.set("Content-Length", String(result.blob.size))
-    // Cache CDN 1h
-    headers.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
+    const resHeaders = new Headers()
+    resHeaders.set("Content-Type", result.blob.contentType)
+    resHeaders.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
+    resHeaders.set("Accept-Ranges", "bytes")
 
-    return new Response(result.stream, { headers })
+    // Propage les headers de réponse Blob utiles pour les vidéos.
+    for (const key of ["content-range", "content-length", "etag", "last-modified"]) {
+      const val = result.headers.get(key)
+      if (val) resHeaders.set(key, val)
+    }
+
+    // Détermine le status (206 Partial si Blob a servi une plage, 200 sinon).
+    const status = rangeHeader && result.headers.get("content-range") ? 206 : 200
+
+    return new Response(result.stream, { status, headers: resHeaders })
   } catch (error) {
     console.error("[media proxy] error:", error)
     return NextResponse.json({ error: "Erreur lors de la récupération" }, { status: 500 })

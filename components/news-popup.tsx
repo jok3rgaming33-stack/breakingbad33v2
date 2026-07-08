@@ -115,7 +115,7 @@ export function NewsPopup({ token }: { token?: string }) {
       aria-label={data.news.title}
     >
       <div
-        className="relative flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-accent/40 bg-card"
+        className="relative flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-accent/40 bg-card max-h-[90dvh]"
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
@@ -128,20 +128,19 @@ export function NewsPopup({ token }: { token?: string }) {
           <X className="h-5 w-5" aria-hidden="true" />
         </button>
 
-        {/* Image — hauteur libre pour afficher l'image entière sans rognage */}
+        {/* Image — hauteur bornée pour ne pas déborder sur mobile */}
         {slide?.imageUrl && (
-          <div className="w-full overflow-hidden bg-secondary">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+          <div className="w-full shrink-0 overflow-hidden bg-secondary" style={{ maxHeight: "45dvh" }}>
             <BlobMedia
               src={slide.imageUrl}
               alt={slide.title ?? ""}
-              className="h-full w-full object-contain"
+              className="w-full h-full object-cover"
             />
           </div>
         )}
 
-        {/* Contenu du slide */}
-        <div className="flex flex-col gap-3 p-6">
+        {/* Contenu du slide — scrollable si trop long */}
+        <div className="flex flex-col gap-3 p-6 overflow-y-auto">
           {slide?.title && <h2 className="text-2xl font-bold text-balance">{slide.title}</h2>}
           {slide?.content && (
             <p className="text-sm leading-relaxed text-muted-foreground text-pretty">{slide.content}</p>
