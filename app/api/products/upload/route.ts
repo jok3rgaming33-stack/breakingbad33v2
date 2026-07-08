@@ -23,15 +23,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Format non supporté (image ou vidéo)." }, { status: 400 })
     }
 
-    const blob = await put(file.name, file, {
+    // Préserver l'extension pour que isVideoUrl() fonctionne côté client.
+    const ext = file.name.split(".").pop() ?? (isVideo ? "mp4" : "jpg")
+    const safeName = `products/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+
+    const blob = await put(safeName, file, {
       access: "private",
-      addRandomSuffix: true,
+      contentType: file.type,
     })
 
-    // On retourne l'URL proxy plutôt que l'URL Blob brute.
-    // /api/media se charge de générer un token signé côté serveur.
-    const proxyUrl = `/api/media?url=${encodeURIComponent(blob.url)}`
-    return NextResponse.json({ url: proxyUrl, type: isVideo ? "video" : "image" })
+    // Retourner l'URL Blob brute — toProxyUrl() dans BlobMedia la convertira à l'affichage.
+    return NextResponse.json({ url: blob.url, type: isVideo ? "video" : "image" })
   } catch (error) {
     console.error("[upload] error:", error)
     return NextResponse.json(

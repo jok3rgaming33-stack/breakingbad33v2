@@ -23,6 +23,27 @@ type SectionConfig = {
   anchor?: string
 }
 
+/**
+ * Retrouve le type ("image"|"video") d'une URL dans la liste media d'un produit.
+ * Normalise les deux côtés (URL proxy et URL brute) pour éviter les faux négatifs.
+ */
+function getMediaType(
+  url: string | null | undefined,
+  media: Array<{ url: string; type: "image" | "video" }> | null | undefined,
+): "image" | "video" | undefined {
+  if (!url || !media?.length) return undefined
+  // Extrait l'URL brute d'une URL proxy (/api/media?url=...) ou retourne telle quelle.
+  const normalize = (u: string) => {
+    if (u.startsWith("/api/media?")) {
+      try { return new URLSearchParams(u.slice(u.indexOf("?"))).get("url") ?? u } catch { return u }
+    }
+    return u
+  }
+  const rawUrl = normalize(url)
+  const match = media.find((m) => normalize(m.url) === rawUrl || m.url === url)
+  return match?.type
+}
+
 // Prix effectif d'une variante après remise produit éventuelle.
 function effectivePrice(price: number, product: Product): number {
   if (product.discountType === "percent" && product.discountValue) {
@@ -141,7 +162,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                       <BlobMedia
                         src={product.image}
                         alt={product.title}
-                        mediaType={product.media?.find((m) => m.url === product.image)?.type}
+                        mediaType={getMediaType(product.image, product.media)}
                         className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                       />
                     ) : (
@@ -234,7 +255,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                   <BlobMedia
                     src={selected.image}
                     alt={selected.title}
-                    mediaType={selected.media?.find((m) => m.url === selected.image)?.type}
+                    mediaType={getMediaType(selected.image, selected.media)}
                     className="h-full w-full object-contain"
                   />
                 )}
