@@ -105,7 +105,7 @@ function DeliverySlotPicker({
         const label = `${day} ${opt.label}`
         if (!slots.some((s) => s.label === label)) {
           toAdd.push({
-            id: `d-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            id: `d-${crypto.randomUUID()}`,
             label,
             startHour: opt.startHour,
             endHour: opt.endHour,
@@ -114,7 +114,9 @@ function DeliverySlotPicker({
         }
       }
     }
-    if (toAdd.length) { onAdd(toAdd); setSelDays([]); setSelRanges([]) }
+    onAdd(toAdd)
+    setSelDays([])
+    setSelRanges([])
   }
 
   return (
@@ -216,7 +218,7 @@ function MeetupSlotPicker({
         const label = `${day} ${String(h).padStart(2, "0")}h`
         if (!slots.some((s) => s.label === label)) {
           toAdd.push({
-            id: `m-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            id: `m-${crypto.randomUUID()}`,
             label,
             hour: h,
             days: [day],
@@ -224,7 +226,9 @@ function MeetupSlotPicker({
         }
       }
     }
-    if (toAdd.length) { onAdd(toAdd); setSelDays([]); setSelHours([]) }
+    onAdd(toAdd)
+    setSelDays([])
+    setSelHours([])
   }
 
   return (
