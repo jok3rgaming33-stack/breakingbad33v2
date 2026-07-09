@@ -42,6 +42,13 @@ function dateOffset(days: number) {
   return d.toISOString().split("T")[0]
 }
 
+// Convertit une date yyyy-mm-dd en nom de jour français (ex. "Lundi")
+const FR_DAYS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"]
+function dateToFrDay(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number)
+  return FR_DAYS[new Date(y, (m ?? 1) - 1, d ?? 1).getDay()] ?? ""
+}
+
 // Construit un Date à partir d'une date yyyy-mm-dd et d'une heure (24h).
 // afterMidnight décale d'un jour (créneaux/heures qui basculent après minuit).
 function slotDate(dateStr: string, hour: number, afterMidnight: boolean) {
@@ -109,16 +116,28 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     if (!deliveryAllowed && !isMeetup) setIsMeetup(true)
   }, [deliveryAllowed, isMeetup])
 
-  // Créneaux proposés : on masque ceux déjà passés pour une commande du jour même.
+  // Créneaux proposés : filtrés par jour de la semaine + créneaux passés masqués.
   const now = new Date()
   const availableDeliverySlots = useMemo(() => {
-    if (!date) return config.deliverySlots
-    return config.deliverySlots.filter((s) => deliverySlotAvailable(date, s, now))
+    if (!date) return []
+    const dayName = dateToFrDay(date)
+    return config.deliverySlots.filter((s) => {
+      // Filtre par jour : si le slot a des jours définis, il doit inclure le jour sélectionné.
+      if (s.days && s.days.length > 0 && !s.days.includes(dayName)) return false
+      // Masque les créneaux déjà passés.
+      return deliverySlotAvailable(date, s, now)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.deliverySlots, date])
   const availableMeetupSlots = useMemo(() => {
-    if (!date) return config.meetupSlots
-    return config.meetupSlots.filter((s) => meetupSlotAvailable(date, s, now))
+    if (!date) return []
+    const dayName = dateToFrDay(date)
+    return config.meetupSlots.filter((s) => {
+      // Filtre par jour.
+      if (s.days && s.days.length > 0 && !s.days.includes(dayName)) return false
+      // Masque les heures passées.
+      return meetupSlotAvailable(date, s, now)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.meetupSlots, date])
 
@@ -616,7 +635,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 ) : !isMeetup ? (
                   availableDeliverySlots.length === 0 ? (
                     <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
-                      Plus aucun créneau de livraison disponible pour cette date. Choisis une autre date.
+                      Aucun créneau de livraison disponible le <span className="font-semibold text-foreground">{dateToFrDay(date)}</span>. Essaie un autre jour.
                     </p>
                   ) : (
                     <div className="grid grid-cols-3 gap-2">
@@ -636,7 +655,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   )
                 ) : availableMeetupSlots.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
-                    Plus aucune heure de meet-up disponible pour cette date. Choisis une autre date.
+                    Aucun meet-up disponible le <span className="font-semibold text-foreground">{dateToFrDay(date)}</span>. Essaie un autre jour.
                   </p>
                 ) : (
                   <div className="grid grid-cols-4 gap-2">
