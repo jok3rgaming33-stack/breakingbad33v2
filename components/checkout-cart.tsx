@@ -116,14 +116,17 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     if (!deliveryAllowed && !isMeetup) setIsMeetup(true)
   }, [deliveryAllowed, isMeetup])
 
-  // Créneaux proposés : filtrés par jour de la semaine + créneaux passés masqués.
+  // Extrait le jour depuis le libellé d'un slot (ex: "Lundi 14h-16h" → "Lundi")
+  const slotDay = (label: string) => label.split(/\s+/)[0] ?? ""
+
+  // Créneaux proposés : filtrés par jour de la date choisie + créneaux passés masqués.
   const now = new Date()
   const availableDeliverySlots = useMemo(() => {
     if (!date) return []
     const dayName = dateToFrDay(date)
     return config.deliverySlots.filter((s) => {
-      // Filtre par jour : si le slot a des jours définis, il doit inclure le jour sélectionné.
-      if (s.days && s.days.length > 0 && !s.days.includes(dayName)) return false
+      // Le jour encodé dans le label doit correspondre au jour de la date choisie.
+      if (slotDay(s.label) !== dayName) return false
       // Masque les créneaux déjà passés.
       return deliverySlotAvailable(date, s, now)
     })
@@ -133,8 +136,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     if (!date) return []
     const dayName = dateToFrDay(date)
     return config.meetupSlots.filter((s) => {
-      // Filtre par jour.
-      if (s.days && s.days.length > 0 && !s.days.includes(dayName)) return false
+      // Même logique : filtre sur le jour dans le label.
+      if (slotDay(s.label) !== dayName) return false
       // Masque les heures passées.
       return meetupSlotAvailable(date, s, now)
     })
