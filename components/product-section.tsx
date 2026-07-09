@@ -234,7 +234,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
           onClick={closeModal}
         >
           <div
-            className="relative flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] md:flex-row"
+            className="relative flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] md:flex-row max-h-[90dvh]"
             onClick={(e) => e.stopPropagation()}
           >
             <div
@@ -256,8 +256,8 @@ export function ProductSection({ config }: { config: SectionConfig }) {
               <CloseIcon className="h-6 w-6" />
             </button>
 
-            <div className="relative z-20 flex w-full items-center justify-center bg-[#050505]/50 p-12 md:w-1/2">
-              <div className="relative h-64 w-64">
+            <div className="relative z-20 flex w-full items-center justify-center bg-[#050505]/50 p-6 md:w-1/2 md:p-12">
+              <div className="relative h-40 w-40 md:h-64 md:w-64">
                 {selected.image && (
                   <BlobMedia
                     src={selected.image}
@@ -269,7 +269,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
               </div>
             </div>
 
-            <div className="relative z-20 flex w-full flex-col justify-center p-12 md:w-1/2">
+            <div className="relative z-20 flex w-full flex-col justify-center overflow-y-auto p-8 pb-safe md:w-1/2 md:p-12">
               {selected.number && (
                 <span className="mb-2 font-mono text-xs uppercase tracking-[0.2em] text-[#3e6757]">
                   Code {selected.number}

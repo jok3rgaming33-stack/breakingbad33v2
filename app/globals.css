@@ -103,3 +103,16 @@
     @apply w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-accent;
   }
 }
+
+/* Safe-area insets — évite que la barre de navigation mobile recouvre les éléments */
+@layer utilities {
+  .pb-safe {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+  .pt-safe {
+    padding-top: max(0px, env(safe-area-inset-top));
+  }
+  .mb-safe {
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+}

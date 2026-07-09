@@ -28,6 +28,8 @@ export const viewport: Viewport = {
     { media: '(prefers-color-scheme: light)', color: 'white' },
     { media: '(prefers-color-scheme: dark)', color: 'black' },
   ],
+  // Expose les safe-area-inset-* pour éviter que la barre nav mobile recouvre le contenu.
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
