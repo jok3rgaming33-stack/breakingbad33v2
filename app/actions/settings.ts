@@ -19,9 +19,11 @@ export type LogisticsContent = {
 }
 
 // Créneau de livraison : plage horaire (startHour/endHour en 24h, endHour<=startHour = passe minuit).
-export type DeliverySlot = { id: string; label: string; startHour: number; endHour: number }
+// days = jours actifs (["Lundi","Mardi"…]) — vide/absent = tous les jours.
+export type DeliverySlot = { id: string; label: string; startHour: number; endHour: number; days?: string[] }
 // Créneau de meet-up : heure de retrait unique (24h).
-export type MeetupSlot = { id: string; label: string; hour: number }
+// days = jours actifs — vide/absent = tous les jours.
+export type MeetupSlot = { id: string; label: string; hour: number; days?: string[] }
 // Configuration éditable des créneaux du panier.
 export type CartConfig = {
   minDeliveryAmount: number
