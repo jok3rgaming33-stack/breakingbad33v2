@@ -1,14 +1,15 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { X, ArrowLeft, MessageSquare, Send, Loader2, FlaskConical, Package } from "lucide-react"
+import { X, ArrowLeft, MessageSquare, Send, Loader2, FlaskConical, Package, ScanSearch, CheckCircle2, Clock, AlertCircle } from "lucide-react"
 import {
   getThreadsForToken,
   getThread,
   addMessage,
   createGeneralInquiryThread,
+  getThreadByTrackingToken,
 } from "@/app/actions/messaging"
-import { statusMeta } from "@/lib/order-status"
+import { statusMeta, STATUS_META } from "@/lib/order-status"
 
 type UserData = { pseudo?: string; token?: string } | null
 
@@ -46,7 +47,12 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
   const name = userData?.pseudo ?? "Client"
   const [threads, setThreads] = useState<Thread[]>([])
   const [loadingList, setLoadingList] = useState(false)
-  const [view, setView] = useState<"list" | "compose" | "thread">("list")
+  const [view, setView] = useState<"list" | "compose" | "thread" | "tracking">("list")
+  // Suivi par token TRK_
+  const [trackingInput, setTrackingInput] = useState("")
+  const [trackingResult, setTrackingResult] = useState<Awaited<ReturnType<typeof getThreadByTrackingToken>> | null>(null)
+  const [trackingLoading, setTrackingLoading] = useState(false)
+  const [trackingError, setTrackingError] = useState("")
   const [selected, setSelected] = useState<Thread | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
@@ -134,12 +140,35 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
     }
   }
 
+  const handleTrackSearch = async () => {
+    const token = trackingInput.trim().toUpperCase()
+    if (!token) return
+    setTrackingLoading(true)
+    setTrackingError("")
+    setTrackingResult(null)
+    try {
+      const result = await getThreadByTrackingToken(token)
+      if (!result) {
+        setTrackingError("Aucune commande trouvée pour ce token. Verifie la saisie.")
+      } else {
+        setTrackingResult(result)
+      }
+    } catch {
+      setTrackingError("Une erreur est survenue, réessaie dans un instant.")
+    } finally {
+      setTrackingLoading(false)
+    }
+  }
+
   const handleClose = () => {
     setView("list")
     setSelected(null)
     setMessages([])
     setReply("")
     setComposeText("")
+    setTrackingInput("")
+    setTrackingResult(null)
+    setTrackingError("")
     onClose()
   }
 
@@ -149,6 +178,8 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
     setMessages([])
     setReply("")
     setComposeText("")
+    setTrackingResult(null)
+    setTrackingError("")
   }
 
   if (!isOpen) return null
@@ -160,7 +191,9 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
         : `Commande #${selected?.id}`
       : view === "compose"
         ? "Contacter le chimiste"
-        : "Messagerie"
+        : view === "tracking"
+          ? "Suivi de commande"
+          : "Messagerie"
 
   return (
     <div
@@ -198,7 +231,7 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
         {/* Liste des discussions */}
         {view === "list" && (
           <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="border-b border-border p-4">
+            <div className="flex flex-col gap-2 border-b border-border p-4">
               <button
                 type="button"
                 onClick={() => setView("compose")}
@@ -206,6 +239,14 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
               >
                 <FlaskConical className="h-4 w-4" aria-hidden="true" />
                 Contacter le chimiste
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("tracking")}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-background/50 py-3 text-sm font-semibold text-foreground transition-colors hover:border-accent hover:text-accent"
+              >
+                <ScanSearch className="h-4 w-4" aria-hidden="true" />
+                Suivre une commande par token
               </button>
             </div>
 
@@ -254,6 +295,96 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
                     )
                   })}
                 </ul>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Vue : Suivi par token TRK_ */}
+        {view === "tracking" && (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-6">
+              {/* Saisie du token */}
+              <div className="mb-6 flex flex-col gap-2">
+                <label className="text-sm font-semibold" htmlFor="tracking-token-input">
+                  Ton numéro de suivi
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="tracking-token-input"
+                    type="text"
+                    value={trackingInput}
+                    onChange={(e) => setTrackingInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) handleTrackSearch() }}
+                    placeholder="TRK_XXXXXXXXXXXXXXXXX"
+                    className="flex-1 rounded-2xl border border-border bg-background/60 px-3 py-2.5 font-mono text-sm outline-none transition-colors focus:border-accent"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTrackSearch}
+                    disabled={trackingLoading || !trackingInput.trim()}
+                    className="flex items-center justify-center gap-1.5 rounded-2xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                    aria-label="Rechercher"
+                  >
+                    {trackingLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ScanSearch className="h-4 w-4" aria-hidden="true" />}
+                  </button>
+                </div>
+                {trackingError && (
+                  <p className="flex items-center gap-1.5 text-xs text-destructive">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    {trackingError}
+                  </p>
+                )}
+              </div>
+
+              {/* Résultat : timeline */}
+              {trackingResult && (
+                <div className="flex flex-col gap-4">
+                  {/* Statut actuel */}
+                  <div className="flex items-center justify-between rounded-2xl border border-border bg-background/60 p-4">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Statut actuel</p>
+                      <p className="mt-0.5 font-semibold">{statusMeta(trackingResult.status).label}</p>
+                      {trackingResult.scheduledDate && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {trackingResult.fulfillment === "meetup" ? "Retrait" : "Livraison"} le {trackingResult.scheduledDate}
+                          {trackingResult.scheduledSlot ? ` · ${trackingResult.scheduledSlot}` : ""}
+                        </p>
+                      )}
+                      {trackingResult.colissimoNumber && (
+                        <p className="mt-1 text-xs font-mono text-accent">N° {trackingResult.colissimoNumber}</p>
+                      )}
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusMeta(trackingResult.status).badge}`}>
+                      {statusMeta(trackingResult.status).label}
+                    </span>
+                  </div>
+
+                  {/* Timeline des notifications */}
+                  {trackingResult.messages.length > 0 && (
+                    <div className="flex flex-col gap-1">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Historique</p>
+                      <ol className="relative border-l border-border pl-5">
+                        {trackingResult.messages.map((m, i) => (
+                          <li key={m.id} className={`mb-4 ${i === trackingResult.messages.length - 1 ? "" : ""}`}>
+                            <div className="absolute -left-1.5 mt-1 h-3 w-3 rounded-full border-2 border-background bg-accent" aria-hidden="true" />
+                            <time className="mb-1 block text-[10px] text-muted-foreground">
+                              {new Date(m.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                            </time>
+                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{m.body}</p>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!trackingResult && !trackingLoading && !trackingError && (
+                <div className="flex flex-col items-center gap-3 py-8 text-center text-muted-foreground">
+                  <ScanSearch className="h-10 w-10 opacity-40" aria-hidden="true" />
+                  <p className="text-sm text-pretty">Saisis ton numéro de suivi TRK_ recu dans la messagerie apres ta commande.</p>
+                </div>
               )}
             </div>
           </div>

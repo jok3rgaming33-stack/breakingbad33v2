@@ -96,6 +96,7 @@ export async function createGeneralInquiryThread(input: {
     .values({
       customerName: name,
       customerToken: input.customerToken?.trim() || null,
+      trackingToken: `MSG_${crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`,
       summary: "Discussion générale",
       total: 0,
       fulfillment: "livraison",
@@ -292,6 +293,36 @@ export async function getCustomerThreadsOverview(customerToken: string) {
     .where(eq(orderThreads.customerToken, token))
     .groupBy(orderThreads.id, orderThreads.status)
   return rows
+}
+
+// Suivi public par token TRK_ : retourne le thread + messages sans authentification client.
+// Seules les infos non-sensibles sont exposées (pas d'adresse, pas de coords).
+export async function getThreadByTrackingToken(trackingToken: string) {
+  const token = trackingToken?.trim().toUpperCase()
+  if (!token || (!token.startsWith("TRK_") && !token.startsWith("MSG_"))) return null
+  const [thread] = await db
+    .select()
+    .from(orderThreads)
+    .where(eq(orderThreads.trackingToken, token))
+  if (!thread) return null
+  const messages = await db
+    .select()
+    .from(threadMessages)
+    .where(eq(threadMessages.threadId, thread.id))
+    .orderBy(threadMessages.createdAt)
+  // Ne retourner que les messages du vendeur (notifications statut) — pas ceux du client
+  const statusMessages = messages.filter((m) => m.sender === "vendeur")
+  return {
+    id: thread.id,
+    status: thread.status,
+    fulfillment: thread.fulfillment,
+    scheduledDate: thread.scheduledDate,
+    scheduledSlot: thread.scheduledSlot,
+    colissimoNumber: thread.colissimoNumber,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    messages: statusMessages,
+  }
 }
 
 // Supprime définitivement une commande (et ses messages, via cascade applicative).

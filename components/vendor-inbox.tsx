@@ -21,6 +21,9 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
   // Modale de motif d'annulation
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState("")
+  // Champ Colissimo (affiché uniquement quand on passe en statut "livraison")
+  const [colissimoInput, setColissimoInput] = useState("")
+  const [colissimoOpen, setColissimoOpen] = useState(false)
 
   const selected = threads.find((t) => t.id === selectedId) ?? null
 
@@ -85,9 +88,27 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
       setCancelOpen(true)
       return
     }
+    // Le passage en "livraison" ouvre une modale pour saisir le numéro Colissimo.
+    if (status === "livraison") {
+      setColissimoInput("")
+      setColissimoOpen(true)
+      return
+    }
     startTransition(async () => {
       await updateThreadStatus(selectedId, status)
       setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status } : t)))
+      const data = await getThread(selectedId)
+      setMessages(data?.messages ?? [])
+    })
+  }
+
+  const confirmLivraison = () => {
+    if (selectedId == null) return
+    const colissimo = colissimoInput.trim()
+    setColissimoOpen(false)
+    startTransition(async () => {
+      await updateThreadStatus(selectedId, "livraison", undefined, colissimo || undefined)
+      setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status: "livraison" } : t)))
       const data = await getThread(selectedId)
       setMessages(data?.messages ?? [])
     })
@@ -290,6 +311,49 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
                 className="rounded-lg bg-red-500/90 px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 Confirmer l&apos;annulation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modale : numéro Colissimo / suivi transporteur */}
+      {colissimoOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setColissimoOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold">Passer en livraison</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Saisis le numéro de suivi transporteur (Colissimo, Chronopost…). Il sera transmis au client dans la messagerie.
+            </p>
+            <input
+              type="text"
+              value={colissimoInput}
+              onChange={(e) => setColissimoInput(e.target.value)}
+              autoFocus
+              placeholder="Ex. 1A23456789876"
+              className="mt-4 w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-accent"
+            />
+            <p className="mt-2 text-xs text-muted-foreground">Optionnel — laisse vide si tu n&apos;as pas encore le numéro.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setColissimoOpen(false)}
+                className="rounded-lg border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+              >
+                Retour
+              </button>
+              <button
+                type="button"
+                onClick={confirmLivraison}
+                disabled={isPending}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                Confirmer la livraison
               </button>
             </div>
           </div>
