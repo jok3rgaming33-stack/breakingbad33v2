@@ -92,7 +92,7 @@ export async function upsertSlide(newsId: number, input: SlideInput) {
     newsId,
     order: input.order ?? 0,
     title: input.title?.trim() || null,
-    content: input.content?.trim() || null,
+    content: input.content ?? null,
     imageUrl: input.imageUrl?.trim() || null,
     buttonText: input.buttonText?.trim() || null,
     buttonLink: input.buttonLink?.trim() || null,

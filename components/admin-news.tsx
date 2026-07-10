@@ -13,6 +13,7 @@ import {
   type SlideInput,
 } from "@/app/actions/news"
 import { uploadMedia } from "@/lib/upload-media"
+import { BlobMedia, isVideoUrl } from "@/components/blob-media"
 import {
   Newspaper,
   Plus,
@@ -194,10 +195,12 @@ export function AdminNews() {
     setSlides((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)))
   }
 
-  // Upload d'une image depuis l'appareil vers Blob, puis renseigne l'URL du slide.
+  // Upload d'une image ou vidéo depuis l'appareil vers Blob, puis renseigne l'URL du slide.
   const handleImageUpload = async (idx: number, file: File) => {
-    if (!file.type.startsWith("image/")) {
-      setUploadError("Veuillez sélectionner une image.")
+    const isImage = file.type.startsWith("image/")
+    const isVideo = file.type.startsWith("video/")
+    if (!isImage && !isVideo) {
+      setUploadError("Veuillez sélectionner une image ou une vidéo.")
       return
     }
     setUploadError(null)
@@ -418,20 +421,24 @@ export function AdminNews() {
                 <textarea
                   value={s.content ?? ""}
                   onChange={(e) => updateSlideField(idx, { content: e.target.value })}
-                  placeholder="Contenu / description"
-                  rows={2}
-                  className="w-full resize-none rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
+                  placeholder="Contenu / description (les sauts de ligne sont conservés)"
+                  rows={5}
+                  className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                 />
                 <div className="flex flex-col gap-2">
                   {s.imageUrl ? (
                     <div className="relative overflow-hidden rounded-xl border border-border">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={s.imageUrl || "/placeholder.svg"} alt="Aperçu du slide" className="max-h-40 w-full object-cover" />
+                      <BlobMedia
+                        src={s.imageUrl}
+                        alt="Aperçu du slide"
+                        className="max-h-40 w-full object-cover"
+                        videoProps={{ muted: true, playsInline: true, preload: "metadata", controls: true, style: { maxHeight: "160px" } }}
+                      />
                       <button
                         type="button"
                         onClick={() => updateSlideField(idx, { imageUrl: "" })}
                         className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
-                        aria-label="Retirer l'image"
+                        aria-label="Retirer le média"
                       >
                         <X className="h-4 w-4" aria-hidden="true" />
                       </button>
@@ -448,10 +455,10 @@ export function AdminNews() {
                       ) : (
                         <Upload className="h-4 w-4" aria-hidden="true" />
                       )}
-                      Importer
+                      Image / Vidéo
                       <input
                         type="file"
-                        accept="image/*"
+                        accept="image/*,video/*"
                         className="hidden"
                         onChange={(e) => {
                           const f = e.target.files?.[0]
@@ -465,7 +472,7 @@ export function AdminNews() {
                       <input
                         value={s.imageUrl ?? ""}
                         onChange={(e) => updateSlideField(idx, { imageUrl: e.target.value })}
-                        placeholder="ou colle une URL d'image"
+                        placeholder="ou colle une URL (image ou vidéo)"
                         className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                       />
                     </div>

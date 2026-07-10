@@ -128,13 +128,14 @@ export function NewsPopup({ token }: { token?: string }) {
           <X className="h-5 w-5" aria-hidden="true" />
         </button>
 
-        {/* Image — hauteur bornée pour ne pas déborder sur mobile */}
+        {/* Image ou vidéo — hauteur bornée pour ne pas déborder sur mobile */}
         {slide?.imageUrl && (
           <div className="w-full shrink-0 overflow-hidden bg-secondary" style={{ maxHeight: "45dvh" }}>
             <BlobMedia
               src={slide.imageUrl}
               alt={slide.title ?? ""}
               className="w-full h-full object-cover"
+              videoProps={{ muted: true, playsInline: true, autoPlay: false, controls: true, preload: "metadata", style: { maxHeight: "45dvh", width: "100%", objectFit: "cover" } }}
             />
           </div>
         )}
@@ -143,7 +144,7 @@ export function NewsPopup({ token }: { token?: string }) {
         <div className="flex flex-col gap-3 p-6 overflow-y-auto">
           {slide?.title && <h2 className="text-2xl font-bold text-balance">{slide.title}</h2>}
           {slide?.content && (
-            <p className="text-sm leading-relaxed text-muted-foreground text-pretty">{slide.content}</p>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{slide.content}</p>
           )}
 
           {/* Promo */}
