@@ -20,10 +20,11 @@ import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Constructio
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 
-type TabId = "commandes-en-cours" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits"
+type TabId = "commandes-en-cours" | "locker" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "commandes-en-cours", label: "Commandes en cours", icon: Inbox },
+  { id: "locker", label: "Locker MR", icon: Package },
   { id: "messagerie", label: "Messagerie", icon: MessageSquare },
   { id: "produits", label: "Produits", icon: Package },
   { id: "promos", label: "Codes promo", icon: Ticket },
@@ -43,12 +44,14 @@ const COMING_SOON: Record<"profits", { title: string; desc: string }> = {
 
 export function AdminPanel({
   initialActiveOrders,
+  initialLockerOrders,
   initialDiscussions,
   initialThreads,
   initialUsers,
   initialVerifications,
 }: {
   initialActiveOrders: OrderThread[]
+  initialLockerOrders: OrderThread[]
   initialDiscussions: OrderThread[]
   initialThreads: OrderThread[]
   initialUsers: AdminUserRow[]
@@ -118,6 +121,8 @@ export function AdminPanel({
         {/* Content */}
         {tab === "commandes-en-cours" ? (
           <VendorInbox initialThreads={initialActiveOrders} mode="orders" />
+        ) : tab === "locker" ? (
+          <VendorInbox initialThreads={initialLockerOrders} mode="locker" />
         ) : tab === "messagerie" ? (
           <VendorInbox initialThreads={initialDiscussions} mode="messages" />
         ) : tab === "commandes" ? (

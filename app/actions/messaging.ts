@@ -124,12 +124,22 @@ export async function getThreads() {
   return threads
 }
 
-// Commandes actives : tout sauf "livree", "annulee" et "discussion"
+// Commandes actives hors locker : tout sauf "livree", "annulee", "discussion" et fulfillment locker
 export async function getActiveOrders() {
   const threads = await db
     .select()
     .from(orderThreads)
-    .where(sql`status NOT IN ('livree', 'annulee', 'discussion')`)
+    .where(sql`status NOT IN ('livree', 'annulee', 'discussion') AND fulfillment != 'locker'`)
+    .orderBy(desc(orderThreads.updatedAt))
+  return threads
+}
+
+// Commandes Locker Mondial Relay actives (non livrées, non annulées)
+export async function getLockerOrders() {
+  const threads = await db
+    .select()
+    .from(orderThreads)
+    .where(sql`fulfillment = 'locker' AND status NOT IN ('livree', 'annulee')`)
     .orderBy(desc(orderThreads.updatedAt))
   return threads
 }
@@ -286,14 +296,16 @@ export async function getThreadsForCustomer(customerName: string) {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
-// Vue client : ses fils filtrés par clé secrète (identifiant stable, multi-appareils)
+// Vue client messagerie : discussions + commandes hors locker (le locker se suit uniquement par token TRK_)
 export async function getThreadsForToken(customerToken: string) {
   const token = customerToken?.trim()
   if (!token) return []
   return db
     .select()
     .from(orderThreads)
-    .where(eq(orderThreads.customerToken, token))
+    .where(
+      sql`customer_token = ${token} AND fulfillment != 'locker'`
+    )
     .orderBy(desc(orderThreads.updatedAt))
 }
 

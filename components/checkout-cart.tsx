@@ -226,12 +226,9 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
 
   const canValidate =
     items.length > 0 &&
-    !!date &&
-    (isMeetup
-      ? !!meetupHour
-      : isLocker
-        ? !!lockerAddress.trim() && !!slot
-        : !!address.trim() && !!slot && distanceKm != null)
+    (isLocker
+      ? !!lockerAddress.trim()
+      : !!date && (isMeetup ? !!meetupHour : !!address.trim() && !!slot && distanceKm != null))
 
   // Point d'entrée : à la 1re commande, on impose d'abord la vérification d'identité.
   const handleValidate = async () => {
@@ -660,7 +657,18 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 )}
               </div>
 
-              {/* Date (J+3 max) */}
+              {/* Locker : pas de date ni créneau, délai fixe */}
+              {isLocker && (
+                <div className="mt-5 flex items-center gap-2 rounded-2xl border border-border bg-background/60 px-4 py-3">
+                  <CalendarDays className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+                  <p className="text-sm text-foreground">
+                    Livraison en <span className="font-semibold">3 à 5 jours ouvrés</span> après validation de la commande.
+                  </p>
+                </div>
+              )}
+
+              {/* Date (J+3 max) — masquée pour locker */}
+              {!isLocker && (
               <div className="mt-5">
                 <label htmlFor="date" className="mb-2 flex items-center gap-2 text-sm font-medium">
                   <CalendarDays className="h-4 w-4 text-accent" aria-hidden="true" />
@@ -676,8 +684,10 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   className="w-full rounded-2xl border border-border bg-background/60 px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent [color-scheme:dark]"
                 />
               </div>
+              )}
 
-              {/* Créneaux */}
+              {/* Créneaux — masqués pour locker */}
+              {!isLocker && (
               <div className="mt-5">
                 <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                   <Clock className="h-4 w-4 text-accent" aria-hidden="true" />
@@ -729,6 +739,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   </div>
                 )}
               </div>
+              )}
             </div>
 
             {/* Récap + validation */}
@@ -786,7 +797,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
               {submitError && <p className="mt-2 text-center text-xs text-destructive">{submitError}</p>}
               {!canValidate && items.length > 0 && (
                 <p className="mt-2 text-center text-xs text-muted-foreground">
-                  Renseigne {isMeetup ? "l'heure de retrait et la date" : "l'adresse, le créneau et la date"} pour valider.
+                  {isLocker
+                    ? "Renseigne l'adresse du Locker pour valider."
+                    : isMeetup
+                      ? "Renseigne l'heure de retrait et la date pour valider."
+                      : "Renseigne l'adresse, le créneau et la date pour valider."}
                 </p>
               )}
             </div>

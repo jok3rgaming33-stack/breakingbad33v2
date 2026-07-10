@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
-import { getThreads, getActiveOrders, getDiscussions, getThread, addMessage, updateThreadStatus } from "@/app/actions/messaging"
+import { getActiveOrders, getLockerOrders, getDiscussions, getThread, addMessage, updateThreadStatus } from "@/app/actions/messaging"
 import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare } from "lucide-react"
 import { VENDOR_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 
@@ -16,7 +16,7 @@ export function VendorInbox({
   mode = "orders",
 }: {
   initialThreads: OrderThread[]
-  mode?: "orders" | "messages"
+  mode?: "orders" | "locker" | "messages"
 }) {
   const [threads, setThreads] = useState(initialThreads)
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -48,7 +48,7 @@ export function VendorInbox({
   // Rafraîchissement automatique : nouvelles commandes + messages clients en direct
   const refresh = useCallback(async () => {
     try {
-      const latest = mode === "messages" ? await getDiscussions() : await getActiveOrders()
+      const latest = mode === "messages" ? await getDiscussions() : mode === "locker" ? await getLockerOrders() : await getActiveOrders()
       setThreads(latest)
       const openId = selectedIdRef.current
       if (openId != null) {
@@ -139,17 +139,19 @@ export function VendorInbox({
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           {mode === "messages"
             ? <MessageSquare className="h-4 w-4 text-accent" aria-hidden="true" />
-            : <Inbox className="h-4 w-4 text-accent" aria-hidden="true" />
+            : mode === "locker"
+              ? <Package className="h-4 w-4 text-accent" aria-hidden="true" />
+              : <Inbox className="h-4 w-4 text-accent" aria-hidden="true" />
           }
           <h2 className="text-sm font-semibold">
-            {mode === "messages" ? "Messages directs" : "Commandes en cours"}
+            {mode === "messages" ? "Messages directs" : mode === "locker" ? "Locker Mondial Relay" : "Commandes en cours"}
           </h2>
           <span className="ml-auto text-xs text-muted-foreground">{threads.length}</span>
         </div>
         <div className="flex-1 overflow-y-auto">
           {threads.length === 0 && (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-              {mode === "messages" ? "Aucun message direct." : "Aucune commande en cours."}
+              {mode === "messages" ? "Aucun message direct." : mode === "locker" ? "Aucune commande Locker en cours." : "Aucune commande en cours."}
             </p>
           )}
           <ul>
@@ -199,7 +201,7 @@ export function VendorInbox({
               <div>
                 <h2 className="text-sm font-semibold">{selected.customerName}</h2>
                 <p className="text-xs text-muted-foreground">
-                  {selected.fulfillment === "meetup" ? "Retrait meet-up" : "Livraison"} · {selected.scheduledDate}
+                  {selected.fulfillment === "meetup" ? "Retrait meet-up" : selected.fulfillment === "locker" ? "Locker Mondial Relay" : "Livraison"} · {selected.scheduledDate ?? "Délai 3–5 jours ouvrés"}
                   {selected.scheduledSlot ? ` · ${selected.scheduledSlot}` : ""}
                 </p>
               </div>
