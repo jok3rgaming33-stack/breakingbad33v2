@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import useSWR from "swr"
-import { X as CloseIcon, Truck, Store, MapPin, Clock, BadgeEuro, Info, Users } from "lucide-react"
+import { X as CloseIcon, Truck, Store, MapPin, Clock, BadgeEuro, Info, Users, Package, ShieldCheck, Coins } from "lucide-react"
 import { getLogisticsContent } from "@/app/actions/settings"
 
 type DeliveryInfoModalProps = {
@@ -183,6 +183,53 @@ export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
                     </span>
                   ))}
                 </div>
+              </li>
+            </ul>
+          </div>
+
+          {/* Locker Mondial Relay */}
+          <div className="mt-6 rounded-2xl border border-white/10 bg-[#050505]/60 p-6">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#3e6757]/20 text-[#3e6757]">
+                <Package className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <h3 className="text-xl font-semibold text-white">Locker Mondial Relay</h3>
+            </div>
+
+            <p className="mb-4 text-sm leading-relaxed text-zinc-300">
+              Retrait discret dans un point relais Mondial Relay de ton choix, sans contact direct. Tu récupères ton colis quand tu veux, sans rendez-vous.
+            </p>
+
+            <ul className="space-y-3 text-sm text-zinc-300">
+              <li className="flex items-start gap-3">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#3e6757]" aria-hidden="true" />
+                <span>
+                  Mode <strong className="text-white">100% anonyme</strong> : aucune adresse personnelle communiquée, colis déposé en point relais.
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <Coins className="mt-0.5 h-4 w-4 shrink-0 text-[#3e6757]" aria-hidden="true" />
+                <span>
+                  Paiement exclusivement en <strong className="text-white">Monero (XMR)</strong> pour garantir la confidentialité de la transaction.
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#3e6757]" aria-hidden="true" />
+                <span>
+                  Choix du point relais lors de la commande — <strong className="text-white">réseau Mondial Relay</strong> partout en France.
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-[#3e6757]" aria-hidden="true" />
+                <span>
+                  Délai de <strong className="text-white">3 à 5 jours ouvrés</strong> après confirmation du dépôt XMR.
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#3e6757]" aria-hidden="true" />
+                <span>
+                  Un <strong className="text-white">token de suivi TRK_</strong> te sera communiqué à la commande — sauvegarde-le, il est indispensable pour accéder au suivi de ton colis.
+                </span>
               </li>
             </ul>
           </div>
