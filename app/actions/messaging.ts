@@ -118,9 +118,29 @@ export async function createGeneralInquiryThread(input: {
   return { ok: true as const, id: thread.id }
 }
 
-// Boîte de réception vendeur : tous les fils avec aperçu du dernier message
+// Tous les fils (usage interne)
 export async function getThreads() {
   const threads = await db.select().from(orderThreads).orderBy(desc(orderThreads.updatedAt))
+  return threads
+}
+
+// Commandes actives : tout sauf "livree", "annulee" et "discussion"
+export async function getActiveOrders() {
+  const threads = await db
+    .select()
+    .from(orderThreads)
+    .where(sql`status NOT IN ('livree', 'annulee', 'discussion')`)
+    .orderBy(desc(orderThreads.updatedAt))
+  return threads
+}
+
+// Discussions directes uniquement (pas des commandes)
+export async function getDiscussions() {
+  const threads = await db
+    .select()
+    .from(orderThreads)
+    .where(eq(orderThreads.status, "discussion"))
+    .orderBy(desc(orderThreads.updatedAt))
   return threads
 }
 

@@ -1,5 +1,5 @@
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
-import { getThreads } from "@/app/actions/messaging"
+import { getThreads, getActiveOrders, getDiscussions } from "@/app/actions/messaging"
 import { listUsers } from "@/app/actions/account"
 import { listVerifications } from "@/app/actions/verification"
 import { AdminGate } from "@/components/admin-gate"
@@ -19,7 +19,21 @@ export default async function AdminPage() {
     return <AdminGate />
   }
 
-  const [threads, usersList, verifications] = await Promise.all([getThreads(), listUsers(), listVerifications()])
+  const [activeOrders, discussions, threads, usersList, verifications] = await Promise.all([
+    getActiveOrders(),
+    getDiscussions(),
+    getThreads(),
+    listUsers(),
+    listVerifications(),
+  ])
 
-  return <AdminPanel initialThreads={threads} initialUsers={usersList} initialVerifications={verifications} />
+  return (
+    <AdminPanel
+      initialActiveOrders={activeOrders}
+      initialDiscussions={discussions}
+      initialThreads={threads}
+      initialUsers={usersList}
+      initialVerifications={verifications}
+    />
+  )
 }

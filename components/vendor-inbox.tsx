@@ -2,8 +2,8 @@
 
 import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
-import { getThreads, getThread, addMessage, updateThreadStatus } from "@/app/actions/messaging"
-import { Inbox, Send, Loader2, Truck, Store } from "lucide-react"
+import { getThreads, getActiveOrders, getDiscussions, getThread, addMessage, updateThreadStatus } from "@/app/actions/messaging"
+import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare } from "lucide-react"
 import { VENDOR_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 
 function formatDate(value: Date | string) {
@@ -11,7 +11,13 @@ function formatDate(value: Date | string) {
   return d.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
 }
 
-export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] }) {
+export function VendorInbox({
+  initialThreads,
+  mode = "orders",
+}: {
+  initialThreads: OrderThread[]
+  mode?: "orders" | "messages"
+}) {
   const [threads, setThreads] = useState(initialThreads)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [messages, setMessages] = useState<ThreadMessage[]>([])
@@ -42,7 +48,7 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
   // Rafraîchissement automatique : nouvelles commandes + messages clients en direct
   const refresh = useCallback(async () => {
     try {
-      const latest = await getThreads()
+      const latest = mode === "messages" ? await getDiscussions() : await getActiveOrders()
       setThreads(latest)
       const openId = selectedIdRef.current
       if (openId != null) {
@@ -131,13 +137,20 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
       {/* Liste des fils */}
       <aside className="flex max-h-[calc(100vh-9rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-          <Inbox className="h-4 w-4 text-accent" aria-hidden="true" />
-          <h2 className="text-sm font-semibold">Commandes reçues</h2>
+          {mode === "messages"
+            ? <MessageSquare className="h-4 w-4 text-accent" aria-hidden="true" />
+            : <Inbox className="h-4 w-4 text-accent" aria-hidden="true" />
+          }
+          <h2 className="text-sm font-semibold">
+            {mode === "messages" ? "Messages directs" : "Commandes en cours"}
+          </h2>
           <span className="ml-auto text-xs text-muted-foreground">{threads.length}</span>
         </div>
         <div className="flex-1 overflow-y-auto">
           {threads.length === 0 && (
-            <p className="px-4 py-6 text-center text-sm text-muted-foreground">Aucune commande pour le moment.</p>
+            <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+              {mode === "messages" ? "Aucun message direct." : "Aucune commande en cours."}
+            </p>
           )}
           <ul>
             {threads.map((t) => (
@@ -158,6 +171,8 @@ export function VendorInbox({ initialThreads }: { initialThreads: OrderThread[] 
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     {t.fulfillment === "meetup" ? (
                       <Store className="h-3 w-3" aria-hidden="true" />
+                    ) : t.fulfillment === "locker" ? (
+                      <Package className="h-3 w-3" aria-hidden="true" />
                     ) : (
                       <Truck className="h-3 w-3" aria-hidden="true" />
                     )}

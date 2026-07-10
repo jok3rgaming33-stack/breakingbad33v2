@@ -16,13 +16,14 @@ import { AdminPromos } from "@/components/admin-promos"
 import { AdminLogistics } from "@/components/admin-logistics"
 import { AdminCartSettings } from "@/components/admin-cart-settings"
 import { adminLogout } from "@/app/actions/admin-auth"
-import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox } from "lucide-react"
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 
-type TabId = "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits"
+type TabId = "commandes-en-cours" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
+  { id: "commandes-en-cours", label: "Commandes en cours", icon: Inbox },
   { id: "messagerie", label: "Messagerie", icon: MessageSquare },
   { id: "produits", label: "Produits", icon: Package },
   { id: "promos", label: "Codes promo", icon: Ticket },
@@ -41,15 +42,19 @@ const COMING_SOON: Record<"profits", { title: string; desc: string }> = {
 }
 
 export function AdminPanel({
+  initialActiveOrders,
+  initialDiscussions,
   initialThreads,
   initialUsers,
   initialVerifications,
 }: {
+  initialActiveOrders: OrderThread[]
+  initialDiscussions: OrderThread[]
   initialThreads: OrderThread[]
   initialUsers: AdminUserRow[]
   initialVerifications: VerificationRow[]
 }) {
-  const [tab, setTab] = useState<TabId>("messagerie")
+  const [tab, setTab] = useState<TabId>("commandes-en-cours")
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -111,8 +116,10 @@ export function AdminPanel({
         </nav>
 
         {/* Content */}
-        {tab === "messagerie" ? (
-          <VendorInbox initialThreads={initialThreads} />
+        {tab === "commandes-en-cours" ? (
+          <VendorInbox initialThreads={initialActiveOrders} mode="orders" />
+        ) : tab === "messagerie" ? (
+          <VendorInbox initialThreads={initialDiscussions} mode="messages" />
         ) : tab === "commandes" ? (
           <AdminOrdersRecap threads={initialThreads} />
         ) : tab === "utilisateurs" ? (

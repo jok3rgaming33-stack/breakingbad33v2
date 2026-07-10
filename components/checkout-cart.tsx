@@ -8,7 +8,7 @@ import { validateCode, markLoyaltyCodeUsed } from "@/app/actions/promo"
 import { needsVerification, submitVerification } from "@/app/actions/verification"
 import { getCartConfig, type CartConfig, type DeliverySlot, type MeetupSlot } from "@/app/actions/settings"
 import { SelfieVerificationModal, type VerificationMetadata } from "@/components/selfie-verification-modal"
-import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus, Package } from "lucide-react"
+import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus, Package, Lock } from "lucide-react"
 
 type UserData = { pseudo?: string } | null
 
@@ -89,6 +89,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const isLocker = fulfillmentMode === "locker"
   const [meetupHour, setMeetupHour] = useState("")
   const [lockerAddress, setLockerAddress] = useState("")
+  const [xmrModalOpen, setXmrModalOpen] = useState(false)
 
   const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "done" | "error" | "notfound">("idle")
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
@@ -541,8 +542,12 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     placeholder="Ex. Locker Le Clerc — 12 rue de la Paix, 75001 Paris"
                     className="w-full resize-none rounded-2xl border border-border bg-background/60 p-3 text-sm outline-none transition-colors focus:border-accent"
                   />
+                  <div className="mt-2 flex items-center gap-1.5 rounded-xl bg-accent/10 px-3 py-2">
+                    <Lock className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
+                    <p className="text-xs text-accent">Adresse transmise chiffrée — jamais stockée en clair</p>
+                  </div>
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    Saisis l&apos;adresse exacte du point Locker Mondial Relay choisi. Aucun frais supplémentaire.
+                    Frais d&apos;envoi Locker : <span className="font-semibold text-foreground">{FEE_LOCKER}€</span>. Saisis l&apos;adresse exacte du point Locker Mondial Relay choisi.
                   </p>
                 </div>
               )}
@@ -569,6 +574,10 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   placeholder="N°, rue, code postal, ville"
                   className="w-full resize-none rounded-2xl border border-border bg-background/60 p-3 text-sm outline-none transition-colors focus:border-accent"
                 />
+                <div className="mt-2 flex items-center gap-1.5 rounded-xl bg-accent/10 px-3 py-2">
+                  <Lock className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
+                  <p className="text-xs text-accent">Adresse transmise chiffrée — jamais stockée en clair</p>
+                </div>
                 {!isMeetup && (
                   <div className="mt-2 flex items-center gap-2 text-xs">
                     <button
@@ -756,6 +765,15 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 <span>Total</span>
                 <span>{total}€</span>
               </div>
+              {/* Bouton XMR */}
+              <button
+                type="button"
+                onClick={() => setXmrModalOpen(true)}
+                className="mb-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-background/60 py-3 text-sm font-semibold text-foreground transition-colors hover:border-accent hover:text-accent"
+              >
+                <Lock className="h-4 w-4" aria-hidden="true" />
+                Paiement en XMR (Monero)
+              </button>
               <button
                 type="button"
                 onClick={handleValidate}
@@ -775,6 +793,44 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
           </>
         )}
       </div>
+
+      {/* Modale XMR — placeholder, contenu à construire à la demande */}
+      {xmrModalOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setXmrModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-base font-bold">Paiement Monero (XMR)</h2>
+              <button
+                type="button"
+                onClick={() => setXmrModalOpen(false)}
+                aria-label="Fermer"
+                className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="flex flex-col items-center gap-3 py-6 text-center text-muted-foreground">
+              <Lock className="h-10 w-10 text-accent opacity-80" aria-hidden="true" />
+              <p className="text-sm leading-relaxed text-pretty">
+                Le tutoriel de paiement XMR arrive prochainement. En attendant, contacte-nous via la messagerie pour finaliser ton paiement en Monero.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setXmrModalOpen(false)}
+              className="w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+            >
+              Compris
+            </button>
+          </div>
+        </div>
+      )}
     </div>
     </>
   )
