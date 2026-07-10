@@ -96,6 +96,7 @@ export const orderThreads = pgTable("order_threads", {
   id: serial("id").primaryKey(),
   customerName: text("customer_name").notNull(),
   customerToken: text("customer_token"),
+  trackingToken: text("tracking_token").notNull().unique(), // Token de suivi unique pour chaque commande
   summary: text("summary").notNull(),
   products: text("products"),
   total: integer("total").notNull().default(0),
@@ -105,6 +106,7 @@ export const orderThreads = pgTable("order_threads", {
   lng: doublePrecision("lng"),
   scheduledDate: text("scheduled_date"),
   scheduledSlot: text("scheduled_slot"),
+  colissimoNumber: text("colissimo_number"), // Numéro de suivi Colissimo/transporteur
   status: text("status").notNull().default("nouveau"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

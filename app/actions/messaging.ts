@@ -22,14 +22,18 @@ export type NewOrderInput = {
   scheduledSlot?: string
 }
 
-// Crée un fil de commande + le message initial du client (appelé à la validation du panier)
+// Crée un fil de commande + génère le token de suivi + envoie le message initial au client
 export async function createOrderThread(input: NewOrderInput) {
   const name = input.customerName?.trim() || "Client"
+  // Génère un token de suivi unique : "TRK_" + 16 caractères aléatoires
+  const trackingToken = `TRK_${crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`
+  
   const [thread] = await db
     .insert(orderThreads)
     .values({
       customerName: name,
       customerToken: input.customerToken?.trim() || null,
+      trackingToken,
       summary: input.summary,
       products: input.products?.trim() || null,
       total: input.total,
@@ -43,10 +47,18 @@ export async function createOrderThread(input: NewOrderInput) {
     })
     .returning()
 
+  // Message initial du client (résumé de la commande)
   await db.insert(threadMessages).values({
     threadId: thread.id,
     sender: "client",
     body: input.summary,
+  })
+
+  // Message automatique au client : confirmation de sa commande avec le token de suivi
+  await db.insert(threadMessages).values({
+    threadId: thread.id,
+    sender: "vendeur",
+    body: `Merci pour ta commande ! Ton numéro de suivi est : ${trackingToken}\nTu peux utiliser ce numéro pour tracker ta commande en temps réel.`,
   })
 
   // Notifie le vendeur de l'arrivée d'une nouvelle commande.
@@ -57,8 +69,16 @@ export async function createOrderThread(input: NewOrderInput) {
     tag: `order-${thread.id}`,
   })
 
+  // Notifie le client que sa commande est confirmée avec le token
+  await notifyCustomer(input.customerToken?.trim() || null, {
+    title: "Commande confirmée !",
+    body: `Ton numéro de suivi : ${trackingToken}`,
+    url: "/",
+    tag: `order-${thread.id}`,
+  })
+
   revalidatePath("/messagerie")
-  return { id: thread.id }
+  return { id: thread.id, trackingToken }
 }
 
 // Crée une discussion générale (sans commande) : le client contacte directement le chimiste.
@@ -155,20 +175,31 @@ export async function addMessage(threadId: number, sender: "client" | "vendeur",
   return { ok: true }
 }
 
-// Met à jour le statut d'un fil et envoie automatiquement un message au client
-// décrivant le nouveau statut (une fois par transition). Pour "livree", c'est aussi
-// le moment où les points de fidélité sont considérés comme crédités (voir getCustomerStats).
+// Met à jour le statut d'un fil et envoie automatiquement un message au client avec les infos à jour.
+// Optionnellement met à jour le numéro Colissimo quand la commande est expédiée.
+// Pour "livree", c'est aussi le moment où les points de fidélité sont crédités (voir getCustomerStats).
 // Pour "annulee", un motif facultatif saisi par l'admin est inclus dans le message.
-export async function updateThreadStatus(threadId: number, status: string, reason?: string) {
+export async function updateThreadStatus(
+  threadId: number,
+  status: string,
+  reason?: string,
+  colissimoNumber?: string
+) {
   const [current] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
   if (!current) return { ok: false }
 
   const prevKey = normalizeStatus(current.status)
   const nextKey = normalizeStatus(status)
 
+  // Mise à jour du statut et optionnellement du numéro Colissimo
+  const updateData: any = { status, updatedAt: sql`now()` }
+  if (colissimoNumber?.trim()) {
+    updateData.colissimoNumber = colissimoNumber.trim()
+  }
+
   await db
     .update(orderThreads)
-    .set({ status, updatedAt: sql`now()` })
+    .set(updateData)
     .where(eq(orderThreads.id, threadId))
 
   // Message automatique au client, uniquement quand le statut change réellement.
@@ -176,27 +207,32 @@ export async function updateThreadStatus(threadId: number, status: string, reaso
     let body: string | null = null
     switch (nextKey) {
       case "validee":
-        body = "Ta commande a été validée."
+        body = "✅ Ta commande a été validée et prise en charge."
         break
       case "preparation":
-        body = "Nous sommes en train de préparer tes articles."
+        body = "⚙️ Nous sommes en train de préparer tes articles."
         break
-      case "livraison":
-        body = "Le livreur est en route, reste joignable."
+      case "livraison": {
+        // Inclure le numéro de suivi Colissimo s'il existe
+        const colNum = current.colissimoNumber || colissimoNumber
+        body = colNum
+          ? `📦 C'est parti ! Le livreur est en route.\nNuméro de suivi : ${colNum}\nReste joignable.`
+          : "📦 Le livreur est en route. Reste joignable."
         break
+      }
       case "livree": {
         const mode = current.fulfillment === "meetup" ? "en meet-up" : "en livraison"
         const points = computeLoyaltyPoints(current.total ?? 0)
         body =
-          `Ta commande t'a bien été livrée (${mode}). Merci pour ta confiance !` +
-          (points > 0 ? ` ${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités sur ton compte.` : "")
+          `✨ Ta commande t'a bien été livrée (${mode}). Merci pour ta confiance !` +
+          (points > 0 ? `\n${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités.` : "")
         break
       }
       case "annulee": {
         const motif = reason?.trim()
         body = motif
-          ? `Ta commande a été annulée. Motif : ${motif}`
-          : "Ta commande a été annulée."
+          ? `❌ Ta commande a été annulée.\nMotif : ${motif}`
+          : "❌ Ta commande a été annulée."
         break
       }
     }
