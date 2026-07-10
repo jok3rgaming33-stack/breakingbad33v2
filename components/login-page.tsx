@@ -404,14 +404,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
               eakingBad<span className="text-accent">33</span>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowHowItWorks(true)}
-            className="flex items-center gap-2 rounded-2xl border border-border bg-background/50 px-4 py-2 text-sm font-medium text-muted-foreground backdrop-blur transition-colors hover:border-accent/50 hover:text-foreground"
-          >
-            <HelpCircle className="h-4 w-4" aria-hidden="true" />
-            Comment ça marche
-          </button>
+
         </div>
       </header>
 
@@ -422,22 +415,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
             <p className="text-xl text-muted-foreground">Aucune donnée personnelle requise</p>
           </div>
 
-          <div className="mb-6">
-            <div className="mb-4 flex flex-col items-center justify-center gap-2">
-              <TurnstileWidget
-                onVerify={(t) => {
-                  setCaptchaCreate(t)
-                  if (t) setCaptchaCreateError(false)
-                }}
-                onError={() => setCaptchaCreateError(true)}
-                resetSignal={resetCreate}
-              />
-              {captchaCreateError && (
-                <p className="text-center text-xs text-muted-foreground">
-                  Le test anti-robot n&apos;a pas pu se charger sur ton appareil. Tu peux continuer normalement.
-                </p>
-              )}
-            </div>
+          <div className="mb-4">
             <button
               onClick={createAnonymousAccess}
               disabled={creating || !createCaptchaReady}
@@ -456,6 +434,18 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
                 <span>{error}</span>
               </p>
             )}
+          </div>
+
+          {/* Comment ça marche — entre les deux sections, bien visible */}
+          <div className="mb-4 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setShowHowItWorks(true)}
+              className="flex items-center gap-2 rounded-2xl border border-border bg-background/50 px-5 py-2.5 text-sm font-medium text-muted-foreground backdrop-blur transition-colors hover:border-accent/50 hover:text-foreground"
+            >
+              <HelpCircle className="h-4 w-4" aria-hidden="true" />
+              Comment ça marche
+            </button>
           </div>
 
           <div className="rounded-3xl border border-border bg-background/40 p-8 backdrop-blur-xl">
