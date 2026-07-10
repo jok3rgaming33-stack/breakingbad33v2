@@ -526,9 +526,9 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
       {/* Modale Comment ça marche */}
       <HowItWorksModal
         isOpen={showHowItWorks}
+        requireRead={!hasReadGuide}
         onClose={() => {
           setShowHowItWorks(false)
-          // Marquer le guide comme consulté — déverrouille le bouton de création
           if (typeof window !== "undefined") {
             localStorage.setItem("bb33_guide_read", "1")
           }

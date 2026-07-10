@@ -218,13 +218,27 @@ const SECTIONS: Section[] = [
   },
 ]
 
+import { CheckCircle2 } from "lucide-react"
+
 type Props = {
   isOpen: boolean
   onClose: () => void
+  /** Quand true : force l'ouverture de toutes les sections avant de pouvoir fermer */
+  requireRead?: boolean
 }
 
-export function HowItWorksModal({ isOpen, onClose }: Props) {
+export function HowItWorksModal({ isOpen, onClose, requireRead = false }: Props) {
   const [expanded, setExpanded] = useState<number | null>(0)
+  const [seen, setSeen] = useState<Set<number>>(new Set([0])) // section 0 ouverte par défaut
+
+  const allSeen = seen.size >= SECTIONS.length
+  const canClose = !requireRead || allSeen
+
+  const toggle = (i: number) => {
+    const opening = expanded !== i
+    setExpanded(opening ? i : null)
+    if (opening) setSeen((prev) => new Set(prev).add(i))
+  }
 
   if (!isOpen) return null
 
@@ -236,37 +250,66 @@ export function HowItWorksModal({ isOpen, onClose }: Props) {
       aria-label="Comment ça marche"
     >
       <div className="flex h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl">
+
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-5">
           <div>
             <h2 className="text-xl font-bold tracking-tight">Comment ça marche ?</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Tout ce qu&apos;il faut savoir pour commander en toute confiance.
+              {requireRead
+                ? "Déploie chaque section pour débloquer la création de ta clé d'accès."
+                : "Tout ce qu'il faut savoir pour commander en toute confiance."}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            aria-label="Fermer"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
+          {/* X visible seulement si pas en mode requireRead, ou si tout est lu */}
+          {canClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              aria-label="Fermer"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
         </div>
+
+        {/* Barre de progression (requireRead uniquement) */}
+        {requireRead && (
+          <div className="shrink-0 border-b border-border px-6 py-3">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Sections consultées</span>
+              <span className="text-xs font-semibold text-foreground">{seen.size} / {SECTIONS.length}</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full bg-accent transition-all duration-300"
+                style={{ width: `${(seen.size / SECTIONS.length) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto px-4 py-4">
           <div className="flex flex-col gap-2">
             {SECTIONS.map((section, i) => {
-              const isOpen = expanded === i
+              const isExpanded = expanded === i
+              const hasBeenSeen = seen.has(i)
               return (
                 <div
                   key={i}
-                  className={`overflow-hidden rounded-2xl border transition-colors ${isOpen ? "border-border bg-secondary/40" : "border-border/50 bg-background/40"}`}
+                  className={`overflow-hidden rounded-2xl border transition-colors ${
+                    isExpanded
+                      ? "border-border bg-secondary/40"
+                      : hasBeenSeen
+                        ? "border-accent/30 bg-background/40"
+                        : "border-border/50 bg-background/40"
+                  }`}
                 >
                   <button
                     type="button"
-                    onClick={() => setExpanded(isOpen ? null : i)}
+                    onClick={() => toggle(i)}
                     className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left"
                   >
                     <div className="flex items-center gap-3">
@@ -275,14 +318,19 @@ export function HowItWorksModal({ isOpen, onClose }: Props) {
                       </span>
                       <span className="font-semibold">{section.title}</span>
                     </div>
-                    {isOpen ? (
-                      <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    )}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {requireRead && hasBeenSeen && (
+                        <CheckCircle2 className="h-4 w-4 text-accent" aria-label="Section consultée" aria-hidden="true" />
+                      )}
+                      {isExpanded ? (
+                        <ChevronUp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                      )}
+                    </div>
                   </button>
 
-                  {isOpen && (
+                  {isExpanded && (
                     <div className="border-t border-border/50 px-4 pb-4 pt-3">
                       <ol className="flex flex-col gap-3">
                         {section.steps.map((step, j) => (
@@ -303,15 +351,50 @@ export function HowItWorksModal({ isOpen, onClose }: Props) {
               )
             })}
           </div>
+
+          {/* Bouton de validation — apparait quand tout est lu (requireRead uniquement) */}
+          {requireRead && allSeen && (
+            <div className="mt-4 overflow-hidden rounded-2xl border border-accent/40 bg-accent/5">
+              <div className="px-5 py-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-accent" aria-hidden="true" />
+                  <p className="font-semibold text-foreground">Tu as consulté toutes les sections</p>
+                </div>
+                <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+                  L&apos;équipe reste disponible à tout moment via la messagerie pour répondre à tes questions.
+                  Tu peux maintenant créer ta clé d&apos;accès anonyme.
+                </p>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+                >
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  J&apos;ai compris le fonctionnement — créer ma clé
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Message d'invitation quand il reste des sections (requireRead uniquement) */}
+          {requireRead && !allSeen && (
+            <p className="mt-4 text-center text-xs text-muted-foreground">
+              Encore{" "}
+              <span className="font-semibold text-foreground">{SECTIONS.length - seen.size} section{SECTIONS.length - seen.size > 1 ? "s" : ""}</span>
+              {" "}à consulter pour débloquer la création de ta clé.
+            </p>
+          )}
         </div>
 
-        {/* Footer */}
-        <div className="shrink-0 border-t border-border px-6 py-4 text-center">
-          <p className="text-xs text-muted-foreground">
-            Une question ? Utilise la{" "}
-            <span className="font-semibold text-foreground">Messagerie</span> pour contacter directement l&apos;équipe.
-          </p>
-        </div>
+        {/* Footer — uniquement si pas requireRead ou si tout est déjà lu */}
+        {(!requireRead || allSeen) && (
+          <div className="shrink-0 border-t border-border px-6 py-4 text-center">
+            <p className="text-xs text-muted-foreground">
+              Une question ? Utilise la{" "}
+              <span className="font-semibold text-foreground">Messagerie</span> pour contacter directement l&apos;équipe.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )
