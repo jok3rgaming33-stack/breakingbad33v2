@@ -2,10 +2,13 @@
 
 import { useMemo, useState } from "react"
 import type { OrderThread } from "@/lib/db/schema"
-import { deleteOrderThread } from "@/app/actions/messaging"
+import { deleteOrderThread, getThread } from "@/app/actions/messaging"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { statusMeta } from "@/lib/order-status"
-import { ListOrdered, Truck, Store, Copy, Check, Search, Coins, Trash2, Loader2, AlertTriangle } from "lucide-react"
+import { ListOrdered, Truck, Store, Package, Copy, Check, Search, Coins, Trash2, Loader2, AlertTriangle, Eye, X, ArrowLeft } from "lucide-react"
+
+type ThreadMessage = { id: number; sender: string; body: string; createdAt: Date | string }
+type ThreadDetail = { messages: ThreadMessage[] } & OrderThread
 
 function formatDate(value: Date | string) {
   const d = new Date(value)
@@ -57,6 +60,18 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
   const [rows, setRows] = useState<OrderThread[]>(threads)
   const [pendingId, setPendingId] = useState<number | null>(null)
   const [confirmOrder, setConfirmOrder] = useState<OrderThread | null>(null)
+  const [detailThread, setDetailThread] = useState<ThreadDetail | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState<number | null>(null)
+
+  const openDetail = async (order: OrderThread) => {
+    setLoadingDetail(order.id)
+    try {
+      const data = await getThread(order.id)
+      if (data) setDetailThread({ ...order, messages: data.messages as ThreadMessage[] })
+    } finally {
+      setLoadingDetail(null)
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -175,6 +190,8 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
                         <div className="flex items-start gap-1.5 text-muted-foreground">
                           {t.fulfillment === "meetup" ? (
                             <Store className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
+                          ) : t.fulfillment === "locker" ? (
+                            <Package className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
                           ) : (
                             <Truck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
                           )}
@@ -189,20 +206,36 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setConfirmOrder(t)}
-                          disabled={pendingId === t.id}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
-                          aria-label={`Supprimer la commande #${t.id}`}
-                        >
-                          {pendingId === t.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                          ) : (
-                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                          )}
-                          Supprimer
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openDetail(t)}
+                            disabled={loadingDetail === t.id}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                            aria-label={`Voir la commande #${t.id}`}
+                          >
+                            {loadingDetail === t.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                            )}
+                            Voir
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmOrder(t)}
+                            disabled={pendingId === t.id}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
+                            aria-label={`Supprimer la commande #${t.id}`}
+                          >
+                            {pendingId === t.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                            )}
+                            Supprimer
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -212,6 +245,59 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
           </table>
         </div>
       </div>
+
+      {/* Modale detail du thread */}
+      {detailThread && (
+        <div
+          className="fixed inset-0 z-[110] flex items-start justify-end bg-black/60 p-0"
+          onClick={() => setDetailThread(null)}
+        >
+          <div
+            className="flex h-full w-full max-w-md flex-col overflow-hidden border-l border-border bg-card shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setDetailThread(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary"
+                aria-label="Fermer"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <div>
+                <h3 className="text-sm font-bold">Commande #{detailThread.id} — {detailThread.customerName}</h3>
+                <p className="text-xs text-muted-foreground">
+                  {detailThread.fulfillment === "locker" ? "Locker MR — 3 a 5j" : detailThread.fulfillment === "meetup" ? "Retrait meet-up" : "Livraison"}
+                  {detailThread.scheduledDate ? ` · ${detailThread.scheduledDate}` : ""}
+                  {detailThread.scheduledSlot ? ` · ${detailThread.scheduledSlot}` : ""}
+                </p>
+              </div>
+              <span className={`ml-auto shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${statusMeta(detailThread.status).badge}`}>
+                {statusMeta(detailThread.status).label}
+              </span>
+            </div>
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {detailThread.messages.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">Aucun message dans ce fil.</p>
+              ) : (
+                <ol className="flex flex-col gap-3">
+                  {detailThread.messages.map((m) => (
+                    <li key={m.id} className={`flex flex-col gap-1 rounded-2xl p-3 text-sm ${m.sender === "client" ? "bg-accent/15 text-foreground" : "bg-secondary text-foreground"}`}>
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {m.sender === "client" ? detailThread.customerName : "Le Chimiste"} · {new Date(m.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation de suppression */}
       {confirmOrder && (

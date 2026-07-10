@@ -306,7 +306,23 @@ export async function getThreadsForCustomer(customerName: string) {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
-// Vue client messagerie : discussions + commandes hors locker (le locker se suit uniquement par token TRK_)
+// Vue client onglet "En locker" : commandes locker du client, identifiées par son customerToken
+export async function getLockerOrdersForToken(customerToken: string) {
+  const token = customerToken?.trim()
+  if (!token) return []
+  return db
+    .select()
+    .from(orderThreads)
+    .where(
+      and(
+        eq(orderThreads.customerToken, token),
+        eq(orderThreads.fulfillment, "locker"),
+      )
+    )
+    .orderBy(desc(orderThreads.updatedAt))
+}
+
+// Vue client messagerie : discussions + commandes hors locker (le locker se suit uniquement via l'onglet En locker)
 export async function getThreadsForToken(customerToken: string) {
   const token = customerToken?.trim()
   if (!token) return []

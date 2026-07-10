@@ -58,9 +58,10 @@ export function VendorInbox({
     } catch {
       // silencieux : on réessaiera au prochain tick
     }
-  }, [])
+  }, [mode])
 
   useEffect(() => {
+    refresh() // chargement immédiat a l'affichage de l'onglet
     const interval = setInterval(refresh, 8000)
     const onVisible = () => {
       if (document.visibilityState === "visible") refresh()
