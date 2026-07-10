@@ -159,9 +159,18 @@ export function Navbar({
           {/* Mobile Menu Button */}
           <button
             onClick={() => setOpen(!open)}
-            className="flex h-9 w-9 items-center justify-center rounded-full text-foreground lg:hidden"
+            className="relative flex h-9 w-9 items-center justify-center rounded-full text-foreground lg:hidden"
+            aria-label={`Menu${(unreadMessaging + unreadOrders) > 0 ? ` — ${unreadMessaging + unreadOrders} notification${(unreadMessaging + unreadOrders) > 1 ? "s" : ""}` : ""}`}
           >
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            {!open && (unreadMessaging + unreadOrders) > 0 && (
+              <span
+                className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white"
+                aria-hidden="true"
+              >
+                {(unreadMessaging + unreadOrders) > 9 ? "9+" : unreadMessaging + unreadOrders}
+              </span>
+            )}
           </button>
         </div>
       </div>
