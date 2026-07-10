@@ -200,11 +200,19 @@ const SECTIONS: Section[] = [
     steps: [
       {
         label: "Aucune donnée personnelle",
-        desc: "Pas d'email, pas de téléphone, pas de nom réel. Ton pseudo et ton token sont les seuls identifiants — tu es maître de ta confidentialité.",
+        desc: "Pas de vrai nom, pas de téléphone. Ton pseudo et ton token sont tes seuls identifiants — tu es maître de ta confidentialité dès la création du compte.",
+      },
+      {
+        label: "Utilise une adresse email dédiée et anonyme",
+        desc: "Si le site te demande un email (notifications, contact), crée une adresse exprès avec de fausses informations. On recommande ProtonMail (proton.me) : gratuit, chiffré, basé en Suisse, aucune vraie identité requise à la création. Sinon SimpleLogin ou Tutanota offrent le même niveau de confidentialité. Ne jamais utiliser ton email personnel.",
+      },
+      {
+        label: "Récupérer ton compte sur un autre appareil",
+        desc: "Ton token secret (affiché une seule fois à la création) est ta clé d'accès universelle. Depuis l'app : bouton \"J'ai déjà une clé\" → colle ton token → tu retrouves tout ton historique. Note-le sur papier, hors ligne — si tu le perds, l'accès est définitivement perdu.",
       },
       {
         label: "Reconnexion multi-appareils",
-        desc: "Ton token te permet de récupérer ton compte sur n'importe quel appareil. Si tu le perds, tu ne pourras plus accéder à ton historique de commandes.",
+        desc: "Le même token fonctionne sur tous tes appareils simultanément : téléphone, tablette, PC. Tu peux l'utiliser depuis un navigateur en navigation privée pour ne laisser aucune trace.",
       },
     ],
   },

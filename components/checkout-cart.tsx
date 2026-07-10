@@ -899,9 +899,26 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 </li>
               </ol>
 
+              {/* Email anonyme + récupération */}
+              <div className="mt-4 rounded-2xl border border-border bg-secondary/40 p-3">
+                <p className="mb-2 font-semibold text-foreground">Confidentialité du compte</p>
+                <ul className="flex flex-col gap-2 text-xs leading-relaxed">
+                  <li>
+                    <span className="font-medium text-foreground">Email anonyme recommandé — </span>
+                    Si une adresse email t&apos;est demandée, crée-en une exprès avec de fausses informations. On recommande{" "}
+                    <span className="font-semibold text-accent">ProtonMail</span> (proton.me : gratuit, chiffré, sans identité réelle) ou{" "}
+                    <span className="font-semibold text-accent">SimpleLogin</span>. N&apos;utilise jamais ton email personnel.
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Récupérer ton compte — </span>
+                    Depuis l&apos;app : &quot;J&apos;ai déjà une clé&quot; → colle ton token secret → accès immédiat à ton historique depuis n&apos;importe quel appareil. Note-le sur papier, hors ligne — si tu le perds, l&apos;accès est définitivement perdu.
+                  </li>
+                </ul>
+              </div>
+
               {/* Conseils sécurité */}
-              <div className="mt-4 mb-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
-                <p className="mb-1 font-semibold text-amber-400">Conseils essentiels</p>
+              <div className="mt-3 mb-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
+                <p className="mb-1 font-semibold text-amber-400">Conseils essentiels XMR</p>
                 <ul className="flex flex-col gap-1 text-xs leading-relaxed">
                   <li>— Vérifie l&apos;adresse XMR caractère par caractère : une erreur = fonds perdus définitivement.</li>
                   <li>— Note ta seed phrase Cake Wallet sur papier, jamais en photo.</li>
