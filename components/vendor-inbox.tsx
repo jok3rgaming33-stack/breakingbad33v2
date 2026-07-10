@@ -2,8 +2,8 @@
 
 import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
-import { getActiveOrders, getLockerOrders, getDiscussions, getThread, addMessage, updateThreadStatus } from "@/app/actions/messaging"
-import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare } from "lucide-react"
+import { getActiveOrders, getLockerOrders, getDiscussions, getThread, addMessage, updateThreadStatus, deleteOrderThread } from "@/app/actions/messaging"
+import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle } from "lucide-react"
 import { VENDOR_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 
 function formatDate(value: Date | string) {
@@ -27,6 +27,9 @@ export function VendorInbox({
   // Modale de motif d'annulation
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState("")
+  // Confirmation de suppression
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   // Champ Colissimo (affiché uniquement quand on passe en statut "livraison")
   const [colissimoInput, setColissimoInput] = useState("")
   const [colissimoOpen, setColissimoOpen] = useState(false)
@@ -119,6 +122,20 @@ export function VendorInbox({
       const data = await getThread(selectedId)
       setMessages(data?.messages ?? [])
     })
+  }
+
+  const confirmDelete = async () => {
+    if (selectedId == null) return
+    setIsDeleting(true)
+    try {
+      await deleteOrderThread(selectedId)
+      setThreads((prev) => prev.filter((t) => t.id !== selectedId))
+      setSelectedId(null)
+      setMessages([])
+    } finally {
+      setIsDeleting(false)
+      setDeleteConfirmOpen(false)
+    }
   }
 
   const confirmCancel = () => {
@@ -230,6 +247,16 @@ export function VendorInbox({
                       </option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteConfirmOpen(true)}
+                    disabled={isPending || isDeleting}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-destructive/40 bg-destructive/10 text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
+                    aria-label="Supprimer la commande"
+                    title="Supprimer la commande"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -291,6 +318,51 @@ export function VendorInbox({
           </>
         )}
       </section>
+
+      {/* Modale : confirmation de suppression définitive */}
+      {deleteConfirmOpen && selected && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setDeleteConfirmOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/15">
+                <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden="true" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold">Supprimer la commande</h3>
+                <p className="text-xs text-muted-foreground">Commande #{selected.id} — {selected.customerName}</p>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Cette action est <span className="font-semibold text-foreground">irréversible</span>. La commande et tous ses messages seront définitivement supprimés, côté admin et côté client.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmOpen(false)}
+                disabled={isDeleting}
+                className="rounded-lg border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={isDeleting}
+                className="flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
+                Supprimer définitivement
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modale : motif d'annulation communiqué au client */}
       {cancelOpen && (
