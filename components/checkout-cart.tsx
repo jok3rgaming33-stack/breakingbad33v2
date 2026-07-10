@@ -829,18 +829,23 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         )}
       </div>
 
-      {/* Modale XMR — tutoriel paiement Monero (contenu a enrichir a la demande) */}
+      {/* Modale XMR — tutoriel paiement Monero complet */}
       {xmrModalOpen && (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
           onClick={() => setXmrModalOpen(false)}
         >
           <div
-            className="w-full max-w-sm rounded-3xl border border-border bg-card p-6 shadow-2xl"
+            className="flex w-full max-w-sm flex-col rounded-3xl border border-border bg-card shadow-2xl"
+            style={{ maxHeight: "90dvh" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-bold">Paiement Monero (XMR)</h2>
+            {/* Header fixe */}
+            <div className="flex shrink-0 items-center justify-between px-6 pt-6 pb-4">
+              <div className="flex items-center gap-2">
+                <Lock className="h-5 w-5 text-accent opacity-80" aria-hidden="true" />
+                <h2 className="text-base font-bold">Paiement Monero (XMR)</h2>
+              </div>
               <button
                 type="button"
                 onClick={() => setXmrModalOpen(false)}
@@ -850,28 +855,71 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
-            <div className="flex flex-col gap-3 py-2 text-sm text-muted-foreground">
-              <Lock className="h-8 w-8 text-accent opacity-80" aria-hidden="true" />
-              <p className="font-semibold text-foreground">Pourquoi Monero (XMR) ?</p>
-              <p className="leading-relaxed">
-                Monero est une cryptomonnaie confidentielle et intraçable. Ton paiement est invisible sur la blockchain, ce qui protege ta vie privee et la notre.
-              </p>
-              <p className="font-semibold text-foreground">Comment payer ?</p>
-              <ol className="flex flex-col gap-1.5 pl-1 text-xs leading-relaxed">
-                <li><span className="font-semibold text-foreground">1.</span> Installe un wallet XMR (Cake Wallet recommande sur mobile).</li>
-                <li><span className="font-semibold text-foreground">2.</span> Achete des XMR sur un exchange (Kraken, Binance) ou en P2P (LocalMonero).</li>
-                <li><span className="font-semibold text-foreground">3.</span> Apres avoir valide ta commande, tu recevras une adresse XMR dans la messagerie.</li>
-                <li><span className="font-semibold text-foreground">4.</span> Envoie le montant exact. La commande est expediee a reception.</li>
+
+            {/* Corps scrollable */}
+            <div className="flex-1 overflow-y-auto px-6 pb-2 text-sm text-muted-foreground">
+              {/* Pourquoi XMR */}
+              <div className="mb-4 rounded-2xl border border-accent/20 bg-accent/5 p-3">
+                <p className="mb-1 font-semibold text-foreground">Pourquoi Monero (XMR) ?</p>
+                <p className="text-xs leading-relaxed">
+                  Monero est une cryptomonnaie confidentielle et intraçable. Ton paiement est invisible sur la blockchain, ce qui protège ta vie privée et la nôtre. C&apos;est la méthode la plus sûre pour les deux parties.
+                </p>
+              </div>
+
+              {/* Etapes */}
+              <p className="mb-3 font-semibold text-foreground">Comment payer en 4 étapes</p>
+              <ol className="flex flex-col gap-3">
+                <li className="flex gap-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">1</span>
+                  <div>
+                    <p className="font-medium text-foreground">Installe Cake Wallet</p>
+                    <p className="text-xs leading-relaxed">Télécharge Cake Wallet (iOS ou Android, gratuit). C&apos;est l&apos;app tout-en-un qui gère l&apos;achat, l&apos;échange et l&apos;envoi de XMR sans compte obligatoire.</p>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">2</span>
+                  <div>
+                    <p className="font-medium text-foreground">Achète du Litecoin (LTC) sur Coinbase</p>
+                    <p className="text-xs leading-relaxed">Ouvre Coinbase → Acheter → Litecoin → saisis ton montant en euros. Le LTC sert de passerelle vers le XMR (moins de restrictions à l&apos;achat). Compte 2–6 % de frais au total.</p>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">3</span>
+                  <div>
+                    <p className="font-medium text-foreground">Envoie directement en XMR au vendeur</p>
+                    <p className="text-xs leading-relaxed">Dans Cake Wallet → Envoyer → colle l&apos;adresse XMR reçue dans ton suivi locker. Cake propose automatiquement le swap LTC→XMR (&quot;Pay Anything&quot;) et envoie les XMR directement. Choisis &quot;Taux fixe&quot; si disponible.</p>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">4</span>
+                  <div>
+                    <p className="font-medium text-foreground">Confirme ton dépôt dans le suivi</p>
+                    <p className="text-xs leading-relaxed">Après la transaction (10–45 min), clique sur &quot;J&apos;ai effectué mon dépôt&quot; dans ton suivi locker. Le vendeur vérifie et lance la préparation.</p>
+                  </div>
+                </li>
               </ol>
-              <p className="text-xs text-muted-foreground">Le tuto complet sera enrichi prochainement. Pour toute question, utilise la messagerie.</p>
+
+              {/* Conseils sécurité */}
+              <div className="mt-4 mb-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
+                <p className="mb-1 font-semibold text-amber-400">Conseils essentiels</p>
+                <ul className="flex flex-col gap-1 text-xs leading-relaxed">
+                  <li>— Vérifie l&apos;adresse XMR caractère par caractère : une erreur = fonds perdus définitivement.</li>
+                  <li>— Note ta seed phrase Cake Wallet sur papier, jamais en photo.</li>
+                  <li>— Pour tes débuts, commence par un petit montant test.</li>
+                </ul>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={() => { setXmrConfirmed(true); setXmrModalOpen(false) }}
-              className="mt-4 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
-            >
-              J&apos;ai compris, je confirme
-            </button>
+
+            {/* Footer fixe */}
+            <div className="shrink-0 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => { setXmrConfirmed(true); setXmrModalOpen(false) }}
+                className="w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+              >
+                J&apos;ai compris, je confirme
+              </button>
+            </div>
           </div>
         </div>
       )}
