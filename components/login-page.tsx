@@ -21,6 +21,13 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
   const [creating, setCreating] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [stats, setStats] = useState<{ points: number; active: number; past: number } | null>(null)
+  // Forcer la lecture du guide avant de créer un accès
+  const [hasReadGuide, setHasReadGuide] = useState(false)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setHasReadGuide(localStorage.getItem("bb33_guide_read") === "1")
+    }
+  }, [])
   // Tokens Turnstile (un par formulaire) + signaux de réinitialisation.
   const [captchaCreate, setCaptchaCreate] = useState("")
   const [captchaLogin, setCaptchaLogin] = useState("")
@@ -415,19 +422,36 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
             <p className="text-xl text-muted-foreground">Aucune donnée personnelle requise</p>
           </div>
 
+          {/* Bouton principal — verrouillé tant que le guide n'a pas été consulté */}
           <div className="mb-4">
-            <button
-              onClick={createAnonymousAccess}
-              disabled={creating || !createCaptchaReady}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl bg-accent py-5 text-xl font-semibold text-accent-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {creating ? (
-                <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
-              ) : (
-                <Plus className="h-6 w-6" aria-hidden="true" />
-              )}
-              <span>{creating ? "Création..." : "Créer mon accès anonyme"}</span>
-            </button>
+            {hasReadGuide ? (
+              <button
+                onClick={createAnonymousAccess}
+                disabled={creating || !createCaptchaReady}
+                className="flex w-full items-center justify-center gap-3 rounded-2xl bg-accent py-5 text-xl font-semibold text-accent-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {creating ? (
+                  <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Plus className="h-6 w-6" aria-hidden="true" />
+                )}
+                <span>{creating ? "Création..." : "Créer mon accès anonyme"}</span>
+              </button>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowHowItWorks(true)}
+                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-accent py-5 text-xl font-semibold text-accent-foreground transition-colors hover:brightness-110"
+                >
+                  <HelpCircle className="h-6 w-6" aria-hidden="true" />
+                  <span>Lire le guide avant de continuer</span>
+                </button>
+                <p className="text-center text-xs text-muted-foreground">
+                  La création de ton accès sera déverrouillée après avoir consulté le guide.
+                </p>
+              </div>
+            )}
             {error && !showResultModal && (
               <p className="mt-3 flex items-start gap-1.5 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
@@ -436,17 +460,19 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
             )}
           </div>
 
-          {/* Comment ça marche — entre les deux sections, bien visible */}
-          <div className="mb-4 flex justify-center">
-            <button
-              type="button"
-              onClick={() => setShowHowItWorks(true)}
-              className="flex items-center gap-2 rounded-2xl border border-border bg-background/50 px-5 py-2.5 text-sm font-medium text-muted-foreground backdrop-blur transition-colors hover:border-accent/50 hover:text-foreground"
-            >
-              <HelpCircle className="h-4 w-4" aria-hidden="true" />
-              Comment ça marche
-            </button>
-          </div>
+          {/* Comment ça marche — entre les deux sections, toujours visible */}
+          {hasReadGuide && (
+            <div className="mb-4 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setShowHowItWorks(true)}
+                className="flex items-center gap-2 rounded-2xl border border-border bg-background/50 px-5 py-2.5 text-sm font-medium text-muted-foreground backdrop-blur transition-colors hover:border-accent/50 hover:text-foreground"
+              >
+                <HelpCircle className="h-4 w-4" aria-hidden="true" />
+                Relire le guide
+              </button>
+            </div>
+          )}
 
           <div className="rounded-3xl border border-border bg-background/40 p-8 backdrop-blur-xl">
             <h2 className="mb-5 text-center text-2xl font-semibold">{"J'ai déjà une clé"}</h2>
@@ -498,7 +524,17 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
       </div>
 
       {/* Modale Comment ça marche */}
-      <HowItWorksModal isOpen={showHowItWorks} onClose={() => setShowHowItWorks(false)} />
+      <HowItWorksModal
+        isOpen={showHowItWorks}
+        onClose={() => {
+          setShowHowItWorks(false)
+          // Marquer le guide comme consulté — déverrouille le bouton de création
+          if (typeof window !== "undefined") {
+            localStorage.setItem("bb33_guide_read", "1")
+          }
+          setHasReadGuide(true)
+        }}
+      />
 
       {/* Modale Clé perdue */}
       {showLostKey && (
