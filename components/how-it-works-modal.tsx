@@ -14,6 +14,8 @@ import {
   ShieldCheck,
   ChevronDown,
   ChevronUp,
+  Package,
+  Coins,
 } from "lucide-react"
 
 type Section = {
@@ -59,8 +61,62 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    icon: <Package className="h-5 w-5" />,
+    title: "3. Locker Mondial Relay",
+    color: "text-cyan-400 bg-cyan-400/10 border-cyan-400/20",
+    steps: [
+      {
+        label: "C'est quoi le locker ?",
+        desc: "Le Locker Mondial Relay est un mode de livraison discret : ton colis est déposé dans un point relais de ton choix. Tu le récupères quand tu veux, sans contact direct avec le vendeur.",
+      },
+      {
+        label: "Comment ça marche ?",
+        desc: "Au moment de la commande, sélectionne \"Locker Mondial Relay\". Tu recevras un token TRK_ dans tes commandes — sauvegarde-le, il est indispensable pour suivre ton colis. Ce token te sera demandé à chaque ouverture du suivi.",
+      },
+      {
+        label: "Paiement en Monero (XMR)",
+        desc: "Les commandes locker se règlent exclusivement en Monero (XMR) pour ta confidentialité. Une fois ta commande validée, l'adresse de dépôt t'est communiquée dans ton suivi locker. Consulte la section \"Paiement XMR\" ci-dessous pour savoir comment procéder.",
+      },
+      {
+        label: "Livraison & récupération",
+        desc: "Une fois ton dépôt XMR confirmé, la préparation démarre. Tu reçois les informations de suivi Mondial Relay dans ton fil locker. Va chercher ton colis au point relais avec le code de retrait fourni.",
+      },
+    ],
+  },
+  {
+    icon: <Coins className="h-5 w-5" />,
+    title: "4. Paiement XMR — comment faire",
+    color: "text-amber-400 bg-amber-400/10 border-amber-400/20",
+    steps: [
+      {
+        label: "Ce dont tu as besoin",
+        desc: "Installe Cake Wallet (cakewallet.com — dispo iOS & Android, open-source et gratuit). C'est le seul outil dont tu as besoin : il gère l'achat, l'échange et l'envoi en une seule app.",
+      },
+      {
+        label: "Etape 1 — Achète du Litecoin (LTC) sur Coinbase",
+        desc: "Ouvre Coinbase → Acheter → cherche Litecoin (LTC) → saisis ton montant en euros → confirme. Le LTC est simple à acheter partout et sert de passerelle vers le XMR. Préfère le virement SEPA (moins de frais) si tu n'es pas pressé. Compte 2-6% de frais au total sur l'opération.",
+      },
+      {
+        label: "Etape 2 — Transfère les LTC vers Cake Wallet",
+        desc: "Dans Cake Wallet, crée un wallet Litecoin → appuie sur Recevoir → copie ton adresse LTC. Dans Coinbase : Envoyer → colle l'adresse LTC de Cake. Attends 15-30 min que les fonds arrivent. Pour tes premiers essais, commence par un petit montant test.",
+      },
+      {
+        label: "Etape 3 — Envoie directement en XMR au vendeur (Pay Anything)",
+        desc: "Dans Cake Wallet → Envoyer → colle l'adresse XMR fournie par le vendeur dans ton suivi locker. Cake détecte que c'est une adresse XMR et propose automatiquement le swap LTC→XMR. Vérifie le montant final XMR affiché, choisis \"Taux fixe\" si disponible, puis confirme. Les XMR arrivent directement chez le vendeur sans étape supplémentaire.",
+      },
+      {
+        label: "Etape 4 — Confirme ton dépôt",
+        desc: "Une fois l'opération terminée (10-45 min en général), retourne dans ton suivi locker et clique sur \"J'ai effectué mon dépôt\". Le vendeur vérifie la réception et lance la préparation de ta commande.",
+      },
+      {
+        label: "Conseils essentiels",
+        desc: "Vérifie toujours l'adresse XMR caractère par caractère — une erreur = fonds perdus définitivement. Note ta seed phrase Cake Wallet sur papier, jamais en photo. Commence par de petits montants pour t'habituer. En cas de souci, garde le TX ID LTC pour le support Cake Wallet.",
+      },
+    ],
+  },
+  {
     icon: <Bell className="h-5 w-5" />,
-    title: "3. Notifications push",
+    title: "5. Notifications push",
     color: "text-yellow-400 bg-yellow-400/10 border-yellow-400/20",
     steps: [
       {
@@ -79,7 +135,7 @@ const SECTIONS: Section[] = [
   },
   {
     icon: <MessageSquare className="h-5 w-5" />,
-    title: "4. Messagerie",
+    title: "6. Messagerie",
     color: "text-purple-400 bg-purple-400/10 border-purple-400/20",
     steps: [
       {
@@ -94,7 +150,7 @@ const SECTIONS: Section[] = [
   },
   {
     icon: <Truck className="h-5 w-5" />,
-    title: "5. Livraison & Meet-up",
+    title: "7. Livraison & Meet-up",
     color: "text-orange-400 bg-orange-400/10 border-orange-400/20",
     steps: [
       {
@@ -109,7 +165,7 @@ const SECTIONS: Section[] = [
   },
   {
     icon: <Gift className="h-5 w-5" />,
-    title: "6. Programme fidélité",
+    title: "8. Programme fidélité",
     color: "text-pink-400 bg-pink-400/10 border-pink-400/20",
     steps: [
       {
@@ -124,7 +180,7 @@ const SECTIONS: Section[] = [
   },
   {
     icon: <Smartphone className="h-5 w-5" />,
-    title: "7. Version mobile",
+    title: "9. Version mobile",
     color: "text-teal-400 bg-teal-400/10 border-teal-400/20",
     steps: [
       {
@@ -139,7 +195,7 @@ const SECTIONS: Section[] = [
   },
   {
     icon: <ShieldCheck className="h-5 w-5" />,
-    title: "8. Sécurité & confidentialité",
+    title: "10. Sécurité & confidentialité",
     color: "text-red-400 bg-red-400/10 border-red-400/20",
     steps: [
       {
