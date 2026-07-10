@@ -54,30 +54,66 @@ export async function createOrderThread(input: NewOrderInput) {
     body: input.summary,
   })
 
-  // Message automatique au client : confirmation de sa commande avec le token de suivi
-  await db.insert(threadMessages).values({
-    threadId: thread.id,
-    sender: "vendeur",
-    body: `Merci pour ta commande ! Ton numéro de suivi est : ${trackingToken}\nTu peux utiliser ce numéro pour tracker ta commande en temps réel.`,
-  })
+  if (input.fulfillment === "locker") {
+    // Pour les commandes locker : on crée un fil séparé dans la messagerie normale
+    // contenant UNIQUEMENT le token TRK — visible une seule fois puis supprimé.
+    const trkBody = [
+      `⚠️ ATTENTION — LIS CE MESSAGE ATTENTIVEMENT ⚠️`,
+      ``,
+      `Ton token de suivi Locker est :`,
+      ``,
+      `${trackingToken}`,
+      ``,
+      `SAUVEGARDE CE TOKEN MAINTENANT.`,
+      `Ce message sera automatiquement supprimé une fois que tu l'auras ouvert, pour des raisons de sécurité.`,
+      `Sans ce token tu ne pourras plus accéder au suivi de ta commande.`,
+    ].join("\n")
+
+    const [trkThread] = await db
+      .insert(orderThreads)
+      .values({
+        customerName: name,
+        customerToken: input.customerToken?.trim() || null,
+        trackingToken: `TRK_MSG_${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
+        summary: `Token de suivi — Commande #${thread.id}`,
+        total: 0,
+        fulfillment: "locker",
+        status: "trk_token", // statut spécial : message TRK à lire une fois
+      })
+      .returning()
+
+    await db.insert(threadMessages).values({
+      threadId: trkThread.id,
+      sender: "vendeur",
+      body: trkBody,
+    })
+
+    // Notifie le client : il doit ouvrir la messagerie pour sauvegarder son token
+    await notifyCustomer(input.customerToken?.trim() || null, {
+      title: "Token de suivi Locker — A SAUVEGARDER",
+      body: "Ouvre la messagerie maintenant pour récupérer ton token de suivi. Il sera supprimé après lecture.",
+      url: "/",
+      tag: `trk-${thread.id}`,
+    })
+  } else {
+    // Commandes non-locker : message de confirmation classique dans le fil de commande
+    await db.insert(threadMessages).values({
+      threadId: thread.id,
+      sender: "vendeur",
+      body: `Merci pour ta commande ! Elle a bien été prise en compte. Tu recevras une mise à jour dès qu'elle sera traitée.`,
+    })
+  }
 
   // Notifie le vendeur de l'arrivée d'une nouvelle commande.
   await notifyVendor({
     title: "Nouvelle commande",
-    body: `${name} vient de passer une commande (#${thread.id}).`,
+    body: `${name} vient de passer une commande (#${thread.id})${input.fulfillment === "locker" ? " — LOCKER" : ""}.`,
     url: "/admin",
     tag: `order-${thread.id}`,
   })
 
-  // Notifie le client que sa commande est confirmée avec le token
-  await notifyCustomer(input.customerToken?.trim() || null, {
-    title: "Commande confirmée !",
-    body: `Ton numéro de suivi : ${trackingToken}`,
-    url: "/",
-    tag: `order-${thread.id}`,
-  })
-
   revalidatePath("/messagerie")
+  revalidatePath("/admin")
   return { id: thread.id, trackingToken }
 }
 
@@ -322,7 +358,8 @@ export async function getLockerOrdersForToken(customerToken: string) {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
-// Vue client messagerie : discussions + commandes hors locker (le locker se suit uniquement via l'onglet En locker)
+// Vue client messagerie : discussions + commandes hors locker
+// EXCEPTION : les fils trk_token (message TRK auto-détruit) sont inclus car le client doit les voir
 export async function getThreadsForToken(customerToken: string) {
   const token = customerToken?.trim()
   if (!token) return []
@@ -330,7 +367,10 @@ export async function getThreadsForToken(customerToken: string) {
     .select()
     .from(orderThreads)
     .where(
-      sql`customer_token = ${token} AND fulfillment != 'locker'`
+      and(
+        eq(orderThreads.customerToken, token),
+        sql`(fulfillment != 'locker' OR status = 'trk_token')`
+      )
     )
     .orderBy(desc(orderThreads.updatedAt))
 }
@@ -381,6 +421,100 @@ export async function getThreadByTrackingToken(trackingToken: string) {
     updatedAt: thread.updatedAt,
     messages: statusMessages,
   }
+}
+
+// Supprime le fil TRK_MSG après que le client l'a lu (sécurité : message auto-détruit).
+export async function consumeTrkThread(threadId: number) {
+  if (!threadId) return { ok: false as const }
+  const [t] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
+  if (!t || t.status !== "trk_token") return { ok: false as const }
+  await db.delete(threadMessages).where(eq(threadMessages.threadId, threadId))
+  await db.delete(orderThreads).where(eq(orderThreads.id, threadId))
+  revalidatePath("/messagerie")
+  return { ok: true as const }
+}
+
+// Admin : enregistre l'adresse wallet XMR et envoie un message au client dans son fil locker.
+export async function sendXmrWallet(threadId: number, wallet: string) {
+  const w = wallet.trim()
+  if (!w || !threadId) return { ok: false as const }
+  const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
+  if (!thread) return { ok: false as const }
+
+  await db.update(orderThreads).set({ xmrWallet: w, updatedAt: sql`now()` }).where(eq(orderThreads.id, threadId))
+
+  const walletMsg = [
+    `Commande validee ! Voici l'adresse du wallet Monero (XMR) ou effectuer ton depot :`,
+    ``,
+    `[ ${w} ]`,
+    ``,
+    `IMPORTANT : recopie cette adresse avec la plus grande attention, caractere par caractere.`,
+    `Une seule erreur de saisie et le depot sera perdu definitivement — Monero est une crypto intraçable.`,
+    ``,
+    `Une fois le depot effectue, clique sur le bouton "J'ai effectue mon depot" dans ton suivi locker.`,
+    `La preparation de ta commande demarrera a reception de la confirmation.`,
+  ].join("\n")
+
+  await db.insert(threadMessages).values({ threadId, sender: "vendeur", body: walletMsg })
+  await db.update(orderThreads).set({ status: "validee", updatedAt: sql`now()` }).where(eq(orderThreads.id, threadId))
+
+  await notifyCustomer(thread.customerToken, {
+    title: "Adresse de paiement XMR disponible",
+    body: "Ouvre ton suivi locker pour voir l'adresse de depot Monero.",
+    url: "/",
+    tag: `xmr-${threadId}`,
+  })
+
+  revalidatePath("/admin")
+  return { ok: true as const }
+}
+
+// Client : signale que son depot XMR est effectue.
+export async function notifyDeposit(threadId: number) {
+  if (!threadId) return { ok: false as const }
+  const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
+  if (!thread) return { ok: false as const }
+
+  await db.update(orderThreads).set({ depositNotified: true, updatedAt: sql`now()` }).where(eq(orderThreads.id, threadId))
+  await db.insert(threadMessages).values({
+    threadId,
+    sender: "client",
+    body: "J'ai effectue mon depot XMR. Merci de verifier la reception.",
+  })
+
+  await notifyVendor({
+    title: `Depot XMR signale — Commande #${threadId}`,
+    body: `${thread.customerName} signale avoir effectue son depot Monero.`,
+    url: "/admin",
+    tag: `deposit-${threadId}`,
+  })
+
+  revalidatePath("/admin")
+  return { ok: true as const }
+}
+
+// Admin : confirme la reception du depot XMR et lance la preparation.
+export async function confirmDeposit(threadId: number) {
+  if (!threadId) return { ok: false as const }
+  const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
+  if (!thread) return { ok: false as const }
+
+  await db.update(orderThreads).set({ depositConfirmed: true, status: "preparation", updatedAt: sql`now()` }).where(eq(orderThreads.id, threadId))
+  await db.insert(threadMessages).values({
+    threadId,
+    sender: "vendeur",
+    body: "Depot Monero recu et confirme. La preparation de ton colis est en cours — tu recevras une mise a jour des la mise en expedition.",
+  })
+
+  await notifyCustomer(thread.customerToken, {
+    title: "Depot recu — preparation en cours",
+    body: "Ton depot XMR a ete confirme. Ton colis est en preparation.",
+    url: "/",
+    tag: `prep-${threadId}`,
+  })
+
+  revalidatePath("/admin")
+  return { ok: true as const }
 }
 
 // Supprime définitivement une commande (et ses messages, via cascade applicative).

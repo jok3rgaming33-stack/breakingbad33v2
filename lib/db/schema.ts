@@ -107,6 +107,9 @@ export const orderThreads = pgTable("order_threads", {
   scheduledDate: text("scheduled_date"),
   scheduledSlot: text("scheduled_slot"),
   colissimoNumber: text("colissimo_number"), // Numéro de suivi Colissimo/transporteur
+  xmrWallet: text("xmr_wallet"),             // Adresse wallet XMR communiquée au client locker
+  depositNotified: boolean("deposit_notified").notNull().default(false),   // Client a cliqué "j'ai déposé"
+  depositConfirmed: boolean("deposit_confirmed").notNull().default(false),  // Admin a confirmé réception
   status: text("status").notNull().default("nouveau"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

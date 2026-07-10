@@ -2,8 +2,8 @@
 
 import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
-import { getActiveOrders, getLockerOrders, getDiscussions, getThread, addMessage, updateThreadStatus, deleteOrderThread } from "@/app/actions/messaging"
-import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle } from "lucide-react"
+import { getActiveOrders, getLockerOrders, getDiscussions, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit } from "@/app/actions/messaging"
+import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2 } from "lucide-react"
 import { VENDOR_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 
 function formatDate(value: Date | string) {
@@ -33,6 +33,10 @@ export function VendorInbox({
   // Champ Colissimo (affiché uniquement quand on passe en statut "livraison")
   const [colissimoInput, setColissimoInput] = useState("")
   const [colissimoOpen, setColissimoOpen] = useState(false)
+  // Modale wallet XMR (locker validée)
+  const [xmrModalOpen, setXmrModalOpen] = useState(false)
+  const [xmrWalletInput, setXmrWalletInput] = useState("")
+  const [xmrSending, setXmrSending] = useState(false)
 
   const selected = threads.find((t) => t.id === selectedId) ?? null
 
@@ -104,6 +108,13 @@ export function VendorInbox({
       setColissimoOpen(true)
       return
     }
+    // Le passage en "validee" pour une commande locker ouvre la modale wallet XMR.
+    const currentThread = threads.find((t) => t.id === selectedId)
+    if (status === "validee" && currentThread?.fulfillment === "locker") {
+      setXmrWalletInput("")
+      setXmrModalOpen(true)
+      return
+    }
     startTransition(async () => {
       await updateThreadStatus(selectedId, status)
       setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status } : t)))
@@ -119,6 +130,30 @@ export function VendorInbox({
     startTransition(async () => {
       await updateThreadStatus(selectedId, "livraison", undefined, colissimo || undefined)
       setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status: "livraison" } : t)))
+      const data = await getThread(selectedId)
+      setMessages(data?.messages ?? [])
+    })
+  }
+
+  const confirmXmrWallet = async () => {
+    if (selectedId == null || !xmrWalletInput.trim()) return
+    setXmrSending(true)
+    try {
+      await sendXmrWallet(selectedId, xmrWalletInput.trim())
+      setThreads((prev) => prev.map((t) => t.id === selectedId ? { ...t, status: "validee", xmrWallet: xmrWalletInput.trim() } : t))
+      const data = await getThread(selectedId)
+      setMessages(data?.messages ?? [])
+    } finally {
+      setXmrSending(false)
+      setXmrModalOpen(false)
+    }
+  }
+
+  const handleConfirmDeposit = () => {
+    if (selectedId == null) return
+    startTransition(async () => {
+      await confirmDeposit(selectedId)
+      setThreads((prev) => prev.map((t) => t.id === selectedId ? { ...t, depositConfirmed: true, status: "preparation" } : t))
       const data = await getThread(selectedId)
       setMessages(data?.messages ?? [])
     })
@@ -289,6 +324,26 @@ export function VendorInbox({
               )}
             </div>
 
+            {/* Bandeau dépôt XMR notifié — bouton confirmer */}
+            {selected.fulfillment === "locker" && (selected as any).depositNotified && !(selected as any).depositConfirmed && (
+              <div className="border-t border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <Wallet className="h-4 w-4 text-amber-400" aria-hidden="true" />
+                  <p className="text-sm font-semibold text-amber-400">Dépôt XMR signalé par le client</p>
+                </div>
+                <p className="mb-3 text-xs text-muted-foreground">Vérifie la reception sur ton wallet Monero avant de confirmer.</p>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeposit}
+                  disabled={isPending}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  Confirmer la réception du dépôt
+                </button>
+              </div>
+            )}
+
             <div className="border-t border-border p-3">
               <div className="flex items-end gap-2">
                 <textarea
@@ -318,6 +373,66 @@ export function VendorInbox({
           </>
         )}
       </section>
+
+      {/* Modale : wallet XMR pour commande locker validée */}
+      {xmrModalOpen && selected && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setXmrModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/15">
+                <Wallet className="h-5 w-5 text-accent" aria-hidden="true" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold">Adresse wallet XMR — Commande #{selected.id}</h3>
+                <p className="text-xs text-muted-foreground">{selected.customerName} · Locker Mondial Relay</p>
+              </div>
+            </div>
+            <p className="mb-4 text-sm text-muted-foreground leading-relaxed">
+              Saisis l&apos;adresse du wallet Monero sur lequel le client devra effectuer son dépôt. Elle lui sera transmise dans son suivi locker avec une mise en garde pour qu&apos;il la recopie soigneusement.
+            </p>
+            <label htmlFor="xmr-wallet" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Adresse wallet XMR
+            </label>
+            <input
+              id="xmr-wallet"
+              type="text"
+              value={xmrWalletInput}
+              onChange={(e) => setXmrWalletInput(e.target.value)}
+              autoFocus
+              placeholder="4... (adresse Monero complète)"
+              className="w-full rounded-xl border border-input bg-background px-3 py-2.5 font-mono text-sm outline-none focus:border-accent"
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Le client recevra une notification push lui demandant d&apos;ouvrir son suivi locker.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setXmrModalOpen(false)}
+                disabled={xmrSending}
+                className="rounded-lg border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={confirmXmrWallet}
+                disabled={xmrSending || !xmrWalletInput.trim()}
+                className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {xmrSending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Wallet className="h-4 w-4" aria-hidden="true" />}
+                Valider et envoyer au client
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modale : confirmation de suppression définitive */}
       {deleteConfirmOpen && selected && (
