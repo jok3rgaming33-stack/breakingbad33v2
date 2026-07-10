@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { orderThreads, threadMessages } from "@/lib/db/schema"
-import { and, desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, ne, notInArray, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { normalizeStatus, statusMeta } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
@@ -129,17 +129,27 @@ export async function getActiveOrders() {
   const threads = await db
     .select()
     .from(orderThreads)
-    .where(sql`status NOT IN ('livree', 'annulee', 'discussion') AND fulfillment != 'locker'`)
+    .where(
+      and(
+        notInArray(orderThreads.status, ["livree", "annulee", "discussion"]),
+        ne(orderThreads.fulfillment, "locker"),
+      )
+    )
     .orderBy(desc(orderThreads.updatedAt))
   return threads
 }
 
-// Commandes Locker Mondial Relay actives (non livrées, non annulées)
+// Commandes Locker Mondial Relay actives (non livrees, non annulees)
 export async function getLockerOrders() {
   const threads = await db
     .select()
     .from(orderThreads)
-    .where(sql`fulfillment = 'locker' AND status NOT IN ('livree', 'annulee')`)
+    .where(
+      and(
+        eq(orderThreads.fulfillment, "locker"),
+        notInArray(orderThreads.status, ["livree", "annulee"]),
+      )
+    )
     .orderBy(desc(orderThreads.updatedAt))
   return threads
 }

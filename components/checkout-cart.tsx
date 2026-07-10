@@ -90,6 +90,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const [meetupHour, setMeetupHour] = useState("")
   const [lockerAddress, setLockerAddress] = useState("")
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
+  const [xmrConfirmed, setXmrConfirmed] = useState(false)
 
   const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "done" | "error" | "notfound">("idle")
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
@@ -227,7 +228,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const canValidate =
     items.length > 0 &&
     (isLocker
-      ? !!lockerAddress.trim()
+      ? !!lockerAddress.trim() && xmrConfirmed
       : !!date && (isMeetup ? !!meetupHour : !!address.trim() && !!slot && distanceKm != null))
 
   // Point d'entrée : à la 1re commande, on impose d'abord la vérification d'identité.
@@ -304,13 +305,13 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       ``,
       lines,
       ``,
-      `Date : ${date}`,
+      isLocker ? null : `Date : ${date}`,
       mode,
       promo && promoDiscount > 0 ? `Code ${promo.code} : -${promoDiscount}€` : null,
       ``,
       `Sous-total : ${subtotal}€`,
-      !isMeetup ? `Livraison : ${deliveryFee}€` : null,
-      promo && promoDiscount > 0 ? `Réduction (${promo.code}) : -${promoDiscount}€` : null,
+      (!isMeetup && deliveryFee > 0) ? `${isLocker ? "Locker" : "Livraison"} : ${deliveryFee}€` : null,
+      promo && promoDiscount > 0 ? `Reduction (${promo.code}) : -${promoDiscount}€` : null,
       `TOTAL : ${total}€`,
     ]
       .filter(Boolean)
@@ -329,8 +330,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         address: isMeetup ? undefined : isLocker ? lockerAddress : resolvedLabel ?? address,
         lat: isMeetup || isLocker ? null : coords?.lat ?? null,
         lng: isMeetup || isLocker ? null : coords?.lng ?? null,
-        scheduledDate: date,
-        scheduledSlot: isMeetup ? meetupHour : slot,
+        scheduledDate: isLocker ? null : date,
+        scheduledSlot: isLocker ? null : isMeetup ? meetupHour : slot,
       })
       // Code fidélité (BB33-...) consommé à usage unique une fois la commande passée.
       if (promo && /^BB33-/i.test(promo.code)) {
@@ -361,6 +362,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     setFulfillmentMode("livraison")
     setMeetupHour("")
     setLockerAddress("")
+    setXmrConfirmed(false)
     setDistanceKm(null)
     setCoords(null)
     setGeoStatus("idle")
@@ -546,6 +548,33 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   <p className="mt-1.5 text-xs text-muted-foreground">
                     Frais d&apos;envoi Locker : <span className="font-semibold text-foreground">{FEE_LOCKER}€</span>. Saisis l&apos;adresse exacte du point Locker Mondial Relay choisi.
                   </p>
+
+                  {/* Obligation de lire le tuto XMR avant de valider */}
+                  <div className="mt-3 rounded-2xl border border-border bg-background/60 p-4">
+                    <p className="mb-3 text-sm font-semibold">Paiement requis avant expedition</p>
+                    <p className="mb-3 text-xs text-muted-foreground leading-relaxed">
+                      Les commandes Locker sont expedieees uniquement apres reception du paiement en <span className="font-semibold text-foreground">Monero (XMR)</span>. Tu dois lire le tutoriel de paiement avant de valider ta commande.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setXmrModalOpen(true)}
+                      className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-accent/60 bg-accent/10 px-3 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/20"
+                    >
+                      <Lock className="h-4 w-4" aria-hidden="true" />
+                      Lire le tutoriel paiement XMR
+                    </button>
+                    <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${xmrConfirmed ? "border-accent bg-accent/10" : "border-border"}`}>
+                      <input
+                        type="checkbox"
+                        checked={xmrConfirmed}
+                        onChange={(e) => setXmrConfirmed(e.target.checked)}
+                        className="h-4 w-4 accent-[var(--accent)]"
+                      />
+                      <span className="text-xs leading-relaxed">
+                        J&apos;ai lu et compris le tutoriel de paiement XMR. Je sais que ma commande sera expedieee apres reception du paiement.
+                      </span>
+                    </label>
+                  </div>
                 </div>
               )}
 
@@ -776,15 +805,6 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 <span>Total</span>
                 <span>{total}€</span>
               </div>
-              {/* Bouton XMR */}
-              <button
-                type="button"
-                onClick={() => setXmrModalOpen(true)}
-                className="mb-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-background/60 py-3 text-sm font-semibold text-foreground transition-colors hover:border-accent hover:text-accent"
-              >
-                <Lock className="h-4 w-4" aria-hidden="true" />
-                Paiement en XMR (Monero)
-              </button>
               <button
                 type="button"
                 onClick={handleValidate}
@@ -809,7 +829,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         )}
       </div>
 
-      {/* Modale XMR — placeholder, contenu à construire à la demande */}
+      {/* Modale XMR — tutoriel paiement Monero (contenu a enrichir a la demande) */}
       {xmrModalOpen && (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
@@ -830,18 +850,27 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
-            <div className="flex flex-col items-center gap-3 py-6 text-center text-muted-foreground">
-              <Lock className="h-10 w-10 text-accent opacity-80" aria-hidden="true" />
-              <p className="text-sm leading-relaxed text-pretty">
-                Le tutoriel de paiement XMR arrive prochainement. En attendant, contacte-nous via la messagerie pour finaliser ton paiement en Monero.
+            <div className="flex flex-col gap-3 py-2 text-sm text-muted-foreground">
+              <Lock className="h-8 w-8 text-accent opacity-80" aria-hidden="true" />
+              <p className="font-semibold text-foreground">Pourquoi Monero (XMR) ?</p>
+              <p className="leading-relaxed">
+                Monero est une cryptomonnaie confidentielle et intraçable. Ton paiement est invisible sur la blockchain, ce qui protege ta vie privee et la notre.
               </p>
+              <p className="font-semibold text-foreground">Comment payer ?</p>
+              <ol className="flex flex-col gap-1.5 pl-1 text-xs leading-relaxed">
+                <li><span className="font-semibold text-foreground">1.</span> Installe un wallet XMR (Cake Wallet recommande sur mobile).</li>
+                <li><span className="font-semibold text-foreground">2.</span> Achete des XMR sur un exchange (Kraken, Binance) ou en P2P (LocalMonero).</li>
+                <li><span className="font-semibold text-foreground">3.</span> Apres avoir valide ta commande, tu recevras une adresse XMR dans la messagerie.</li>
+                <li><span className="font-semibold text-foreground">4.</span> Envoie le montant exact. La commande est expediee a reception.</li>
+              </ol>
+              <p className="text-xs text-muted-foreground">Le tuto complet sera enrichi prochainement. Pour toute question, utilise la messagerie.</p>
             </div>
             <button
               type="button"
-              onClick={() => setXmrModalOpen(false)}
-              className="w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+              onClick={() => { setXmrConfirmed(true); setXmrModalOpen(false) }}
+              className="mt-4 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
             >
-              Compris
+              J&apos;ai compris, je confirme
             </button>
           </div>
         </div>

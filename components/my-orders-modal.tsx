@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { X, ArrowLeft, Package, Send, Loader2 } from "lucide-react"
-import { getThreadsForToken, getThread, addMessage } from "@/app/actions/messaging"
+import { X, ArrowLeft, Package, Send, Loader2, ScanSearch, AlertCircle } from "lucide-react"
+import { getThreadsForToken, getThread, addMessage, getThreadByTrackingToken } from "@/app/actions/messaging"
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
 
 type UserData = { pseudo?: string; token?: string } | null
@@ -41,7 +41,12 @@ function formatDate(d: Date | string) {
 export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps) {
   const token = userData?.token ?? ""
   const [threads, setThreads] = useState<Thread[]>([])
-  const [tab, setTab] = useState<"active" | "past">("active")
+  const [tab, setTab] = useState<"active" | "locker" | "past">("active")
+  // Suivi locker par token TRK_
+  const [lockerToken, setLockerToken] = useState("")
+  const [lockerResult, setLockerResult] = useState<Awaited<ReturnType<typeof getThreadByTrackingToken>> | null>(null)
+  const [lockerLoading, setLockerLoading] = useState(false)
+  const [lockerError, setLockerError] = useState("")
   const [loadingList, setLoadingList] = useState(false)
   const [selected, setSelected] = useState<Thread | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -108,11 +113,34 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
     }
   }
 
+  const handleLockerSearch = async () => {
+    const token = lockerToken.trim().toUpperCase()
+    if (!token) return
+    setLockerLoading(true)
+    setLockerError("")
+    setLockerResult(null)
+    try {
+      const result = await getThreadByTrackingToken(token)
+      if (!result) {
+        setLockerError("Aucune commande trouvee pour ce token. Verifie la saisie.")
+      } else {
+        setLockerResult(result)
+      }
+    } catch {
+      setLockerError("Une erreur est survenue, reessaie dans un instant.")
+    } finally {
+      setLockerLoading(false)
+    }
+  }
+
   const handleClose = () => {
     setSelected(null)
     setMessages([])
     setReply("")
     setTab("active")
+    setLockerToken("")
+    setLockerResult(null)
+    setLockerError("")
     onClose()
   }
 
@@ -162,7 +190,8 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
               {(
                 [
                   { key: "active" as const, label: "En cours" },
-                  { key: "past" as const, label: "Mes commandes passées" },
+                  { key: "locker" as const, label: "En locker" },
+                  { key: "past" as const, label: "Passees" },
                 ]
               ).map((t) => (
                 <button
@@ -179,7 +208,92 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
               ))}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            {/* Vue locker : saisie token TRK_ */}
+            {tab === "locker" && (
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="mb-5 flex flex-col gap-2">
+                  <label className="text-sm font-semibold" htmlFor="locker-trk-input">
+                    Ton numero de suivi Locker
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="locker-trk-input"
+                      type="text"
+                      value={lockerToken}
+                      onChange={(e) => setLockerToken(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) handleLockerSearch() }}
+                      placeholder="TRK_XXXXXXXXXXXXXXXXX"
+                      className="flex-1 rounded-2xl border border-border bg-background/60 px-3 py-2.5 font-mono text-sm outline-none transition-colors focus:border-accent"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleLockerSearch}
+                      disabled={lockerLoading || !lockerToken.trim()}
+                      className="flex items-center justify-center rounded-2xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                      aria-label="Rechercher"
+                    >
+                      {lockerLoading
+                        ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        : <ScanSearch className="h-4 w-4" aria-hidden="true" />}
+                    </button>
+                  </div>
+                  {lockerError && (
+                    <p className="flex items-center gap-1.5 text-xs text-destructive">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      {lockerError}
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Le token TRK_ t&apos;a ete envoye dans la messagerie apres ta commande Locker.
+                  </p>
+                </div>
+
+                {/* Resultat */}
+                {lockerResult && (
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center justify-between rounded-2xl border border-border bg-background/60 p-4">
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Statut actuel</p>
+                        <p className="mt-0.5 font-semibold">{statusMeta(lockerResult.status).label}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Livraison en 3 a 5 jours ouvres</p>
+                        {lockerResult.colissimoNumber && (
+                          <p className="mt-1 font-mono text-xs text-accent">N° {lockerResult.colissimoNumber}</p>
+                        )}
+                      </div>
+                      <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${statusMeta(lockerResult.status).badge}`}>
+                        {statusMeta(lockerResult.status).label}
+                      </span>
+                    </div>
+
+                    {lockerResult.messages.length > 0 && (
+                      <div>
+                        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Historique</p>
+                        <ol className="relative border-l border-border pl-5">
+                          {lockerResult.messages.map((m) => (
+                            <li key={m.id} className="mb-4">
+                              <div className="absolute -left-1.5 mt-1 h-3 w-3 rounded-full border-2 border-background bg-accent" aria-hidden="true" />
+                              <time className="mb-1 block text-[10px] text-muted-foreground">
+                                {new Date(m.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                              </time>
+                              <p className="whitespace-pre-wrap text-sm leading-relaxed">{m.body}</p>
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!lockerResult && !lockerLoading && !lockerError && (
+                  <div className="flex flex-col items-center gap-3 py-10 text-center text-muted-foreground">
+                    <Package className="h-10 w-10 opacity-40" aria-hidden="true" />
+                    <p className="text-sm text-pretty">Saisis le token TRK_ recu dans la messagerie pour suivre ta commande Locker Mondial Relay.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className={`flex-1 overflow-y-auto p-6 ${tab === "locker" ? "hidden" : ""}`}>
               {loadingList ? (
                 <div className="flex items-center justify-center py-12 text-muted-foreground">
                   <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
