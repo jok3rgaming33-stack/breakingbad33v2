@@ -8,7 +8,7 @@ import { validateCode, markLoyaltyCodeUsed } from "@/app/actions/promo"
 import { needsVerification, submitVerification } from "@/app/actions/verification"
 import { getCartConfig, type CartConfig, type DeliverySlot, type MeetupSlot } from "@/app/actions/settings"
 import { SelfieVerificationModal, type VerificationMetadata } from "@/components/selfie-verification-modal"
-import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus } from "lucide-react"
+import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus, Package } from "lucide-react"
 
 type UserData = { pseudo?: string } | null
 
@@ -83,8 +83,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const [codeChecking, setCodeChecking] = useState(false)
   const [date, setDate] = useState("")
   const [slot, setSlot] = useState("")
-  const [isMeetup, setIsMeetup] = useState(false)
+  const [fulfillmentMode, setFulfillmentMode] = useState<"livraison" | "meetup" | "locker">("livraison")
+  const isMeetup = fulfillmentMode === "meetup"
+  const isLocker = fulfillmentMode === "locker"
   const [meetupHour, setMeetupHour] = useState("")
+  const [lockerAddress, setLockerAddress] = useState("")
 
   const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "done" | "error" | "notfound">("idle")
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
@@ -111,10 +114,10 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   // La livraison n'est proposée qu'au-dessus du montant minimum.
   const deliveryAllowed = subtotal >= config.minDeliveryAmount
 
-  // Si le panier repasse sous le minimum, on bascule automatiquement en meet-up.
+  // Si le panier repasse sous le minimum livraison, on bascule en meet-up (sauf locker qui reste dispo).
   useEffect(() => {
-    if (!deliveryAllowed && !isMeetup) setIsMeetup(true)
-  }, [deliveryAllowed, isMeetup])
+    if (!deliveryAllowed && fulfillmentMode === "livraison") setFulfillmentMode("meetup")
+  }, [deliveryAllowed, fulfillmentMode])
 
   // Extrait le jour depuis le libellé d'un slot (ex: "Lundi 14h-16h" → "Lundi")
   const slotDay = (label: string) => label.split(/\s+/)[0] ?? ""
@@ -154,10 +157,10 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
 
   // Frais de livraison selon la distance
   const deliveryFee = useMemo(() => {
-    if (isMeetup) return 0
+    if (isMeetup || isLocker) return 0
     if (distanceKm == null) return 0
     return distanceKm <= 10 ? FEE_NEAR : FEE_FAR
-  }, [isMeetup, distanceKm])
+  }, [isMeetup, isLocker, distanceKm])
 
   const total = Math.max(0, subtotal + deliveryFee - promoDiscount)
 
@@ -221,7 +224,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const canValidate =
     items.length > 0 &&
     !!date &&
-    (isMeetup ? !!meetupHour : !!address.trim() && !!slot && distanceKm != null)
+    (isMeetup
+      ? !!meetupHour
+      : isLocker
+        ? !!lockerAddress.trim() && !!slot
+        : !!address.trim() && !!slot && distanceKm != null)
 
   // Point d'entrée : à la 1re commande, on impose d'abord la vérification d'identité.
   const handleValidate = async () => {
@@ -288,7 +295,9 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     const token = typeof window !== "undefined" ? localStorage.getItem("authToken") ?? undefined : undefined
     const mode = isMeetup
       ? `Retrait sur place (meet-up) à ${meetupHour}`
-      : `Livraison à ${address} — créneau ${slot} (frais ${deliveryFee}€)`
+      : isLocker
+        ? `Retrait en Locker Mondial Relay — ${lockerAddress} — créneau ${slot}`
+        : `Livraison à ${address} — créneau ${slot} (frais ${deliveryFee}€)`
 
     const message = [
       `Nouvelle commande de ${name}`,
@@ -316,10 +325,10 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         summary: message,
         products: productsShort,
         total,
-        fulfillment: isMeetup ? "meetup" : "livraison",
-        address: isMeetup ? undefined : resolvedLabel ?? address,
-        lat: isMeetup ? null : coords?.lat ?? null,
-        lng: isMeetup ? null : coords?.lng ?? null,
+        fulfillment: isMeetup ? "meetup" : isLocker ? "locker" : "livraison",
+        address: isMeetup ? undefined : isLocker ? lockerAddress : resolvedLabel ?? address,
+        lat: isMeetup || isLocker ? null : coords?.lat ?? null,
+        lng: isMeetup || isLocker ? null : coords?.lng ?? null,
         scheduledDate: date,
         scheduledSlot: isMeetup ? meetupHour : slot,
       })
@@ -349,8 +358,9 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     setCodeError(null)
     setDate("")
     setSlot("")
-    setIsMeetup(false)
+    setFulfillmentMode("livraison")
     setMeetupHour("")
+    setLockerAddress("")
     setDistanceKm(null)
     setCoords(null)
     setGeoStatus("idle")
@@ -467,7 +477,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
               <div className="mt-6 grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => deliveryAllowed && setIsMeetup(false)}
+                  onClick={() => deliveryAllowed && setFulfillmentMode("livraison")}
                   disabled={!deliveryAllowed}
                   aria-disabled={!deliveryAllowed}
                   title={
@@ -476,7 +486,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                       : undefined
                   }
                   className={`flex items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-colors ${
-                    !isMeetup ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
+                    fulfillmentMode === "livraison" ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
                   } ${!deliveryAllowed ? "cursor-not-allowed opacity-40" : ""}`}
                 >
                   <Truck className="h-4 w-4" aria-hidden="true" />
@@ -484,13 +494,23 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsMeetup(true)}
+                  onClick={() => setFulfillmentMode("meetup")}
                   className={`flex items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-colors ${
-                    isMeetup ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
+                    fulfillmentMode === "meetup" ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
                   }`}
                 >
                   <Store className="h-4 w-4" aria-hidden="true" />
                   Retrait (meet-up)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFulfillmentMode("locker")}
+                  className={`flex items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-colors ${
+                    fulfillmentMode === "locker" ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
+                  }`}
+                >
+                  <Package className="h-4 w-4" aria-hidden="true" />
+                  Locker Mondial Relay
                 </button>
               </div>
               {!deliveryAllowed && (
@@ -504,8 +524,29 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 </p>
               )}
 
-              {/* Adresse de livraison */}
-              <div className={`mt-5 ${isMeetup ? "pointer-events-none opacity-40" : ""}`}>
+              {/* Adresse Locker Mondial Relay */}
+              {isLocker && (
+                <div className="mt-5">
+                  <label htmlFor="locker-address" className="mb-2 flex items-center gap-2 text-sm font-medium">
+                    <Package className="h-4 w-4 text-accent" aria-hidden="true" />
+                    Adresse du Locker Mondial Relay
+                  </label>
+                  <textarea
+                    id="locker-address"
+                    value={lockerAddress}
+                    onChange={(e) => setLockerAddress(e.target.value)}
+                    rows={2}
+                    placeholder="Ex. Locker Le Clerc — 12 rue de la Paix, 75001 Paris"
+                    className="w-full resize-none rounded-2xl border border-border bg-background/60 p-3 text-sm outline-none transition-colors focus:border-accent"
+                  />
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    Saisis l&apos;adresse exacte du point Locker Mondial Relay choisi. Aucun frais supplémentaire.
+                  </p>
+                </div>
+              )}
+
+              {/* Adresse de livraison à domicile */}
+              <div className={`mt-5 ${isMeetup || isLocker ? "pointer-events-none opacity-40 hidden" : ""}`}>
                 <label htmlFor="address" className="mb-2 flex items-center gap-2 text-sm font-medium">
                   <MapPin className="h-4 w-4 text-accent" aria-hidden="true" />
                   Adresse de livraison

@@ -14,7 +14,7 @@ export type NewOrderInput = {
   summary: string
   products?: string
   total: number
-  fulfillment: "livraison" | "meetup"
+  fulfillment: "livraison" | "meetup" | "locker"
   address?: string
   lat?: number | null
   lng?: number | null
@@ -222,7 +222,7 @@ export async function updateThreadStatus(
         break
       }
       case "livree": {
-        const mode = current.fulfillment === "meetup" ? "en meet-up" : "en livraison"
+        const mode = current.fulfillment === "meetup" ? "en meet-up" : current.fulfillment === "locker" ? "en Locker Mondial Relay" : "en livraison"
         const points = computeLoyaltyPoints(current.total ?? 0)
         body =
           `✨ Ta commande t'a bien été livrée (${mode}). Merci pour ta confiance !` +
