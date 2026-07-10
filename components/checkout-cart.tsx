@@ -19,6 +19,7 @@ type CheckoutCartProps = {
 
 const FEE_NEAR = 10 // <= 10 km
 const FEE_FAR = 20 // > 10 km
+const FEE_LOCKER = 10 // Locker Mondial Relay
 
 // Config par défaut utilisée le temps du chargement (évite un panier vide).
 const FALLBACK_CONFIG: CartConfig = {
@@ -157,7 +158,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
 
   // Frais de livraison selon la distance
   const deliveryFee = useMemo(() => {
-    if (isMeetup || isLocker) return 0
+    if (isMeetup) return 0
+    if (isLocker) return FEE_LOCKER
     if (distanceKm == null) return 0
     return distanceKm <= 10 ? FEE_NEAR : FEE_FAR
   }, [isMeetup, isLocker, distanceKm])
@@ -295,8 +297,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     const token = typeof window !== "undefined" ? localStorage.getItem("authToken") ?? undefined : undefined
     const mode = isMeetup
       ? `Retrait sur place (meet-up) à ${meetupHour}`
-      : isLocker
-        ? `Retrait en Locker Mondial Relay — ${lockerAddress} — créneau ${slot}`
+        : isLocker
+        ? `Retrait en Locker Mondial Relay — ${lockerAddress} — créneau ${slot} (frais ${FEE_LOCKER}€)`
         : `Livraison à ${address} — créneau ${slot} (frais ${deliveryFee}€)`
 
     const message = [
