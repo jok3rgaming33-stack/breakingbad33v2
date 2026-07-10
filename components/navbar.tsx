@@ -25,6 +25,8 @@ type NavbarProps = {
   onOpenMessaging?: () => void
   onOpenHowItWorks?: () => void
   isAdmin?: boolean
+  unreadMessaging?: number
+  unreadOrders?: number
 }
 
 export function Navbar({
@@ -36,6 +38,8 @@ export function Navbar({
   onOpenMessaging,
   onOpenHowItWorks,
   isAdmin,
+  unreadMessaging = 0,
+  unreadOrders = 0,
 }: NavbarProps) {
   const { count, openCart } = useCart()
   const [open, setOpen] = useState(false)
@@ -85,21 +89,29 @@ export function Navbar({
 
         {/* Desktop Navigation */}
         <nav className="hidden items-center gap-7 lg:flex">
-          {NAV_ITEMS.map((item) => (
-            <a
-              key={item.label}
-              href="#"
-              onClick={(e) => handleNavClick(e, item)}
-              className={
-                item.action === "howitworks"
-                  ? "flex items-center gap-1.5 rounded-full border border-white/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/80 transition-colors hover:border-white/40 hover:text-white"
-                  : "flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.15em] text-muted-foreground transition-colors hover:text-foreground"
-              }
-            >
-              {item.action === "howitworks" && <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />}
-              {item.label}
-            </a>
-          ))}
+          {NAV_ITEMS.map((item) => {
+            const badge = item.action === "messaging" ? unreadMessaging : item.action === "orders" ? unreadOrders : 0
+            return (
+              <a
+                key={item.label}
+                href="#"
+                onClick={(e) => handleNavClick(e, item)}
+                className={
+                  item.action === "howitworks"
+                    ? "flex items-center gap-1.5 rounded-full border border-white/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/80 transition-colors hover:border-white/40 hover:text-white"
+                    : "relative flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.15em] text-muted-foreground transition-colors hover:text-foreground"
+                }
+              >
+                {item.action === "howitworks" && <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />}
+                {item.label}
+                {badge > 0 && (
+                  <span className="ml-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white" aria-label={`${badge} non lu${badge > 1 ? "s" : ""}`}>
+                    {badge > 9 ? "9+" : badge}
+                  </span>
+                )}
+              </a>
+            )
+          })}
           {isAdmin && (
             <a
               href="/admin"
@@ -158,21 +170,31 @@ export function Navbar({
       {open && (
         <nav className="border-t border-border bg-background px-4 py-4 lg:hidden">
           <div className="flex flex-col gap-1">
-            {NAV_ITEMS.map((item) => (
-              <a
-                key={item.label}
-                href="#"
-                onClick={(e) => handleNavClick(e, item)}
-                className={
-                  item.action === "howitworks"
-                    ? "mt-1 flex items-center gap-2 rounded-md border border-white/20 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-white/80 transition-colors hover:bg-secondary hover:text-white"
-                    : "rounded-md px-3 py-2 text-sm font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                }
-              >
-                {item.action === "howitworks" && <HelpCircle className="h-4 w-4" aria-hidden="true" />}
-                {item.label}
-              </a>
-            ))}
+            {NAV_ITEMS.map((item) => {
+              const badge = item.action === "messaging" ? unreadMessaging : item.action === "orders" ? unreadOrders : 0
+              return (
+                <a
+                  key={item.label}
+                  href="#"
+                  onClick={(e) => handleNavClick(e, item)}
+                  className={
+                    item.action === "howitworks"
+                      ? "mt-1 flex items-center gap-2 rounded-md border border-white/20 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-white/80 transition-colors hover:bg-secondary hover:text-white"
+                      : "flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  }
+                >
+                  <span className="flex items-center gap-2">
+                    {item.action === "howitworks" && <HelpCircle className="h-4 w-4" aria-hidden="true" />}
+                    {item.label}
+                  </span>
+                  {badge > 0 && (
+                    <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white" aria-label={`${badge} non lu${badge > 1 ? "s" : ""}`}>
+                      {badge > 9 ? "9+" : badge}
+                    </span>
+                  )}
+                </a>
+              )
+            })}
             {isAdmin && (
               <a
                 href="/admin"

@@ -110,6 +110,7 @@ export const orderThreads = pgTable("order_threads", {
   xmrWallet: text("xmr_wallet"),             // Adresse wallet XMR communiquée au client locker
   depositNotified: boolean("deposit_notified").notNull().default(false),   // Client a cliqué "j'ai déposé"
   depositConfirmed: boolean("deposit_confirmed").notNull().default(false),  // Admin a confirmé réception
+  clientLastSeen: timestamp("client_last_seen", { withTimezone: true }),    // Dernière ouverture du fil par le client
   status: text("status").notNull().default("nouveau"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

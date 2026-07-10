@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
+import { getUnreadCounts } from "@/app/actions/messaging"
 import { CartProvider } from "@/components/cart-provider"
 import { NotificationsProvider } from "@/components/notifications-provider"
 import { Navbar } from "@/components/navbar"
@@ -28,6 +29,28 @@ export default function Home() {
   const [isHowItWorksOpen, setIsHowItWorksOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [userData, setUserData] = useState<{ pseudo?: string; token?: string } | null>(null)
+  const [unreadMessaging, setUnreadMessaging] = useState(0)
+  const [unreadOrders, setUnreadOrders] = useState(0)
+
+  const refreshUnread = useCallback(async (token?: string) => {
+    if (!token) return
+    try {
+      const counts = await getUnreadCounts(token)
+      setUnreadMessaging(counts.messaging)
+      setUnreadOrders(counts.orders)
+    } catch {
+      // silencieux
+    }
+  }, [])
+
+  // Poll toutes les 15s quand le client est connecté
+  useEffect(() => {
+    const token = userData?.token
+    if (!token || isAdmin) return
+    refreshUnread(token)
+    const interval = setInterval(() => refreshUnread(token), 15000)
+    return () => clearInterval(interval)
+  }, [userData?.token, isAdmin, refreshUnread])
 
   // Au montage, on restaure la session pour éviter de retomber sur l'écran de
   // connexion lors d'un rechargement ou d'un nouvel onglet ("Voir le site").
@@ -97,6 +120,8 @@ export default function Home() {
         onOpenMessaging={() => setIsMessagingOpen(true)}
         onOpenHowItWorks={() => setIsHowItWorksOpen(true)}
         isAdmin={isAdmin}
+        unreadMessaging={unreadMessaging}
+        unreadOrders={unreadOrders}
       />
 
       <main>
@@ -119,13 +144,27 @@ export default function Home() {
 
       <LoyaltyModal isOpen={isLoyaltyOpen} onClose={() => setIsLoyaltyOpen(false)} userData={userData} />
 
-      <MyOrdersModal isOpen={isOrdersOpen} onClose={() => setIsOrdersOpen(false)} userData={userData} />
+      <MyOrdersModal
+        isOpen={isOrdersOpen}
+        onClose={() => {
+          setIsOrdersOpen(false)
+          if (userData?.token) refreshUnread(userData.token)
+        }}
+        userData={userData}
+      />
 
       <DeliveryInfoModal isOpen={isDeliveryOpen} onClose={() => setIsDeliveryOpen(false)} />
 
       <HowItWorksModal isOpen={isHowItWorksOpen} onClose={() => setIsHowItWorksOpen(false)} />
 
-      <MessagerieModal isOpen={isMessagingOpen} onClose={() => setIsMessagingOpen(false)} userData={userData} />
+      <MessagerieModal
+        isOpen={isMessagingOpen}
+        onClose={() => {
+          setIsMessagingOpen(false)
+          if (userData?.token) refreshUnread(userData.token)
+        }}
+        userData={userData}
+      />
 
       {/* Popup News à l'entrée du site (client connecté non admin) */}
       {isAuthenticated && !isAdmin && <NewsPopup token={userData?.token} />}

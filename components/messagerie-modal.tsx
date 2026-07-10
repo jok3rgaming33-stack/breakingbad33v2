@@ -7,6 +7,7 @@ import {
   getThread,
   addMessage,
   createGeneralInquiryThread,
+  markThreadRead,
 } from "@/app/actions/messaging"
 import { statusMeta } from "@/lib/order-status"
 
@@ -92,7 +93,10 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
     setLoadingThread(true)
     setMessages([])
     try {
-      const data = await getThread(thread.id)
+      const [data] = await Promise.all([
+        getThread(thread.id),
+        markThreadRead(thread.id),
+      ])
       if (data) setMessages(data.messages as Message[])
     } finally {
       setLoadingThread(false)

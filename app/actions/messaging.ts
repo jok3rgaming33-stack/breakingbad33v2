@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { orderThreads, threadMessages } from "@/lib/db/schema"
-import { and, desc, eq, ne, notInArray, sql } from "drizzle-orm"
+import { and, desc, eq, gt, ne, notInArray, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { normalizeStatus, statusMeta } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
@@ -358,8 +358,7 @@ export async function getLockerOrdersForToken(customerToken: string) {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
-// Vue client messagerie : discussions + commandes hors locker
-// EXCEPTION : les fils trk_token (message TRK auto-détruit) sont inclus car le client doit les voir
+// Vue client messagerie : discussions + commandes hors locker (TRK exclus — visible uniquement dans Mes commandes)
 export async function getThreadsForToken(customerToken: string) {
   const token = customerToken?.trim()
   if (!token) return []
@@ -369,10 +368,53 @@ export async function getThreadsForToken(customerToken: string) {
     .where(
       and(
         eq(orderThreads.customerToken, token),
-        sql`(fulfillment != 'locker' OR status = 'trk_token')`
+        ne(orderThreads.fulfillment, "locker"),
+        ne(orderThreads.status, "trk_token"),
       )
     )
     .orderBy(desc(orderThreads.updatedAt))
+}
+
+// Marque un fil comme lu par le client (met à jour clientLastSeen).
+export async function markThreadRead(threadId: number) {
+  if (!threadId) return
+  await db
+    .update(orderThreads)
+    .set({ clientLastSeen: sql`now()` })
+    .where(eq(orderThreads.id, threadId))
+}
+
+// Retourne le nombre de fils non lus par section :
+// - messaging : fils hors locker (hors trk_token) avec updated_at > clientLastSeen
+// - orders    : fils locker + trk_token avec updated_at > clientLastSeen
+export async function getUnreadCounts(customerToken: string): Promise<{ messaging: number; orders: number }> {
+  const token = customerToken?.trim()
+  if (!token) return { messaging: 0, orders: 0 }
+
+  const rows = await db
+    .select({
+      fulfillment: orderThreads.fulfillment,
+      status: orderThreads.status,
+      updatedAt: orderThreads.updatedAt,
+      clientLastSeen: orderThreads.clientLastSeen,
+    })
+    .from(orderThreads)
+    .where(eq(orderThreads.customerToken, token))
+
+  let messaging = 0
+  let orders = 0
+
+  for (const r of rows) {
+    const isUnread = !r.clientLastSeen || r.updatedAt > r.clientLastSeen
+    if (!isUnread) continue
+    if (r.status === "trk_token" || r.fulfillment === "locker") {
+      orders++
+    } else {
+      messaging++
+    }
+  }
+
+  return { messaging, orders }
 }
 
 // Aperçu léger pour les notifications client : statut + nombre de messages du vendeur.

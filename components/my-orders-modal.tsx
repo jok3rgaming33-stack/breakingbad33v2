@@ -9,6 +9,7 @@ import {
   addMessage,
   consumeTrkThread,
   notifyDeposit,
+  markThreadRead,
 } from "@/app/actions/messaging"
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
 
@@ -129,12 +130,14 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
     setMessages([])
     setDepositSent(false)
     try {
-      const data = await getThread(thread.id)
+      const [data] = await Promise.all([
+        getThread(thread.id),
+        markThreadRead(thread.id),
+      ])
       if (data) setMessages(data.messages as Message[])
       // Si c'est un fil TRK : le supprimer maintenant que le client l'a ouvert
       if (isTrkMessage(thread)) {
         await consumeTrkThread(thread.id)
-        // Retirer de la liste locale
         setThreads((prev) => prev.filter((t) => t.id !== thread.id))
       }
     } finally {
