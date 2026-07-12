@@ -25,15 +25,20 @@ export function TurnstileWidget({
   resetSignal,
 }: {
   onVerify: (token: string) => void
-  // Appelé si le widget ne peut pas se charger ou échoue (panne / blocage navigateur).
   onError?: () => void
   className?: string
-  // Incrémenter cette valeur réinitialise le widget (token à usage unique).
   resetSignal?: number
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const widgetId = useRef<string | null>(null)
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+
+  // Stocker les callbacks dans des refs pour éviter que leur recréation
+  // à chaque render parent ne re-déclenche le useEffect du widget.
+  const onVerifyRef = useRef(onVerify)
+  const onErrorRef = useRef(onError)
+  useEffect(() => { onVerifyRef.current = onVerify }, [onVerify])
+  useEffect(() => { onErrorRef.current = onError }, [onError])
 
   // Réinitialise le widget après un échec ou une soumission consommée.
   useEffect(() => {
@@ -41,12 +46,12 @@ export function TurnstileWidget({
     if (widgetId.current && window.turnstile) {
       try {
         window.turnstile.reset(widgetId.current)
-        onVerify("")
+        onVerifyRef.current("")
       } catch {
         // ignore
       }
     }
-  }, [resetSignal, onVerify])
+  }, [resetSignal])
 
   useEffect(() => {
     if (!siteKey || !ref.current) return
@@ -55,22 +60,21 @@ export function TurnstileWidget({
     const fail = () => {
       if (settled) return
       settled = true
-      // Le widget est indisponible : on prévient le parent pour ne pas bloquer l'accès.
-      onError?.()
+      onErrorRef.current?.()
     }
 
     const render = () => {
       if (!window.turnstile || !ref.current) return
-      // Évite un double rendu.
+      // Évite un double rendu si le widget est déjà monté.
       if (widgetId.current) return
       widgetId.current = window.turnstile.render(ref.current, {
         sitekey: siteKey,
         theme: "dark",
         callback: (token: string) => {
           settled = true
-          onVerify(token)
+          onVerifyRef.current(token)
         },
-        "expired-callback": () => onVerify(""),
+        "expired-callback": () => onVerifyRef.current(""),
         "error-callback": () => fail(),
       })
     }
@@ -78,18 +82,19 @@ export function TurnstileWidget({
     if (window.turnstile) {
       render()
     } else {
+      // Un seul listener global — on écrase proprement sans empilement.
       window.onTurnstileLoad = render
       if (!document.querySelector(`script[src="${SCRIPT_SRC}"]`)) {
         const script = document.createElement("script")
         script.src = SCRIPT_SRC
         script.async = true
         script.defer = true
-        script.onerror = () => fail() // script Cloudflare bloqué / inaccessible
+        script.onerror = () => fail()
         document.head.appendChild(script)
       }
     }
 
-    // Filet de sécurité : si rien ne s'est passé après 8s, on considère le widget indisponible.
+    // Filet de sécurité : 8 s sans résultat = widget indisponible.
     const timeout = window.setTimeout(fail, 8000)
 
     return () => {
@@ -103,9 +108,11 @@ export function TurnstileWidget({
         widgetId.current = null
       }
     }
-  }, [siteKey, onVerify, onError])
+    // siteKey est une constante env — on ne la met pas en dép pour éviter
+    // les re-mounts. onVerify/onError sont gérés via refs ci-dessus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteKey])
 
-  // Sans clé configurée, rien à afficher (la vérif serveur fait fail-open).
   if (!siteKey) return null
 
   return <div ref={ref} className={className} />
