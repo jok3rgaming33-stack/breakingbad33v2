@@ -17,7 +17,8 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
   const [generatedPseudo, setGeneratedPseudo] = useState("")
   const [generatedKey, setGeneratedKey] = useState("")
   const [loginInput, setLoginInput] = useState("")
-  const [error, setError] = useState("")
+  const [error, setError] = useState("")         // erreur formulaire login (connexion avec clé)
+  const [errorCreate, setErrorCreate] = useState("") // erreur formulaire création
   const [creating, setCreating] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [stats, setStats] = useState<{ points: number; active: number; past: number } | null>(null)
@@ -159,18 +160,18 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
     if (creating) return
     // CAPTCHA requis, sauf s'il est indisponible (on bascule alors sur l'anti-abus serveur).
     if (hasTurnstile && !captchaCreate && !captchaCreateError) {
-      setError("Merci de valider le test anti-robot avant de continuer.")
+      setErrorCreate("Merci de valider le test anti-robot avant de continuer.")
       return
     }
     setCreating(true)
-    setError("")
+    setErrorCreate("")
     const pseudo = generateShortPseudo()
     const key = generateSecretKey()
     try {
       // Vérification serveur du token Turnstile AVANT toute action.
       const human = await verifyHuman(createCaptchaValue)
       if (!human.ok) {
-        setError(human.error ?? "Vérification anti-robot échouée.")
+        setErrorCreate(human.error ?? "Vérification anti-robot échouée.")
         setResetCreate((n) => n + 1) // token consommé : on réinitialise le widget
         return
       }
@@ -178,7 +179,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
       const res = await createAccount(key, pseudo)
       // Blocage VPN / limite mensuelle par IP : on affiche le motif et on s'arrête.
       if (!res.ok) {
-        setError(res.error ?? "Impossible de créer le compte. Réessaie dans un instant.")
+        setErrorCreate(res.error ?? "Impossible de créer le compte. Réessaie dans un instant.")
         setResetCreate((n) => n + 1)
         return
       }
@@ -190,7 +191,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
       localStorage.removeItem("isAdmin")
       setShowResultModal(true)
     } catch {
-      setError("Impossible de créer le compte. Réessaie dans un instant.")
+      setErrorCreate("Impossible de créer le compte. Réessaie dans un instant.")
       setResetCreate((n) => n + 1)
     } finally {
       setCreating(false)
@@ -425,18 +426,38 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
           {/* Bouton principal — verrouillé tant que le guide n'a pas été consulté */}
           <div className="mb-4">
             {hasReadGuide ? (
-              <button
-                onClick={createAnonymousAccess}
-                disabled={creating || !createCaptchaReady}
-                className="flex w-full items-center justify-center gap-3 rounded-2xl bg-accent py-5 text-xl font-semibold text-accent-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {creating ? (
-                  <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
-                ) : (
-                  <Plus className="h-6 w-6" aria-hidden="true" />
+              <div className="flex flex-col items-center gap-3">
+                {/* Widget Turnstile pour la création — affiché uniquement quand le guide est lu */}
+                {hasTurnstile && (
+                  <div className="flex flex-col items-center gap-2">
+                    <TurnstileWidget
+                      onVerify={(t) => {
+                        setCaptchaCreate(t)
+                        if (t) setCaptchaCreateError(false)
+                      }}
+                      onError={() => setCaptchaCreateError(true)}
+                      resetSignal={resetCreate}
+                    />
+                    {captchaCreateError && (
+                      <p className="text-center text-xs text-muted-foreground">
+                        Le test anti-robot n&apos;a pas pu se charger. Tu peux continuer normalement.
+                      </p>
+                    )}
+                  </div>
                 )}
-                <span>{creating ? "Création..." : "Créer mon accès anonyme"}</span>
-              </button>
+                <button
+                  onClick={createAnonymousAccess}
+                  disabled={creating || !createCaptchaReady}
+                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-accent py-5 text-xl font-semibold text-accent-foreground transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {creating ? (
+                    <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Plus className="h-6 w-6" aria-hidden="true" />
+                  )}
+                  <span>{creating ? "Création..." : "Créer mon accès anonyme"}</span>
+                </button>
+              </div>
             ) : (
               <div className="flex flex-col items-center gap-3">
                 <button
@@ -452,10 +473,10 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
                 </p>
               </div>
             )}
-            {error && !showResultModal && (
+            {errorCreate && !showResultModal && (
               <p className="mt-3 flex items-start gap-1.5 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
-                <span>{error}</span>
+                <span>{errorCreate}</span>
               </p>
             )}
           </div>
@@ -487,7 +508,7 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
               placeholder="Colle ta clé secrète ici"
               aria-label="Clé secrète"
             />
-            {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
+            {error && !showResultModal && <p className="mb-3 text-sm text-destructive">{error}</p>}
             <div className="mb-3 flex flex-col items-center justify-center gap-2">
               <TurnstileWidget
                 onVerify={(t) => {
