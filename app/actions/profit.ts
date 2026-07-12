@@ -9,10 +9,10 @@ import { revalidatePath } from "next/cache"
 export type ProductProfitRow = {
   id: number
   title: string
-  costPrice: number       // prix d'achat saisi
-  unitsSold: number       // total unités vendues
+  costPrice: number       // coût saisi au gramme (€/g)
+  gramsSold: number       // total grammes vendus (= somme des qty des variants vendus)
   revenue: number         // CA brut (somme des totaux des commandes imputées)
-  netProfit: number       // CA - (coût × unités vendues)
+  netProfit: number       // CA - (coût/g × grammes vendus)
 }
 
 export type ProfitSummary = {
@@ -59,39 +59,40 @@ export async function getProfitData(startDate?: Date): Promise<ProfitSummary> {
 
   const costMap = new Map(allCosts.map(c => [c.productId, c.costPrice]))
 
-  // Compter les unités vendues et le CA par produit
-  const unitsSoldMap = new Map<number, number>()   // productId → unités
+  // Compter les grammes vendus et le CA par produit
+  // qty dans les commandes = grammes (variant qty choisi par le client)
+  const gramsSoldMap = new Map<number, number>()   // productId → grammes
   const revenueMap = new Map<number, number>()      // productId → CA imputé
 
   for (const order of orders) {
     const items = parseOrderProducts(order.products)
     if (!items.length) continue
-    // Répartir le total de la commande proportionnellement entre produits (best-effort)
+    // Répartir le total de la commande proportionnellement entre produits
     const total = order.total ?? 0
-    const totalQty = items.reduce((s, i) => s + i.qty, 0)
+    const totalGrams = items.reduce((s, i) => s + i.qty, 0)
 
     for (const item of items) {
       // Match insensible à la casse
       const prod = allProducts.find(p => p.title.toLowerCase() === item.title.toLowerCase())
       if (!prod) continue
-      const prev = unitsSoldMap.get(prod.id) ?? 0
-      unitsSoldMap.set(prod.id, prev + item.qty)
-      // CA imputé proportionnel au nombre d'unités de ce produit
-      const share = totalQty > 0 ? (item.qty / totalQty) * total : 0
+      // item.qty = grammes vendus pour ce produit dans cette commande
+      gramsSoldMap.set(prod.id, (gramsSoldMap.get(prod.id) ?? 0) + item.qty)
+      // CA imputé proportionnel aux grammes de ce produit vs total commande
+      const share = totalGrams > 0 ? (item.qty / totalGrams) * total : 0
       revenueMap.set(prod.id, (revenueMap.get(prod.id) ?? 0) + share)
     }
   }
 
   const rows: ProductProfitRow[] = allProducts.map(p => {
-    const costPrice = costMap.get(p.id) ?? 0
-    const unitsSold = unitsSoldMap.get(p.id) ?? 0
+    const costPrice = costMap.get(p.id) ?? 0   // €/g
+    const gramsSold = gramsSoldMap.get(p.id) ?? 0
     const revenue = Math.round(revenueMap.get(p.id) ?? 0)
-    const netProfit = Math.round(revenue - costPrice * unitsSold)
-    return { id: p.id, title: p.title, costPrice, unitsSold, revenue, netProfit }
+    const netProfit = Math.round(revenue - costPrice * gramsSold)
+    return { id: p.id, title: p.title, costPrice, gramsSold, revenue, netProfit }
   })
 
   const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0)
-  const totalCost = rows.reduce((s, r) => s + r.costPrice * r.unitsSold, 0)
+  const totalCost = rows.reduce((s, r) => s + r.costPrice * r.gramsSold, 0)
   const totalNetProfit = Math.round(totalRevenue - totalCost)
 
   return { products: rows, totalRevenue, totalCost, totalNetProfit }

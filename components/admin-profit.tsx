@@ -41,7 +41,6 @@ function CostInput({ row, onSaved }: { row: ProductProfitRow; onSaved: (id: numb
   return (
     <div className="flex items-center gap-2">
       <div className="relative">
-        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">€</span>
         <input
           type="number"
           min="0"
@@ -50,9 +49,10 @@ function CostInput({ row, onSaved }: { row: ProductProfitRow; onSaved: (id: numb
           onChange={e => { setVal(e.target.value); setSaved(false) }}
           onKeyDown={e => { if (e.key === "Enter") handleSave() }}
           placeholder="0"
-          className="w-24 rounded-xl border border-border bg-background pl-7 pr-2 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
-          aria-label={`Prix d'achat pour ${row.title}`}
+          className="w-28 rounded-xl border border-border bg-background pl-3 pr-10 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+          aria-label={`Coût au gramme pour ${row.title}`}
         />
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">€/g</span>
       </div>
       <button
         type="button"
@@ -97,11 +97,10 @@ export function AdminProfit({ initialData }: { initialData: ProfitSummary }) {
     setData(prev => {
       const updated = prev.products.map(p => {
         if (p.id !== id) return p
-        const newCost = cost
-        const netProfit = Math.round(p.revenue - newCost * p.unitsSold)
-        return { ...p, costPrice: newCost, netProfit }
+        const netProfit = Math.round(p.revenue - cost * p.gramsSold)
+        return { ...p, costPrice: cost, netProfit }
       })
-      const totalCost = updated.reduce((s, r) => s + r.costPrice * r.unitsSold, 0)
+      const totalCost = updated.reduce((s, r) => s + r.costPrice * r.gramsSold, 0)
       const totalNetProfit = Math.round(prev.totalRevenue - totalCost)
       return { ...prev, products: updated, totalCost, totalNetProfit }
     })
@@ -144,7 +143,7 @@ export function AdminProfit({ initialData }: { initialData: ProfitSummary }) {
       {/* Cartes synthèse */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Chiffre d'affaires" value={fmt(data.totalRevenue)} sub={PERIOD_LABELS[period]} />
-        <StatCard label="Coût total" value={fmt(data.totalCost)} sub="Prix d'achat × unités" positive={false} />
+        <StatCard label="Coût total" value={fmt(data.totalCost)} sub="Coût/g × grammes vendus" positive={false} />
         <StatCard
           label="Bénéfice net"
           value={fmt(data.totalNetProfit)}
@@ -164,8 +163,8 @@ export function AdminProfit({ initialData }: { initialData: ProfitSummary }) {
           <thead>
             <tr className="border-b border-border bg-secondary/30">
               <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Produit</th>
-              <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Prix d&apos;achat</th>
-              <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Unités vendues</th>
+              <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Coût/g</th>
+              <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Grammes vendus</th>
               <th className="px-4 py-3 text-right font-semibold text-muted-foreground">CA</th>
               <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Coût</th>
               <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Bénéfice net</th>
@@ -173,7 +172,7 @@ export function AdminProfit({ initialData }: { initialData: ProfitSummary }) {
           </thead>
           <tbody>
             {rows.map((row, i) => {
-              const cost = row.costPrice * row.unitsSold
+              const cost = row.costPrice * row.gramsSold
               const isProfit = row.netProfit >= 0
               return (
                 <tr key={row.id} className={`border-b border-border/50 transition-colors hover:bg-secondary/20 ${i % 2 === 0 ? "" : "bg-secondary/10"}`}>
@@ -187,9 +186,9 @@ export function AdminProfit({ initialData }: { initialData: ProfitSummary }) {
                     <CostInput row={row} onSaved={handleCostSaved} />
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-xs font-semibold ${row.unitsSold > 0 ? "bg-accent/10 text-accent" : "text-muted-foreground"}`}>
+                    <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-xs font-semibold ${row.gramsSold > 0 ? "bg-accent/10 text-accent" : "text-muted-foreground"}`}>
                       <ShoppingCart className="h-3 w-3" aria-hidden="true" />
-                      {row.unitsSold}
+                      {row.gramsSold}g
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-foreground">{fmt(row.revenue)}</td>
