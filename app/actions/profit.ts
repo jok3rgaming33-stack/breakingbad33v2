@@ -22,14 +22,18 @@ export type ProfitSummary = {
   totalNetProfit: number
 }
 
-// Parse "1x Coke ×2", "2x La MD ×1", etc. → { title, qty }[]
+// Parse "1x Coke ×2", "1x X-Taze ×10", etc. → { title, qty }[]
+// Le format est "Nx <titre> ×Q" : N = nb références (ignoré), Q = quantité réelle achetée.
 function parseOrderProducts(raw: string | null): { title: string; qty: number }[] {
   if (!raw) return []
   return raw.split(",").map(s => s.trim()).flatMap(segment => {
-    // Format: "Nx <title> ×Q" or "Nx <title>"
-    const m = segment.match(/^(\d+)x\s+(.+?)(?:\s+[×x]\d+)?$/)
-    if (!m) return []
-    return [{ title: m[2].trim(), qty: parseInt(m[1], 10) }]
+    // Capture : titre entre le premier "x " et le "×Q" final (ou fin de chaîne)
+    const m = segment.match(/^\d+x\s+(.+?)\s+[×x](\d+)$/)
+    if (m) return [{ title: m[1].trim(), qty: parseInt(m[2], 10) }]
+    // Fallback : pas de ×Q → quantité = 1
+    const m2 = segment.match(/^\d+x\s+(.+)$/)
+    if (m2) return [{ title: m2[1].trim(), qty: 1 }]
+    return []
   })
 }
 
