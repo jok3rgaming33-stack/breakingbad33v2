@@ -175,7 +175,7 @@ export async function getActiveOrders() {
   return threads
 }
 
-// Commandes Locker Mondial Relay actives (non livrees, non annulees)
+// Commandes Locker Mondial Relay actives (non livrees, non annulees, hors fils TRK internes)
 export async function getLockerOrders() {
   const threads = await db
     .select()
@@ -183,7 +183,7 @@ export async function getLockerOrders() {
     .where(
       and(
         eq(orderThreads.fulfillment, "locker"),
-        notInArray(orderThreads.status, ["livree", "annulee"]),
+        notInArray(orderThreads.status, ["livree", "annulee", "trk_token"]),
       )
     )
     .orderBy(desc(orderThreads.updatedAt))
