@@ -155,7 +155,9 @@ export async function rejectVerification(id: number, justification: string) {
   // Crée un fil de discussion et envoie le message de refus côté vendeur
   const pseudo = row.pseudo ?? "Client"
   const motif = justification.trim()
-  const vendeurBody = `Ta vérification d'identité a été refusée.\n\nMotif : ${motif}\n\nMerci de soumettre à nouveau ta vérification depuis ton espace. Si tu as des questions, réponds à ce message.`
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.breakingbad33.com"
+  const verifLink = `${siteUrl}/verification`
+  const vendeurBody = `Ta vérification d'identité a été refusée.\n\nMotif : ${motif}\n\nPour soumettre une nouvelle vérification, clique sur ce lien :\n${verifLink}\n\nSi tu as des questions, réponds à ce message.`
 
   const thread = await createGeneralInquiryThread({
     customerName: pseudo,
