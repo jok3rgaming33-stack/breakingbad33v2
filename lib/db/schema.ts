@@ -261,6 +261,20 @@ export const loginLogs = pgTable("login_logs", {
 
 export type LoginLog = typeof loginLogs.$inferSelect
 
+// Notifications broadcast envoyées par l'admin dans la messagerie de chaque destinataire.
+export const broadcastNotifications = pgTable("broadcast_notifications", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  imageUrl: text("image_url"),
+  // 'all' | JSON array of customer tokens
+  recipients: text("recipients").notNull().default("all"),
+  sentCount: integer("sent_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type BroadcastNotification = typeof broadcastNotifications.$inferSelect
+
 export type AdminAccount = typeof adminAccounts.$inferSelect
 export type Category = typeof categories.$inferSelect
 export type RestockAlert = typeof restockAlerts.$inferSelect
