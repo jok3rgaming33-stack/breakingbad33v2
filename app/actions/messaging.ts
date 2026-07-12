@@ -536,10 +536,26 @@ export async function sendXmrWallet(threadId: number, wallet: string) {
 
   await db.update(orderThreads).set({ xmrWallet: w, updatedAt: sql`now()` }).where(eq(orderThreads.id, threadId))
 
+  // Récupérer le taux XMR/EUR en temps réel pour indiquer le montant exact au client
+  let xmrAmount: string | null = null
+  try {
+    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=monero&vs_currencies=eur", { next: { revalidate: 60 } })
+    const data = await res.json()
+    const rate: number = data?.monero?.eur
+    if (rate && thread.total) {
+      const amount = (thread.total / rate).toFixed(6)
+      xmrAmount = amount
+    }
+  } catch { /* taux indisponible — on n'affiche pas */ }
+
   const walletMsg = [
     `Commande validee ! Voici l'adresse du wallet Monero (XMR) ou effectuer ton depot :`,
     ``,
     `[ ${w} ]`,
+    ``,
+    xmrAmount
+      ? `Montant a envoyer : ${xmrAmount} XMR (= ${thread.total}€ au taux actuel)`
+      : `Montant a envoyer : l'equivalent de ${thread.total}€ en XMR (verifie le taux sur Kraken ou Binance).`,
     ``,
     `IMPORTANT : recopie cette adresse avec la plus grande attention, caractere par caractere.`,
     `Une seule erreur de saisie et le depot sera perdu definitivement — Monero est une crypto intraçable.`,
