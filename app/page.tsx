@@ -17,7 +17,6 @@ import { HowItWorksModal } from "@/components/how-it-works-modal"
 import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
 import { ShopSections } from "@/components/shop-sections"
-import { ViewSwitcher } from "@/components/view-switcher"
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -171,8 +170,7 @@ export default function Home() {
 
       {isAuthenticated && <CheckoutCart userData={userData} />}
 
-      {/* Bascule discrète Vue Client / Panel Admin (admin uniquement) */}
-      {isAuthenticated && isAdmin && <ViewSwitcher current="client" />}
+
       </NotificationsProvider>
     </CartProvider>
   )
