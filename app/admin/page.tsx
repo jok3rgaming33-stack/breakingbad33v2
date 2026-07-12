@@ -3,6 +3,7 @@ import { getThreads, getActiveOrders, getLockerOrders, getDiscussions } from "@/
 import { listUsers } from "@/app/actions/account"
 import { listVerifications } from "@/app/actions/verification"
 import { listLoginLogs } from "@/app/actions/login-logs"
+import { getProfitData } from "@/app/actions/profit"
 import { AdminGate } from "@/components/admin-gate"
 import { AdminPanel } from "@/components/admin-panel"
 
@@ -20,7 +21,7 @@ export default async function AdminPage() {
     return <AdminGate />
   }
 
-  const [activeOrders, lockerOrders, discussions, threads, usersList, verifications, loginLogs] = await Promise.all([
+  const [activeOrders, lockerOrders, discussions, threads, usersList, verifications, loginLogs, profitData] = await Promise.all([
     getActiveOrders(),
     getLockerOrders(),
     getDiscussions(),
@@ -28,6 +29,7 @@ export default async function AdminPage() {
     listUsers(),
     listVerifications(),
     listLoginLogs(200),
+    getProfitData(),
   ])
 
   return (
@@ -39,6 +41,7 @@ export default async function AdminPage() {
       initialUsers={usersList}
       initialVerifications={verifications}
       initialLoginLogs={loginLogs}
+      initialProfitData={profitData}
     />
   )
 }

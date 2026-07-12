@@ -17,6 +17,8 @@ import { AdminLogistics } from "@/components/admin-logistics"
 import { AdminCartSettings } from "@/components/admin-cart-settings"
 import { AdminLoginLogs } from "@/components/admin-login-logs"
 import type { LoginLogRow } from "@/app/actions/login-logs"
+import { AdminProfit } from "@/components/admin-profit"
+import type { ProfitSummary } from "@/app/actions/profit"
 import { adminLogout } from "@/app/actions/admin-auth"
 import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox, Activity } from "lucide-react"
 import Link from "next/link"
@@ -53,6 +55,7 @@ export function AdminPanel({
   initialUsers,
   initialVerifications,
   initialLoginLogs,
+  initialProfitData,
 }: {
   initialActiveOrders: OrderThread[]
   initialLockerOrders: OrderThread[]
@@ -61,6 +64,7 @@ export function AdminPanel({
   initialUsers: AdminUserRow[]
   initialVerifications: VerificationRow[]
   initialLoginLogs: LoginLogRow[]
+  initialProfitData: ProfitSummary
 }) {
   const [tab, setTab] = useState<TabId>("commandes-en-cours")
 
@@ -151,15 +155,11 @@ export function AdminPanel({
           <AdminNews />
         ) : tab === "connexions" ? (
           <AdminLoginLogs initialLogs={initialLoginLogs} />
+        ) : tab === "profits" ? (
+          <AdminProfit initialData={initialProfitData} />
         ) : tab === "admins" ? (
           <AdminAdmins />
-        ) : (
-          <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border bg-card px-6 py-20 text-center">
-            <Construction className="mb-4 h-12 w-12 text-accent" aria-hidden="true" />
-            <h2 className="mb-2 text-2xl font-bold text-balance">{COMING_SOON.profits.title}</h2>
-            <p className="max-w-md text-pretty text-muted-foreground">{COMING_SOON.profits.desc}</p>
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   )

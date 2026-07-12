@@ -235,6 +235,15 @@ export const appSettings = pgTable("app_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Prix d'achat (coût) par produit — saisie admin pour le calcul des bénéfices.
+export const productCosts = pgTable("product_costs", {
+  productId: integer("product_id").primaryKey(),
+  costPrice: doublePrecision("cost_price").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type ProductCost = typeof productCosts.$inferSelect
+
 // Journal des connexions client (enregistré à chaque getAccount validé).
 export const loginLogs = pgTable("login_logs", {
   id: serial("id").primaryKey(),
