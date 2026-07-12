@@ -15,12 +15,14 @@ import { AdminProducts } from "@/components/admin-products"
 import { AdminPromos } from "@/components/admin-promos"
 import { AdminLogistics } from "@/components/admin-logistics"
 import { AdminCartSettings } from "@/components/admin-cart-settings"
+import { AdminLoginLogs } from "@/components/admin-login-logs"
+import type { LoginLogRow } from "@/app/actions/login-logs"
 import { adminLogout } from "@/app/actions/admin-auth"
-import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox, Activity } from "lucide-react"
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 
-type TabId = "commandes-en-cours" | "locker" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits"
+type TabId = "commandes-en-cours" | "locker" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits" | "connexions"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "commandes-en-cours", label: "Commandes en cours", icon: Inbox },
@@ -33,6 +35,7 @@ const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "commandes", label: "Récap commandes", icon: ListOrdered },
   { id: "utilisateurs", label: "Utilisateurs", icon: Users },
   { id: "verifications", label: "Vérifications", icon: ShieldCheck },
+  { id: "connexions", label: "Connexions", icon: Activity },
   { id: "news", label: "News", icon: Newspaper },
   { id: "admins", label: "Admins", icon: UserCog },
   { id: "profits", label: "Profits", icon: TrendingUp },
@@ -49,6 +52,7 @@ export function AdminPanel({
   initialThreads,
   initialUsers,
   initialVerifications,
+  initialLoginLogs,
 }: {
   initialActiveOrders: OrderThread[]
   initialLockerOrders: OrderThread[]
@@ -56,6 +60,7 @@ export function AdminPanel({
   initialThreads: OrderThread[]
   initialUsers: AdminUserRow[]
   initialVerifications: VerificationRow[]
+  initialLoginLogs: LoginLogRow[]
 }) {
   const [tab, setTab] = useState<TabId>("commandes-en-cours")
 
@@ -144,6 +149,8 @@ export function AdminPanel({
           </div>
         ) : tab === "news" ? (
           <AdminNews />
+        ) : tab === "connexions" ? (
+          <AdminLoginLogs initialLogs={initialLoginLogs} />
         ) : tab === "admins" ? (
           <AdminAdmins />
         ) : (

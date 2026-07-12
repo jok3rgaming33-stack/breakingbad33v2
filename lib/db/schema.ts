@@ -235,6 +235,23 @@ export const appSettings = pgTable("app_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Journal des connexions client (enregistré à chaque getAccount validé).
+export const loginLogs = pgTable("login_logs", {
+  id: serial("id").primaryKey(),
+  userToken: text("user_token").notNull(),
+  pseudo: text("pseudo").notNull(),
+  ip: text("ip"),
+  city: text("city"),
+  country: text("country"),
+  countryCode: text("country_code"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type LoginLog = typeof loginLogs.$inferSelect
+
 export type AdminAccount = typeof adminAccounts.$inferSelect
 export type Category = typeof categories.$inferSelect
 export type RestockAlert = typeof restockAlerts.$inferSelect

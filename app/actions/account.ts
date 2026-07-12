@@ -15,6 +15,7 @@ import { notifyVendor } from "@/lib/push"
 import { getClientIp, isVpnOrProxy } from "@/lib/ip-check"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { USER_FLAGS } from "@/lib/user-flags"
+import { recordLogin, deleteLoginLogsByToken } from "@/app/actions/login-logs"
 
 // Crée (ou réenregistre) un compte anonyme : associe une clé secrète à un pseudo.
 // Idempotent : si la clé existe déjà, on conserve le pseudo d'origine.
@@ -77,11 +78,17 @@ export async function createAccount(token: string, pseudo: string) {
 }
 
 // Récupère le compte associé à une clé secrète (connexion d'un client existant).
+// Enregistre la connexion dans login_logs (fire-and-forget).
 export async function getAccount(token: string) {
   const t = token?.trim()
   if (!t) return null
   const rows = await db.select().from(users).where(eq(users.token, t)).limit(1)
-  return rows[0] ?? null
+  const account = rows[0] ?? null
+  if (account) {
+    // Fire-and-forget : ne bloque pas la réponse
+    recordLogin(t).catch(() => {})
+  }
+  return account
 }
 
 // Garantit qu'un compte existe pour cette clé (migration des anciens comptes
@@ -218,6 +225,9 @@ export async function purgeUserData(token: string) {
   await db.delete(pushSubscriptions).where(eq(pushSubscriptions.customerToken, t))
   await db.delete(restockAlerts).where(eq(restockAlerts.userToken, t))
 
-  // 4. Compte utilisateur
+  // 4. Logs de connexion
+  await deleteLoginLogsByToken(t)
+
+  // 5. Compte utilisateur
   await db.delete(users).where(eq(users.token, t))
 }
