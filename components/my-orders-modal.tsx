@@ -449,7 +449,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
                         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
                           {isClient ? "Vous" : "Le Chimiste"} · {formatDate(m.createdAt)}
                         </div>
-                        <p className="whitespace-pre-wrap leading-relaxed font-mono text-sm">{m.body}</p>
+                        <p className="whitespace-pre-wrap break-all leading-relaxed font-mono text-sm">{m.body}</p>
                       </div>
                     )
                   })}
