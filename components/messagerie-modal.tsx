@@ -1,15 +1,13 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { X, ArrowLeft, MessageSquare, Send, Loader2, FlaskConical, Package, ShieldAlert, Copy, CheckCheck } from "lucide-react"
+import { X, ArrowLeft, MessageSquare, Send, Loader2, FlaskConical, Package } from "lucide-react"
 import {
   getThreadsForToken,
-  getTrkThreadsForToken,
   getThread,
   addMessage,
   createGeneralInquiryThread,
   markThreadRead,
-  consumeTrkThread,
 } from "@/app/actions/messaging"
 import { statusMeta } from "@/lib/order-status"
 
@@ -49,7 +47,7 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
   const name = userData?.pseudo ?? "Client"
   const [threads, setThreads] = useState<Thread[]>([])
   const [loadingList, setLoadingList] = useState(false)
-  const [view, setView] = useState<"list" | "compose" | "thread" | "trk">("list")
+  const [view, setView] = useState<"list" | "compose" | "thread">("list")
   const [selected, setSelected] = useState<Thread | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
@@ -57,58 +55,18 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
   const [sending, setSending] = useState(false)
   const [composeText, setComposeText] = useState("")
   const [creating, setCreating] = useState(false)
-  // Fils TRK en attente (token locker à sauvegarder)
-  const [trkThreads, setTrkThreads] = useState<Thread[]>([])
-  const [trkMessages, setTrkMessages] = useState<string[]>([])
-  const [trkIdx, setTrkIdx] = useState(0)
-  const [trkConsuming, setTrkConsuming] = useState(false)
-  const [trkCopied, setTrkCopied] = useState(false)
 
   const selectedRef = useRef<number | null>(null)
   selectedRef.current = selected?.id ?? null
 
-  // Charge la liste des discussions + fils TRK en attente à l'ouverture.
+  // Charge la liste des discussions à l'ouverture.
   useEffect(() => {
     if (!isOpen || !token) return
     setLoadingList(true)
-    ;(async () => {
-      try {
-        const [data, trks] = await Promise.all([
-          getThreadsForToken(token),
-          getTrkThreadsForToken(token),
-        ])
-        setThreads(data as Thread[])
-        const trkList = trks as Thread[]
-        console.log("[v0] TRK threads trouvés:", trkList.length, trkList.map(t => t.id))
-        setTrkThreads(trkList)
-        // Pré-charge les messages de chaque fil TRK pour en extraire le token
-        const bodies: string[] = []
-        for (const t of trkList) {
-          try {
-            const d = await getThread(t.id)
-            console.log("[v0] getThread result for", t.id, ":", d?.messages?.length, "messages")
-            const vendorMsg = d?.messages?.find((m: Message) => m.sender === "vendeur")
-            console.log("[v0] vendorMsg body:", vendorMsg?.body?.slice(0, 80))
-            bodies.push(vendorMsg?.body ?? "")
-          } catch (e) {
-            console.log("[v0] getThread error for", t.id, ":", e)
-            bodies.push("")
-          }
-        }
-        setTrkMessages(bodies)
-        setTrkIdx(0)
-        if (trkList.length > 0) {
-          console.log("[v0] Basculement vue TRK")
-          setView("trk")
-        }
-      } catch (e) {
-        console.log("[v0] Erreur chargement TRK:", e)
-        setThreads([])
-        setTrkThreads([])
-      } finally {
-        setLoadingList(false)
-      }
-    })()
+    getThreadsForToken(token)
+      .then((data) => setThreads(data as Thread[]))
+      .catch(() => setThreads([]))
+      .finally(() => setLoadingList(false))
   }, [isOpen, token])
 
   // Rafraîchit la liste et le fil ouvert pendant que la modale est ouverte.
