@@ -40,6 +40,14 @@ async function sendToRows(
         await webpush.sendNotification(
           { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
           data,
+          {
+            // TTL 24h : si le téléphone est hors ligne ou en Doze, le serveur FCM
+            // conserve la notification jusqu'à 86400s avant de l'abandonner.
+            // Sans TTL (défaut = 0) la notification est perdue si elle ne peut
+            // pas être livrée immédiatement.
+            TTL: 86400,
+            urgency: "high", // Contourne partiellement le Doze Mode Android
+          }
         )
       } catch (err: any) {
         // 404/410 = abonnement expiré : on le supprime.
