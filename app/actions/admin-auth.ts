@@ -75,7 +75,8 @@ export async function isAdminAuthenticated() {
 export async function adminLogout() {
   const store = await cookies()
   store.delete(COOKIE_NAME)
-  redirect("/")
+  // Passer par /logout pour nettoyer aussi le localStorage côté client
+  redirect("/logout")
 }
 
 // Action de formulaire pour la porte du panel admin (/admin).
