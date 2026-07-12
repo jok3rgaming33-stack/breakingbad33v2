@@ -225,9 +225,11 @@ type Props = {
   onClose: () => void
   /** Quand true : force l'ouverture de toutes les sections avant de pouvoir fermer */
   requireRead?: boolean
+  /** Appelé à la place de onClose quand l'utilisateur clique "J'ai compris" en mode requireRead */
+  onConfirm?: () => void
 }
 
-export function HowItWorksModal({ isOpen, onClose, requireRead = false }: Props) {
+export function HowItWorksModal({ isOpen, onClose, requireRead = false, onConfirm }: Props) {
   const [expanded, setExpanded] = useState<number | null>(0)
   const [seen, setSeen] = useState<Set<number>>(new Set([0])) // section 0 ouverte par défaut
 
@@ -366,7 +368,7 @@ export function HowItWorksModal({ isOpen, onClose, requireRead = false }: Props)
                 </p>
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={() => onConfirm ? onConfirm() : onClose()}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
                 >
                   <CheckCircle2 className="h-4 w-4" aria-hidden="true" />

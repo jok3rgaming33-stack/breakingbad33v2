@@ -529,10 +529,15 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
         requireRead={!hasReadGuide}
         onClose={() => {
           setShowHowItWorks(false)
-          if (typeof window !== "undefined") {
-            localStorage.setItem("bb33_guide_read", "1")
-          }
+          if (typeof window !== "undefined") localStorage.setItem("bb33_guide_read", "1")
           setHasReadGuide(true)
+        }}
+        onConfirm={() => {
+          // Marquer comme lu + fermer la modale + lancer directement la création
+          if (typeof window !== "undefined") localStorage.setItem("bb33_guide_read", "1")
+          setHasReadGuide(true)
+          setShowHowItWorks(false)
+          createAnonymousAccess()
         }}
       />
 
