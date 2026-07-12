@@ -71,27 +71,44 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
   useEffect(() => {
     if (!isOpen || !token) return
     setLoadingList(true)
-    Promise.all([
-      getThreadsForToken(token),
-      getTrkThreadsForToken(token),
-    ])
-      .then(async ([data, trks]) => {
+    ;(async () => {
+      try {
+        const [data, trks] = await Promise.all([
+          getThreadsForToken(token),
+          getTrkThreadsForToken(token),
+        ])
         setThreads(data as Thread[])
         const trkList = trks as Thread[]
+        console.log("[v0] TRK threads trouvés:", trkList.length, trkList.map(t => t.id))
         setTrkThreads(trkList)
         // Pré-charge les messages de chaque fil TRK pour en extraire le token
         const bodies: string[] = []
         for (const t of trkList) {
-          const d = await getThread(t.id)
-          const vendorMsg = d?.messages?.find((m: Message) => m.sender === "vendeur")
-          bodies.push(vendorMsg?.body ?? "")
+          try {
+            const d = await getThread(t.id)
+            console.log("[v0] getThread result for", t.id, ":", d?.messages?.length, "messages")
+            const vendorMsg = d?.messages?.find((m: Message) => m.sender === "vendeur")
+            console.log("[v0] vendorMsg body:", vendorMsg?.body?.slice(0, 80))
+            bodies.push(vendorMsg?.body ?? "")
+          } catch (e) {
+            console.log("[v0] getThread error for", t.id, ":", e)
+            bodies.push("")
+          }
         }
         setTrkMessages(bodies)
         setTrkIdx(0)
-        if (trkList.length > 0) setView("trk")
-      })
-      .catch(() => { setThreads([]); setTrkThreads([]) })
-      .finally(() => setLoadingList(false))
+        if (trkList.length > 0) {
+          console.log("[v0] Basculement vue TRK")
+          setView("trk")
+        }
+      } catch (e) {
+        console.log("[v0] Erreur chargement TRK:", e)
+        setThreads([])
+        setTrkThreads([])
+      } finally {
+        setLoadingList(false)
+      }
+    })()
   }, [isOpen, token])
 
   // Rafraîchit la liste et le fil ouvert pendant que la modale est ouverte.
@@ -310,7 +327,7 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
               {/* Extrait le token depuis le corps du message */}
               {(() => {
                 const body = trkMessages[trkIdx] ?? ""
-                const lines = body.split("\n")
+                const lines = body.split("\n").map((l) => l.trim())
                 const trkLine = lines.find((l) => l.startsWith("TRK_")) ?? ""
                 return (
                   <div className="flex flex-col gap-3">
