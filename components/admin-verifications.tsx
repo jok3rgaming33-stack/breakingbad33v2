@@ -2,8 +2,8 @@
 
 import { useState } from "react"
 import type { VerificationRow } from "@/app/actions/verification"
-import { validateAndPurge, deleteVerificationPhoto } from "@/app/actions/verification"
-import { ShieldCheck, ShieldAlert, Loader2, Check, Image as ImageIcon, Video, Trash2, AlertTriangle } from "lucide-react"
+import { validateAndPurge, deleteVerificationPhoto, rejectVerification } from "@/app/actions/verification"
+import { ShieldCheck, ShieldAlert, Loader2, Check, Image as ImageIcon, Video, Trash2, AlertTriangle, X, XCircle } from "lucide-react"
 
 function fileUrl(pathname: string) {
   return `/api/verification/file?pathname=${encodeURIComponent(pathname)}`
@@ -25,6 +25,11 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
   const [pendingId, setPendingId] = useState<number | null>(null)
   const [photoView, setPhotoView] = useState<VerificationRow | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  // Refus
+  const [rejectTarget, setRejectTarget] = useState<VerificationRow | null>(null)
+  const [rejectReason, setRejectReason] = useState("")
+  const [rejecting, setRejecting] = useState(false)
+  const [rejectError, setRejectError] = useState("")
 
   const pending = rows.filter((r) => r.status === "pending")
   const validated = rows.filter((r) => r.status === "validated")
@@ -42,6 +47,26 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
       }
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handleReject = async () => {
+    if (!rejectTarget) return
+    const reason = rejectReason.trim()
+    if (!reason) { setRejectError("La justification est requise."); return }
+    setRejecting(true)
+    setRejectError("")
+    try {
+      const res = await rejectVerification(rejectTarget.id, reason)
+      if (res.ok) {
+        setRows((prev) => prev.filter((r) => r.id !== rejectTarget.id))
+        setRejectTarget(null)
+        setRejectReason("")
+      } else {
+        setRejectError("Une erreur est survenue. Réessaie.")
+      }
+    } finally {
+      setRejecting(false)
     }
   }
 
@@ -157,19 +182,30 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setConfirm(row)}
-                disabled={pendingId === row.id}
-                className="flex w-full items-center justify-center gap-2 border-t border-border bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {pendingId === row.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                ) : (
-                  <Check className="h-4 w-4" aria-hidden="true" />
-                )}
-                Valider la 1re livraison
-              </button>
+              <div className="grid grid-cols-2 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => { setRejectTarget(row); setRejectReason(""); setRejectError("") }}
+                  disabled={pendingId === row.id || rejecting}
+                  className="flex items-center justify-center gap-2 border-r border-border bg-destructive/10 py-3 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
+                >
+                  <XCircle className="h-4 w-4" aria-hidden="true" />
+                  Refuser
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirm(row)}
+                  disabled={pendingId === row.id}
+                  className="flex items-center justify-center gap-2 bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {pendingId === row.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Check className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  Valider
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -224,6 +260,73 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Modale de refus */}
+      {rejectTarget && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-background/90 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Refuser la vérification"
+        >
+          <div className="w-full max-w-sm rounded-3xl border border-destructive/40 bg-card p-6">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/15 text-destructive">
+                  <XCircle className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <h3 className="text-lg font-bold">Refuser la vérification</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRejectTarget(null)}
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                aria-label="Fermer"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+            <p className="mb-4 text-sm text-muted-foreground">
+              La vérification de <span className="font-semibold text-foreground">{rejectTarget.pseudo ?? "ce client"}</span> sera supprimée et un message lui sera envoyé avec ta justification pour qu&apos;il recommence.
+            </p>
+            <label className="mb-1.5 block text-sm font-medium" htmlFor="reject-reason">
+              Justification <span className="text-destructive">*</span>
+            </label>
+            <textarea
+              id="reject-reason"
+              rows={4}
+              value={rejectReason}
+              onChange={(e) => { setRejectReason(e.target.value); setRejectError("") }}
+              placeholder="Ex : La photo est floue, le nom du site n'est pas lisible, la vidéo ne montre pas le visage..."
+              className="mb-3 w-full resize-none rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none"
+            />
+            {rejectError && (
+              <p className="mb-3 flex items-center gap-1.5 text-xs text-destructive">
+                <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                {rejectError}
+              </p>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setRejectTarget(null)}
+                className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleReject}
+                disabled={rejecting || !rejectReason.trim()}
+                className="inline-flex items-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {rejecting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                Refuser et notifier
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

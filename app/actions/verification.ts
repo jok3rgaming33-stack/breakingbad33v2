@@ -7,6 +7,7 @@ import { del } from "@vercel/blob"
 import { revalidatePath } from "next/cache"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { notifyVendor } from "@/lib/push"
+import { createGeneralInquiryThread, addMessage } from "@/app/actions/messaging"
 
 // Indique si un client doit encore réaliser sa vérification d'identité.
 // La vérification est exigée une seule fois (à la 1re commande) : tant
@@ -128,6 +129,43 @@ export async function validateAndPurge(id: number) {
       validatedAt: new Date(),
     })
     .where(eq(userVerifications.id, id))
+
+  revalidatePath("/admin")
+  return { ok: true as const }
+}
+
+// Refuse la vérification : supprime les fichiers Blob, efface l'enregistrement (reset complet),
+// et envoie un message au client lui demandant de recommencer avec la justification.
+export async function rejectVerification(id: number, justification: string) {
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
+  const rows = await db.select().from(userVerifications).where(eq(userVerifications.id, id)).limit(1)
+  const row = rows[0]
+  if (!row) return { ok: false as const, error: "Introuvable." }
+
+  // Suppression des fichiers Blob
+  for (const path of [row.photoPathname, row.videoPathname]) {
+    if (path) {
+      try { await del(path) } catch { /* best-effort */ }
+    }
+  }
+
+  // Supprime l'enregistrement pour que le client puisse en soumettre un nouveau
+  await db.delete(userVerifications).where(eq(userVerifications.id, id))
+
+  // Crée un fil de discussion et envoie le message de refus côté vendeur
+  const pseudo = row.pseudo ?? "Client"
+  const motif = justification.trim()
+  const vendeurBody = `Ta vérification d'identité a été refusée.\n\nMotif : ${motif}\n\nMerci de soumettre à nouveau ta vérification depuis ton espace. Si tu as des questions, réponds à ce message.`
+
+  const thread = await createGeneralInquiryThread({
+    customerName: pseudo,
+    customerToken: row.userToken,
+    message: `Refus de vérification — ${pseudo}`,
+  })
+
+  if (thread.ok && thread.id) {
+    await addMessage(thread.id, "vendeur", vendeurBody)
+  }
 
   revalidatePath("/admin")
   return { ok: true as const }
