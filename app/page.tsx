@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { getUnreadCounts } from "@/app/actions/messaging"
+import { getAccount } from "@/app/actions/account"
 import { CartProvider } from "@/components/cart-provider"
 import { NotificationsProvider } from "@/components/notifications-provider"
 import { Navbar } from "@/components/navbar"
@@ -58,9 +59,34 @@ export default function Home() {
 
     // 1) Session locale (client OU admin connecté via la page de connexion)
     const token = localStorage.getItem("authToken")
+    const isAdminLocal = localStorage.getItem("isAdmin") === "1"
     if (token) {
+      // Les admins n'ont pas de ligne en base — on vérifie uniquement les clients.
+      if (!isAdminLocal) {
+        getAccount(token).then((account) => {
+          if (cancelled) return
+          if (!account) {
+            // Token supprimé ou invalide — on force la déconnexion
+            localStorage.removeItem("authToken")
+            localStorage.removeItem("userPseudo")
+            localStorage.removeItem("isAdmin")
+            setIsAuthenticated(false)
+            setUserData(null)
+            return
+          }
+          setIsAuthenticated(true)
+          setIsAdmin(false)
+          setUserData({ pseudo: account.pseudo ?? undefined, token })
+        }).catch(() => {
+          // En cas d'erreur réseau, on autorise quand même (fail-open)
+          setIsAuthenticated(true)
+          setIsAdmin(false)
+          setUserData({ pseudo: localStorage.getItem("userPseudo") ?? undefined, token })
+        })
+        return
+      }
       setIsAuthenticated(true)
-      setIsAdmin(localStorage.getItem("isAdmin") === "1")
+      setIsAdmin(true)
       setUserData({
         pseudo: localStorage.getItem("userPseudo") ?? undefined,
         token,
