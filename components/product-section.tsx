@@ -177,10 +177,8 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                     )}
                     {/* Dégradé bas pour lisibilité du contenu */}
                     <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[#0a0a0a] to-transparent" />
-                    {/* Badges superposés en haut à gauche */}
-                    <div className="absolute left-3 top-3">
-                      <ProductBadges badges={badges} />
-                    </div>
+                    {/* Badges superposés en haut à droite */}
+                    <ProductBadges badges={badges} />
                   </div>
                     )
                   })()}
