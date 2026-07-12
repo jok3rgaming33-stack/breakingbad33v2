@@ -465,6 +465,22 @@ export async function getThreadByTrackingToken(trackingToken: string) {
   }
 }
 
+// Retourne les fils TRK_MSG en attente de lecture pour un token client donné.
+export async function getTrkThreadsForToken(customerToken: string) {
+  const token = customerToken?.trim()
+  if (!token) return []
+  return db
+    .select()
+    .from(orderThreads)
+    .where(
+      and(
+        eq(orderThreads.customerToken, token),
+        eq(orderThreads.status, "trk_token"),
+      )
+    )
+    .orderBy(desc(orderThreads.updatedAt))
+}
+
 // Supprime le fil TRK_MSG après que le client l'a lu (sécurité : message auto-détruit).
 export async function consumeTrkThread(threadId: number) {
   if (!threadId) return { ok: false as const }

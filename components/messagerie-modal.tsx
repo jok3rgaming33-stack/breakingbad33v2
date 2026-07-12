@@ -1,13 +1,15 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { X, ArrowLeft, MessageSquare, Send, Loader2, FlaskConical, Package } from "lucide-react"
+import { X, ArrowLeft, MessageSquare, Send, Loader2, FlaskConical, Package, ShieldAlert, Copy, CheckCheck } from "lucide-react"
 import {
   getThreadsForToken,
+  getTrkThreadsForToken,
   getThread,
   addMessage,
   createGeneralInquiryThread,
   markThreadRead,
+  consumeTrkThread,
 } from "@/app/actions/messaging"
 import { statusMeta } from "@/lib/order-status"
 
@@ -47,7 +49,7 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
   const name = userData?.pseudo ?? "Client"
   const [threads, setThreads] = useState<Thread[]>([])
   const [loadingList, setLoadingList] = useState(false)
-  const [view, setView] = useState<"list" | "compose" | "thread">("list")
+  const [view, setView] = useState<"list" | "compose" | "thread" | "trk">("list")
   const [selected, setSelected] = useState<Thread | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
@@ -55,17 +57,40 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
   const [sending, setSending] = useState(false)
   const [composeText, setComposeText] = useState("")
   const [creating, setCreating] = useState(false)
+  // Fils TRK en attente (token locker à sauvegarder)
+  const [trkThreads, setTrkThreads] = useState<Thread[]>([])
+  const [trkMessages, setTrkMessages] = useState<string[]>([])
+  const [trkIdx, setTrkIdx] = useState(0)
+  const [trkConsuming, setTrkConsuming] = useState(false)
+  const [trkCopied, setTrkCopied] = useState(false)
 
   const selectedRef = useRef<number | null>(null)
   selectedRef.current = selected?.id ?? null
 
-  // Charge la liste des discussions du client à l'ouverture.
+  // Charge la liste des discussions + fils TRK en attente à l'ouverture.
   useEffect(() => {
     if (!isOpen || !token) return
     setLoadingList(true)
-    getThreadsForToken(token)
-      .then((data) => setThreads(data as Thread[]))
-      .catch(() => setThreads([]))
+    Promise.all([
+      getThreadsForToken(token),
+      getTrkThreadsForToken(token),
+    ])
+      .then(async ([data, trks]) => {
+        setThreads(data as Thread[])
+        const trkList = trks as Thread[]
+        setTrkThreads(trkList)
+        // Pré-charge les messages de chaque fil TRK pour en extraire le token
+        const bodies: string[] = []
+        for (const t of trkList) {
+          const d = await getThread(t.id)
+          const vendorMsg = d?.messages?.find((m: Message) => m.sender === "vendeur")
+          bodies.push(vendorMsg?.body ?? "")
+        }
+        setTrkMessages(bodies)
+        setTrkIdx(0)
+        if (trkList.length > 0) setView("trk")
+      })
+      .catch(() => { setThreads([]); setTrkThreads([]) })
       .finally(() => setLoadingList(false))
   }, [isOpen, token])
 
@@ -164,7 +189,9 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
         : `Commande #${selected?.id}`
       : view === "compose"
         ? "Contacter le chimiste"
-        : "Messagerie"
+        : view === "trk"
+          ? "Clé à sauvegarder"
+          : "Messagerie"
 
   return (
     <div
@@ -265,6 +292,92 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
         )}
 
 
+
+        {/* Vue TRK — token locker à sauvegarder, auto-détruit après lecture */}
+        {view === "trk" && trkThreads[trkIdx] && (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="mb-4 flex flex-col items-center gap-3 text-center">
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-destructive/15 text-destructive">
+                  <ShieldAlert className="h-7 w-7" aria-hidden="true" />
+                </span>
+                <p className="font-semibold text-foreground">Token de suivi Locker</p>
+                <p className="text-xs leading-relaxed text-muted-foreground text-pretty">
+                  Ce message contient ton token de suivi. <strong className="text-foreground">Sauvegarde-le maintenant</strong> — il sera définitivement supprimé après que tu auras cliqué sur "J&apos;ai sauvegardé".
+                </p>
+              </div>
+
+              {/* Extrait le token depuis le corps du message */}
+              {(() => {
+                const body = trkMessages[trkIdx] ?? ""
+                const lines = body.split("\n")
+                const trkLine = lines.find((l) => l.startsWith("TRK_")) ?? ""
+                return (
+                  <div className="flex flex-col gap-3">
+                    <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-4">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-destructive">
+                        Ton token de suivi
+                      </p>
+                      <div className="flex items-center justify-between gap-2 rounded-xl bg-background px-4 py-3">
+                        <code className="break-all font-mono text-sm font-bold text-foreground">{trkLine || "Chargement…"}</code>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (trkLine) {
+                              await navigator.clipboard.writeText(trkLine)
+                              setTrkCopied(true)
+                              setTimeout(() => setTrkCopied(false), 2500)
+                            }
+                          }}
+                          className="shrink-0 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                          aria-label="Copier le token"
+                        >
+                          {trkCopied ? <CheckCheck className="h-4 w-4 text-accent" /> : <Copy className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs leading-relaxed text-muted-foreground">
+                      <strong className="text-amber-400">Important — </strong>
+                      Note ce token sur papier ou dans un gestionnaire de mots de passe. Sans lui, tu ne pourras plus accéder au suivi de ta commande Locker.
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+            <div className="border-t border-border p-4">
+              <button
+                type="button"
+                disabled={trkConsuming}
+                onClick={async () => {
+                  setTrkConsuming(true)
+                  try {
+                    await consumeTrkThread(trkThreads[trkIdx].id)
+                    const next = trkIdx + 1
+                    if (next < trkThreads.length) {
+                      setTrkIdx(next)
+                    } else {
+                      setView("list")
+                      // Recharge la liste sans les TRK
+                      const data = await getThreadsForToken(token)
+                      setThreads(data as Thread[])
+                      setTrkThreads([])
+                    }
+                  } finally {
+                    setTrkConsuming(false)
+                  }
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-3.5 font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                {trkConsuming ? (
+                  <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <CheckCheck className="h-5 w-5" aria-hidden="true" />
+                )}
+                J&apos;ai sauvegardé mon token — supprimer ce message
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Composer une discussion générale */}
         {view === "compose" && (
