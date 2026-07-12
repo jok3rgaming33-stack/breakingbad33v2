@@ -1,8 +1,13 @@
 "use server"
 
 import { db } from "@/lib/db"
-import { users, orderThreads, accountCreations } from "@/lib/db/schema"
-import { eq, desc, sql, and, gte } from "drizzle-orm"
+import {
+  users, orderThreads, threadMessages, accountCreations,
+  userVerifications, loyaltyCodes, promoUsages, userNewsReads,
+  pushSubscriptions, restockAlerts,
+} from "@/lib/db/schema"
+import { eq, desc, sql, and, gte, inArray } from "drizzle-orm"
+import { del } from "@vercel/blob"
 import { revalidatePath } from "next/cache"
 import { isClosedStatus, normalizeStatus } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
@@ -167,11 +172,52 @@ export async function setLoyaltyAdjustment(id: number, adjustment: number) {
   return { ok: true as const, loyaltyAdjustment: value }
 }
 
-// Supprime un compte. Les commandes liées ne sont pas effacées (historique conservé),
-// elles deviennent simplement orphelines de compte.
+// Supprime un compte et TOUTES les données associées au token (cascade complète).
+// Tables purgées : orderThreads + threadMessages, userVerifications (+ Blobs),
+// loyaltyCodes, promoUsages, userNewsReads, pushSubscriptions, restockAlerts.
 export async function deleteUserAccount(id: number) {
   if (!id) return { ok: false as const }
-  await db.delete(users).where(eq(users.id, id))
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
+
+  const row = await db.select().from(users).where(eq(users.id, id)).limit(1)
+  if (!row[0]) return { ok: false as const, error: "Introuvable." }
+  const token = row[0].token
+
+  await purgeUserData(token)
+
   revalidatePath("/admin")
   return { ok: true as const }
+}
+
+// Purge complète par token (utilisable aussi en interne, ex. rejectVerification).
+export async function purgeUserData(token: string) {
+  const t = token?.trim()
+  if (!t) return
+
+  // 1. Fichiers Blob de vérification d'identité
+  const verifs = await db.select().from(userVerifications).where(eq(userVerifications.userToken, t))
+  for (const v of verifs) {
+    for (const path of [v.photoPathname, v.videoPathname]) {
+      if (path) { try { await del(path) } catch { /* best-effort */ } }
+    }
+  }
+
+  // 2. Messages de tous les fils de commande du token
+  const threads = await db.select({ id: orderThreads.id }).from(orderThreads).where(eq(orderThreads.customerToken, t))
+  if (threads.length > 0) {
+    const threadIds = threads.map((t) => t.id)
+    await db.delete(threadMessages).where(inArray(threadMessages.threadId, threadIds))
+    await db.delete(orderThreads).where(eq(orderThreads.customerToken, t))
+  }
+
+  // 3. Toutes les autres tables liées au token
+  await db.delete(userVerifications).where(eq(userVerifications.userToken, t))
+  await db.delete(loyaltyCodes).where(eq(loyaltyCodes.userToken, t))
+  await db.delete(promoUsages).where(eq(promoUsages.userToken, t))
+  await db.delete(userNewsReads).where(eq(userNewsReads.userToken, t))
+  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.customerToken, t))
+  await db.delete(restockAlerts).where(eq(restockAlerts.userToken, t))
+
+  // 4. Compte utilisateur
+  await db.delete(users).where(eq(users.token, t))
 }
