@@ -359,8 +359,10 @@ export async function getLockerOrdersForToken(customerToken: string) {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
-// Vue client "Mes commandes" : toutes les commandes du token (hors locker classique)
-// Les fils trk_token sont inclus — ils s'affichent dans "En cours" avec l'alerte ambre.
+// Vue client "Mes commandes" onglet "En cours" :
+// - commandes non-locker (toutes)
+// - fils trk_token (locker) : alerte ambre "token à sauvegarder"
+// Les vraies commandes locker (non-trk) sont dans getLockerOrdersForToken.
 export async function getThreadsForToken(customerToken: string) {
   const token = customerToken?.trim()
   if (!token) return []
@@ -370,7 +372,10 @@ export async function getThreadsForToken(customerToken: string) {
     .where(
       and(
         eq(orderThreads.customerToken, token),
-        ne(orderThreads.fulfillment, "locker"),
+        or(
+          ne(orderThreads.fulfillment, "locker"),            // commandes normales
+          eq(orderThreads.status, "trk_token"),             // fils TRK locker à afficher en ambre
+        ),
       )
     )
     .orderBy(desc(orderThreads.updatedAt))
