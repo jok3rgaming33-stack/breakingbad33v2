@@ -485,7 +485,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
               </div>
             )}
 
-            {/* Zone de réponse (hors TRK) */}
+            {/* Zone de réponse (hors TRK — autorisée même sur les fils clôturés) */}
             {!isTrkSelected && (
               <div className="border-t border-border p-4">
                 <div className="flex items-end gap-2">

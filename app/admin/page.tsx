@@ -1,5 +1,5 @@
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
-import { getThreads, getActiveOrders, getLockerOrders, getDiscussions } from "@/app/actions/messaging"
+import { getThreads, getActiveOrders, getLockerOrders, getDiscussions, getPastOrders } from "@/app/actions/messaging"
 import { listUsers } from "@/app/actions/account"
 import { listVerifications } from "@/app/actions/verification"
 import { listLoginLogs } from "@/app/actions/login-logs"
@@ -22,11 +22,12 @@ export default async function AdminPage() {
     return <AdminGate />
   }
 
-  const [activeOrders, lockerOrders, discussions, threads, usersList, verifications, loginLogs, profitData, notifHistory] = await Promise.all([
+  const [activeOrders, lockerOrders, discussions, threads, pastOrders, usersList, verifications, loginLogs, profitData, notifHistory] = await Promise.all([
     getActiveOrders(),
     getLockerOrders(),
     getDiscussions(),
     getThreads(),
+    getPastOrders(),
     listUsers(),
     listVerifications(),
     listLoginLogs(200),
@@ -40,6 +41,7 @@ export default async function AdminPage() {
       initialLockerOrders={lockerOrders}
       initialDiscussions={discussions}
       initialThreads={threads}
+      initialPastOrders={pastOrders}
       initialUsers={usersList}
       initialVerifications={verifications}
       initialLoginLogs={loginLogs}

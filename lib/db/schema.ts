@@ -122,6 +122,8 @@ export const threadMessages = pgTable("thread_messages", {
   sender: text("sender").notNull(), // 'client' | 'vendeur'
   body: text("body").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // null = message vendeur jamais lu par le client. Visible uniquement côté admin.
+  clientReadAt: timestamp("client_read_at", { withTimezone: true }),
 })
 
 // Bandeaux produits posés par l'admin (best-seller / reappro / fin_de_stock).

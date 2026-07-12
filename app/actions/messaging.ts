@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { orderThreads, threadMessages } from "@/lib/db/schema"
-import { and, desc, eq, gt, ne, notInArray, or, sql } from "drizzle-orm"
+import { and, desc, eq, gt, isNull, ne, notInArray, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { normalizeStatus, statusMeta } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
@@ -188,6 +188,23 @@ export async function getLockerOrders() {
     )
     .orderBy(desc(orderThreads.updatedAt))
   return threads
+}
+
+// Commandes clôturées (livree ou annulee), toutes livraisons confondues
+export async function getPastOrders() {
+  return db
+    .select()
+    .from(orderThreads)
+    .where(
+      and(
+        or(
+          eq(orderThreads.status, "livree"),
+          eq(orderThreads.status, "annulee"),
+        ),
+        ne(orderThreads.status, "trk_token"),
+      )
+    )
+    .orderBy(desc(orderThreads.updatedAt))
 }
 
 // Discussions directes uniquement (pas des commandes)
@@ -381,13 +398,25 @@ export async function getThreadsForToken(customerToken: string) {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
-// Marque un fil comme lu par le client (met à jour clientLastSeen).
+// Marque un fil comme lu par le client :
+// - met à jour clientLastSeen sur le thread
+// - horodate clientReadAt sur tous les messages vendeur non encore lus (visible admin uniquement)
 export async function markThreadRead(threadId: number) {
   if (!threadId) return
   await db
     .update(orderThreads)
     .set({ clientLastSeen: sql`now()` })
     .where(eq(orderThreads.id, threadId))
+  await db
+    .update(threadMessages)
+    .set({ clientReadAt: sql`now()` })
+    .where(
+      and(
+        eq(threadMessages.threadId, threadId),
+        eq(threadMessages.sender, "vendeur"),
+        isNull(threadMessages.clientReadAt),
+      )
+    )
 }
 
 // Retourne le nombre de fils non lus par section :

@@ -2,8 +2,8 @@
 
 import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
-import { getActiveOrders, getLockerOrders, getDiscussions, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit } from "@/app/actions/messaging"
-import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2 } from "lucide-react"
+import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit } from "@/app/actions/messaging"
+import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock } from "lucide-react"
 import { VENDOR_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 
 function formatDate(value: Date | string) {
@@ -16,7 +16,7 @@ export function VendorInbox({
   mode = "orders",
 }: {
   initialThreads: OrderThread[]
-  mode?: "orders" | "locker" | "messages"
+  mode?: "orders" | "locker" | "messages" | "past"
 }) {
   const [threads, setThreads] = useState(initialThreads)
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -55,7 +55,7 @@ export function VendorInbox({
   // Rafraîchissement automatique : nouvelles commandes + messages clients en direct
   const refresh = useCallback(async () => {
     try {
-      const latest = mode === "messages" ? await getDiscussions() : mode === "locker" ? await getLockerOrders() : await getActiveOrders()
+      const latest = mode === "messages" ? await getDiscussions() : mode === "locker" ? await getLockerOrders() : mode === "past" ? await getPastOrders() : await getActiveOrders()
       setThreads(latest)
       const openId = selectedIdRef.current
       if (openId != null) {
@@ -194,17 +194,19 @@ export function VendorInbox({
             ? <MessageSquare className="h-4 w-4 text-accent" aria-hidden="true" />
             : mode === "locker"
               ? <Package className="h-4 w-4 text-accent" aria-hidden="true" />
-              : <Inbox className="h-4 w-4 text-accent" aria-hidden="true" />
+              : mode === "past"
+                ? <CheckCheck className="h-4 w-4 text-accent" aria-hidden="true" />
+                : <Inbox className="h-4 w-4 text-accent" aria-hidden="true" />
           }
           <h2 className="text-sm font-semibold">
-            {mode === "messages" ? "Messages directs" : mode === "locker" ? "Locker Mondial Relay" : "Commandes en cours"}
+            {mode === "messages" ? "Messages directs" : mode === "locker" ? "Locker Mondial Relay" : mode === "past" ? "Commandes clôturées" : "Commandes en cours"}
           </h2>
           <span className="ml-auto text-xs text-muted-foreground">{threads.length}</span>
         </div>
         <div className="flex-1 overflow-y-auto">
           {threads.length === 0 && (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-              {mode === "messages" ? "Aucun message direct." : mode === "locker" ? "Aucune commande Locker en cours." : "Aucune commande en cours."}
+              {mode === "messages" ? "Aucun message direct." : mode === "locker" ? "Aucune commande Locker en cours." : mode === "past" ? "Aucune commande clôturée." : "Aucune commande en cours."}
             </p>
           )}
           <ul>
@@ -302,25 +304,40 @@ export function VendorInbox({
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
                 </div>
               ) : (
-                messages.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`flex flex-col ${m.sender === "vendeur" ? "items-end" : "items-start"}`}
-                  >
+                messages.map((m) => {
+                  const isVendeur = m.sender === "vendeur"
+                  const readAt = (m as any).clientReadAt as string | null | undefined
+                  return (
                     <div
-                      className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm ${
-                        m.sender === "vendeur"
-                          ? "bg-accent text-accent-foreground"
-                          : "bg-secondary text-secondary-foreground"
-                      }`}
+                      key={m.id}
+                      className={`flex flex-col ${isVendeur ? "items-end" : "items-start"}`}
                     >
-                      {m.body}
+                      <div
+                        className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm ${
+                          isVendeur
+                            ? "bg-accent text-accent-foreground"
+                            : "bg-secondary text-secondary-foreground"
+                        }`}
+                      >
+                        {m.body}
+                      </div>
+                      <span className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+                        {isVendeur ? "Vous" : selected.customerName} · {formatDate(m.createdAt)}
+                        {isVendeur && (
+                          readAt
+                            ? <span title={`Lu le ${formatDate(readAt)}`} className="flex items-center gap-0.5 text-accent">
+                                <CheckCheck className="h-3 w-3" aria-hidden="true" />
+                                <span>Lu</span>
+                              </span>
+                            : <span title="Non lu" className="flex items-center gap-0.5 text-muted-foreground/60">
+                                <Clock className="h-3 w-3" aria-hidden="true" />
+                                <span>Non lu</span>
+                              </span>
+                        )}
+                      </span>
                     </div>
-                    <span className="mt-1 text-[10px] text-muted-foreground">
-                      {m.sender === "vendeur" ? "Vous" : selected.customerName} · {formatDate(m.createdAt)}
-                    </span>
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
 
