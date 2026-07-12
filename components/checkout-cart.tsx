@@ -174,6 +174,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const applyCode = async () => {
     const code = codeInput.trim()
     if (!code || codeChecking) return
+    // Empêcher le cumul : un seul coupon actif par commande.
+    if (promo) {
+      setCodeError("Un code est déjà appliqué. Retire-le avant d'en saisir un autre.")
+      return
+    }
     setCodeChecking(true)
     setCodeError(null)
     try {

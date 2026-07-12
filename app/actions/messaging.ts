@@ -14,6 +14,9 @@ export type NewOrderInput = {
   summary: string
   products?: string
   total: number
+  // Montant de la remise appliquée (promo ou fidélité). Stocké pour calculer
+  // les points sur le total net et informer le client dans le message de livraison.
+  promoDiscount?: number
   fulfillment: "livraison" | "meetup" | "locker"
   address?: string
   lat?: number | null
