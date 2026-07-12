@@ -233,17 +233,17 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
         return
       }
 
-      // Connexion utilisateur standard : on retrouve le pseudo réel depuis la base.
+      // Connexion utilisateur standard : on vérifie que le compte existe en base.
       const account = await getAccount(token)
-      let pseudo = account?.pseudo ?? ""
 
-      if (!pseudo) {
-        // Compte hérité (créé avant la base de données) ou nouvel appareil :
-        // on migre/crée le compte à partir du pseudo local s'il existe.
-        const localPseudo = localStorage.getItem("userPseudo") || generateShortPseudo()
-        const ensured = await ensureAccount(token, localPseudo)
-        pseudo = ensured.ok && ensured.pseudo ? ensured.pseudo : localPseudo
+      // Token inconnu ou compte supprimé — on refuse sans recréer.
+      if (!account) {
+        setError("Clé secrète invalide ou compte inexistant.")
+        setResetLogin((n) => n + 1)
+        return
       }
+
+      const pseudo = account.pseudo ?? token.slice(0, 8)
 
       localStorage.removeItem("isAdmin")
       localStorage.setItem("authToken", token)
