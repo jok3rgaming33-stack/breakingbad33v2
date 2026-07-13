@@ -170,7 +170,7 @@ export async function getActiveOrders() {
     .from(orderThreads)
     .where(
       and(
-        notInArray(orderThreads.status, ["livree", "annulee", "discussion"]),
+        notInArray(orderThreads.status, ["livree", "annulee", "discussion", "notification"]),
         ne(orderThreads.fulfillment, "locker"),
       )
     )
