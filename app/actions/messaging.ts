@@ -159,7 +159,11 @@ export async function createGeneralInquiryThread(input: {
 
 // Tous les fils (usage interne)
 export async function getThreads() {
-  const threads = await db.select().from(orderThreads).orderBy(desc(orderThreads.updatedAt))
+  const threads = await db
+    .select()
+    .from(orderThreads)
+    .where(ne(orderThreads.status, "notification"))
+    .orderBy(desc(orderThreads.updatedAt))
   return threads
 }
 
