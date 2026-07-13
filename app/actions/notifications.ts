@@ -10,6 +10,7 @@ import {
 import { desc, eq } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
+import { notifyCustomer, notifyAllClients } from "@/lib/push"
 
 export type NotificationRecipient = "all" | string[] // 'all' | tableau de tokens
 
@@ -45,37 +46,86 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
 
   if (!targets.length) return { ok: false as const, error: "Aucun destinataire trouvé." }
 
-  // Crée un fil de notification par destinataire
+  // Payload push commun — même format que publishAndNotify des news
+  const pushPayload = {
+    title: `BreakingBad33 — ${title}`,
+    body,
+    url: "/",
+    tag: `notif-${Date.now()}`,
+    ...(input.imageUrl ? { image: input.imageUrl } : {}),
+  }
+
+  // Crée un fil de notification par destinataire + envoie le push Web
   let sentCount = 0
-  for (const t of targets) {
-    try {
-      const [thread] = await db
-        .insert(orderThreads)
-        .values({
-          customerName: t.pseudo,
-          customerToken: t.token,
-          trackingToken: `NOTIF_${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
-          summary: `Notification : ${title}`,
-          total: 0,
-          fulfillment: "livraison",
-          status: "notification",
+
+  if (input.recipients === "all") {
+    // Crée les fils en DB d'abord, puis envoie un push broadcast unique
+    for (const t of targets) {
+      try {
+        const [thread] = await db
+          .insert(orderThreads)
+          .values({
+            customerName: t.pseudo,
+            customerToken: t.token,
+            trackingToken: `NOTIF_${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
+            summary: `Notification : ${title}`,
+            total: 0,
+            fulfillment: "livraison",
+            status: "notification",
+          })
+          .returning()
+
+        const fullBody = input.imageUrl
+          ? `${body}\n\n[image]${input.imageUrl}[/image]`
+          : body
+
+        await db.insert(threadMessages).values({
+          threadId: thread.id,
+          sender: "vendeur",
+          body: fullBody,
         })
-        .returning()
 
-      // Message vendeur = la notification elle-même
-      const fullBody = input.imageUrl
-        ? `${body}\n\n[image]${input.imageUrl}[/image]`
-        : body
+        sentCount++
+      } catch {
+        // best-effort
+      }
+    }
+    // Un seul appel push pour tous (notifyAllClients itère les abonnements)
+    await notifyAllClients(pushPayload).catch(() => {})
+  } else {
+    // Ciblé : fil + push individuel par destinataire
+    for (const t of targets) {
+      try {
+        const [thread] = await db
+          .insert(orderThreads)
+          .values({
+            customerName: t.pseudo,
+            customerToken: t.token,
+            trackingToken: `NOTIF_${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
+            summary: `Notification : ${title}`,
+            total: 0,
+            fulfillment: "livraison",
+            status: "notification",
+          })
+          .returning()
 
-      await db.insert(threadMessages).values({
-        threadId: thread.id,
-        sender: "vendeur",
-        body: fullBody,
-      })
+        const fullBody = input.imageUrl
+          ? `${body}\n\n[image]${input.imageUrl}[/image]`
+          : body
 
-      sentCount++
-    } catch {
-      // best-effort : on continue si un destinataire échoue
+        await db.insert(threadMessages).values({
+          threadId: thread.id,
+          sender: "vendeur",
+          body: fullBody,
+        })
+
+        // Push individuel
+        await notifyCustomer(t.token, pushPayload).catch(() => {})
+
+        sentCount++
+      } catch {
+        // best-effort
+      }
     }
   }
 
