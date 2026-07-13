@@ -5,7 +5,7 @@ import type { OrderThread } from "@/lib/db/schema"
 import { deleteOrderThread, getThread } from "@/app/actions/messaging"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { statusMeta } from "@/lib/order-status"
-import { ListOrdered, Truck, Store, Package, Copy, Check, Search, Coins, Trash2, Loader2, AlertTriangle, Eye, X, ArrowLeft } from "lucide-react"
+import { ListOrdered, Truck, Store, Package, Copy, Check, Search, Coins, Trash2, Loader2, AlertTriangle, Eye, X, Calendar } from "lucide-react"
 
 type ThreadMessage = { id: number; sender: string; body: string; createdAt: Date | string }
 type ThreadDetail = { messages: ThreadMessage[] } & OrderThread
@@ -55,8 +55,31 @@ function TokenCell({ token }: { token: string | null }) {
   )
 }
 
+type Period = "all" | "week" | "month"
+
+function startOf(period: Period): Date | null {
+  if (period === "all") return null
+  const now = new Date()
+  if (period === "month") {
+    return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0)
+  }
+  // Semaine : lundi de la semaine en cours
+  const day = now.getDay() === 0 ? 6 : now.getDay() - 1 // 0=lun … 6=dim
+  const monday = new Date(now)
+  monday.setHours(0, 0, 0, 0)
+  monday.setDate(now.getDate() - day)
+  return monday
+}
+
+const PERIOD_LABELS: Record<Period, string> = {
+  all: "Tout",
+  week: "Cette semaine",
+  month: "Ce mois",
+}
+
 export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
   const [query, setQuery] = useState("")
+  const [period, setPeriod] = useState<Period>("all")
   const [rows, setRows] = useState<OrderThread[]>(threads)
   const [pendingId, setPendingId] = useState<number | null>(null)
   const [confirmOrder, setConfirmOrder] = useState<OrderThread | null>(null)
@@ -73,9 +96,15 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
     }
   }
 
+  const periodFiltered = useMemo(() => {
+    const start = startOf(period)
+    if (!start) return rows
+    return rows.filter((t) => new Date(t.createdAt) >= start)
+  }, [rows, period])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const sorted = [...rows].sort(
+    const sorted = [...periodFiltered].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
     if (!q) return sorted
@@ -85,13 +114,13 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
         (t.customerToken ?? "").toLowerCase().includes(q) ||
         (t.products ?? "").toLowerCase().includes(q),
     )
-  }, [rows, query])
+  }, [periodFiltered, query])
 
   const totals = useMemo(() => {
-    const revenue = rows.reduce((sum, t) => sum + (t.total ?? 0), 0)
-    const points = rows.reduce((sum, t) => sum + computeLoyaltyPoints(t.total ?? 0), 0)
-    return { count: rows.length, revenue, points }
-  }, [rows])
+    const revenue = periodFiltered.reduce((sum, t) => sum + (t.total ?? 0), 0)
+    const points = periodFiltered.reduce((sum, t) => sum + computeLoyaltyPoints(t.total ?? 0), 0)
+    return { count: periodFiltered.length, revenue, points }
+  }, [periodFiltered])
 
   const handleDelete = async (order: OrderThread) => {
     setPendingId(order.id)
@@ -136,16 +165,35 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
         </div>
       </div>
 
-      {/* Recherche */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Rechercher (pseudo, token, produit)…"
-          className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-9 pr-3 text-sm outline-none transition-colors focus:border-accent"
-        />
+      {/* Filtres période + recherche */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 rounded-xl border border-border bg-background/60 p-1">
+          <Calendar className="ml-2 h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPeriod(p)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                period === p
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {PERIOD_LABELS[p]}
+            </button>
+          ))}
+        </div>
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Rechercher (pseudo, token, produit)…"
+            className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-9 pr-3 text-sm outline-none transition-colors focus:border-accent"
+          />
+        </div>
       </div>
 
       {/* Tableau */}
