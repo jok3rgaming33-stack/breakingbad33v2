@@ -3,8 +3,6 @@
 import { db } from "@/lib/db"
 import {
   broadcastNotifications,
-  orderThreads,
-  threadMessages,
   users,
 } from "@/lib/db/schema"
 import { desc, eq } from "drizzle-orm"
@@ -55,73 +53,17 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
     ...(input.imageUrl ? { image: input.imageUrl } : {}),
   }
 
-  // Crée un fil de notification par destinataire + envoie le push Web
+  // Envoi push uniquement — même comportement que les news.
+  // Pas de fil en messagerie : la notification arrive dans la cloche du navigateur.
   let sentCount = 0
 
   if (input.recipients === "all") {
-    // Crée les fils en DB d'abord, puis envoie un push broadcast unique
-    for (const t of targets) {
-      try {
-        const [thread] = await db
-          .insert(orderThreads)
-          .values({
-            customerName: t.pseudo,
-            customerToken: t.token,
-            trackingToken: `NOTIF_${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
-            summary: `Notification : ${title}`,
-            total: 0,
-            fulfillment: "livraison",
-            status: "notification",
-          })
-          .returning()
-
-        const fullBody = input.imageUrl
-          ? `${body}\n\n[image]${input.imageUrl}[/image]`
-          : body
-
-        await db.insert(threadMessages).values({
-          threadId: thread.id,
-          sender: "vendeur",
-          body: fullBody,
-        })
-
-        sentCount++
-      } catch {
-        // best-effort
-      }
-    }
-    // Un seul appel push pour tous (notifyAllClients itère les abonnements)
     await notifyAllClients(pushPayload).catch(() => {})
+    sentCount = targets.length
   } else {
-    // Ciblé : fil + push individuel par destinataire
     for (const t of targets) {
       try {
-        const [thread] = await db
-          .insert(orderThreads)
-          .values({
-            customerName: t.pseudo,
-            customerToken: t.token,
-            trackingToken: `NOTIF_${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
-            summary: `Notification : ${title}`,
-            total: 0,
-            fulfillment: "livraison",
-            status: "notification",
-          })
-          .returning()
-
-        const fullBody = input.imageUrl
-          ? `${body}\n\n[image]${input.imageUrl}[/image]`
-          : body
-
-        await db.insert(threadMessages).values({
-          threadId: thread.id,
-          sender: "vendeur",
-          body: fullBody,
-        })
-
-        // Push individuel
-        await notifyCustomer(t.token, pushPayload).catch(() => {})
-
+        await notifyCustomer(t.token, pushPayload)
         sentCount++
       } catch {
         // best-effort

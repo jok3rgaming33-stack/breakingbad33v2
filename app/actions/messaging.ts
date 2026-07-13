@@ -392,6 +392,7 @@ export async function getThreadsForToken(customerToken: string) {
     .where(
       and(
         eq(orderThreads.customerToken, token),
+        ne(orderThreads.status, "notification"),            // les notifs broadcast passent par la cloche, pas la messagerie
         or(
           ne(orderThreads.fulfillment, "locker"),            // commandes normales
           eq(orderThreads.status, "trk_token"),             // fils TRK locker à afficher en ambre
@@ -468,7 +469,12 @@ export async function getCustomerThreadsOverview(customerToken: string) {
     })
     .from(orderThreads)
     .leftJoin(threadMessages, eq(threadMessages.threadId, orderThreads.id))
-    .where(eq(orderThreads.customerToken, token))
+    .where(
+      and(
+        eq(orderThreads.customerToken, token),
+        ne(orderThreads.status, "notification"),
+      )
+    )
     .groupBy(orderThreads.id, orderThreads.status)
   return rows
 }
