@@ -3,9 +3,10 @@
 import { db } from "@/lib/db"
 import {
   broadcastNotifications,
+  notificationReads,
   users,
 } from "@/lib/db/schema"
-import { desc, eq } from "drizzle-orm"
+import { desc, eq, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { notifyCustomer, notifyAllClients } from "@/lib/push"
@@ -44,26 +45,49 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
 
   if (!targets.length) return { ok: false as const, error: "Aucun destinataire trouvé." }
 
-  // Payload push commun — même format que publishAndNotify des news
-  const pushPayload = {
-    title: `BreakingBad33 — ${title}`,
+  // Insère le log en base AVANT l'envoi pour récupérer l'ID à injecter dans le payload.
+  const [inserted] = await db.insert(broadcastNotifications).values({
+    title,
     body,
-    url: "/",
-    tag: `notif-${Date.now()}`,
-    ...(input.imageUrl ? { image: input.imageUrl } : {}),
-  }
+    imageUrl: input.imageUrl ?? null,
+    recipients: input.recipients === "all" ? "all" : JSON.stringify(input.recipients),
+    sentCount: 0, // mis à jour après l'envoi
+  }).returning()
+
+  const notificationId = inserted.id
 
   // Envoi push uniquement — même comportement que les news.
-  // Pas de fil en messagerie : la notification arrive dans la cloche du navigateur.
+  // notificationId + customerToken sont injectés pour que le SW pinge /api/notification-read.
   let sentCount = 0
 
   if (input.recipients === "all") {
-    await notifyAllClients(pushPayload).catch(() => {})
-    sentCount = targets.length
+    // Pour "all" on envoie un push par abonnement avec le customerToken individuel
+    for (const t of targets) {
+      const payload = {
+        title: `BreakingBad33 — ${title}`,
+        body,
+        url: "/",
+        tag: `notif-${notificationId}`,
+        notificationId,
+        customerToken: t.token,
+        ...(input.imageUrl ? { image: input.imageUrl } : {}),
+      }
+      await notifyCustomer(t.token, payload).catch(() => {})
+      sentCount++
+    }
   } else {
     for (const t of targets) {
       try {
-        await notifyCustomer(t.token, pushPayload)
+        const payload = {
+          title: `BreakingBad33 — ${title}`,
+          body,
+          url: "/",
+          tag: `notif-${notificationId}`,
+          notificationId,
+          customerToken: t.token,
+          ...(input.imageUrl ? { image: input.imageUrl } : {}),
+        }
+        await notifyCustomer(t.token, payload)
         sentCount++
       } catch {
         // best-effort
@@ -71,14 +95,10 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
     }
   }
 
-  // Log en base
-  await db.insert(broadcastNotifications).values({
-    title,
-    body,
-    imageUrl: input.imageUrl ?? null,
-    recipients: input.recipients === "all" ? "all" : JSON.stringify(input.recipients),
-    sentCount,
-  })
+  // Met à jour le sentCount réel
+  await db.update(broadcastNotifications)
+    .set({ sentCount })
+    .where(eq(broadcastNotifications.id, notificationId))
 
   revalidatePath("/admin")
   return { ok: true as const, sentCount }
@@ -94,3 +114,34 @@ export async function listBroadcastNotifications(limit = 50) {
 }
 
 export type BroadcastNotificationRow = Awaited<ReturnType<typeof listBroadcastNotifications>>[number]
+
+// Enregistre la lecture d'une notification par un client (appelé depuis le SW via /api/notification-read).
+export async function markNotificationRead(notificationId: number, customerToken: string) {
+  if (!notificationId || !customerToken) return { ok: false as const }
+  await db
+    .insert(notificationReads)
+    .values({ notificationId, customerToken })
+    .onConflictDoNothing()
+  return { ok: true as const }
+}
+
+// Retourne le détail de lecture d'une notification (qui a lu, qui n'a pas lu).
+export async function getNotificationReads(notificationId: number) {
+  const reads = await db
+    .select({ customerToken: notificationReads.customerToken, readAt: notificationReads.readAt })
+    .from(notificationReads)
+    .where(eq(notificationReads.notificationId, notificationId))
+  return reads
+}
+
+// Retourne le nombre de lectures par notification (pour affichage rapide dans la liste).
+export async function getNotificationReadCounts() {
+  const rows = await db
+    .select({
+      notificationId: notificationReads.notificationId,
+      readCount: sql<number>`count(*)::int`,
+    })
+    .from(notificationReads)
+    .groupBy(notificationReads.notificationId)
+  return Object.fromEntries(rows.map(r => [r.notificationId, r.readCount]))
+}

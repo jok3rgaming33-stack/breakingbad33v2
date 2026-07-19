@@ -31,27 +31,35 @@ type ActiveNews = {
 
 export function NewsPopup({ token }: { token?: string }) {
   const { applyPromo } = useCart()
-  const [data, setData] = useState<ActiveNews | null>(null)
+  // File de toutes les news actives ; on les affiche une par une.
+  const [queue, setQueue] = useState<ActiveNews[]>([])
+  const [queueTotal, setQueueTotal] = useState(0) // total initial pour afficher "X/N"
+  const [queuePos, setQueuePos] = useState(1)     // position courante dans la file (1-indexed)
   const [index, setIndex] = useState(0)
   const [open, setOpen] = useState(false)
   const [redeeming, setRedeeming] = useState<number | null>(null)
   const [claimed, setClaimed] = useState<Record<number, boolean>>({})
   const touchStartX = useRef<number | null>(null)
 
-  // Charge la news active non vue par ce client à l'entrée du site.
+  // Charge toutes les news actives à l'entrée.
   useEffect(() => {
     let cancelled = false
     getActiveNewsForUser(token)
       .then((res) => {
         if (cancelled || !res) return
-        setData(res as ActiveNews)
+        const arr = Array.isArray(res) ? res : [res]
+        if (arr.length === 0) return
+        setQueue(arr as ActiveNews[])
+        setQueueTotal(arr.length)
+        setQueuePos(1)
         setOpen(true)
       })
       .catch(() => {})
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [token])
+
+  // News courante dans la file
+  const data = queue[0] ?? null
 
   if (!open || !data) return null
 
@@ -59,10 +67,18 @@ export function NewsPopup({ token }: { token?: string }) {
   const slide = slides[index]
   const total = slides.length
 
+  // Ferme le popup courant et passe à la news suivante s'il en reste.
   const close = () => {
-    setOpen(false)
-    // Enregistre la lecture pour ne pas réafficher ce popup.
     markNewsRead(token, data.news.id).catch(() => {})
+    const next = queue.slice(1)
+    if (next.length > 0) {
+      setQueue(next)
+      setQueuePos(p => p + 1)
+      setIndex(0)
+      setClaimed({})
+    } else {
+      setOpen(false)
+    }
   }
 
   const goTo = (i: number) => setIndex((i + total) % total)
@@ -119,14 +135,21 @@ export function NewsPopup({ token }: { token?: string }) {
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
-        <button
-          type="button"
-          onClick={close}
-          className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-background/70 text-foreground backdrop-blur transition-colors hover:bg-background"
-          aria-label="Fermer"
-        >
-          <X className="h-5 w-5" aria-hidden="true" />
-        </button>
+        <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+          {queueTotal > 1 && (
+            <span className="rounded-full bg-background/70 px-2 py-1 text-[10px] font-semibold text-muted-foreground backdrop-blur">
+              Annonce {queuePos}/{queueTotal}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={close}
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-background/70 text-foreground backdrop-blur transition-colors hover:bg-background"
+            aria-label="Fermer"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </div>
 
         {/* Image ou vidéo — hauteur bornée pour ne pas déborder sur mobile */}
         {slide?.imageUrl && (

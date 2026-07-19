@@ -21,7 +21,6 @@ self.addEventListener("push", (event) => {
   const title = data.title || "BreakingBad33"
   const options = {
     body: data.body || "",
-    // Logo du site (fond plein) pour éviter le rectangle blanc des icônes maskable.
     icon: "/images/logoapp.png",
     badge: "/images/logoapp.png",
     tag: data.tag || undefined,
@@ -29,7 +28,25 @@ self.addEventListener("push", (event) => {
     vibrate: [80, 40, 80],
   }
 
-  event.waitUntil(self.registration.showNotification(title, options))
+  // Ping le serveur pour marquer la notification comme reçue/lue par ce client.
+  // notificationId et customerToken sont injectés dans le payload côté serveur.
+  const readPing = (data.notificationId && data.customerToken)
+    ? fetch("/api/notification-read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          notificationId: data.notificationId,
+          customerToken: data.customerToken,
+        }),
+      }).catch(() => {})
+    : Promise.resolve()
+
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(title, options),
+      readPing,
+    ])
+  )
 })
 
 self.addEventListener("notificationclick", (event) => {

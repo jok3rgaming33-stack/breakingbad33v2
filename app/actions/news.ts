@@ -1,8 +1,8 @@
 "use server"
 
 import { db } from "@/lib/db"
-import { news, newsSlides, promoUsages, userNewsReads } from "@/lib/db/schema"
-import { and, asc, desc, eq, notInArray, sql } from "drizzle-orm"
+import { news, newsSlides, promoUsages, userNewsReads, notificationReads } from "@/lib/db/schema"
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { notifyAllClients } from "@/lib/push"
 
@@ -31,6 +31,7 @@ export async function listNews() {
       id: news.id,
       title: news.title,
       isActive: news.isActive,
+      sortOrder: news.sortOrder,
       createdAt: news.createdAt,
       updatedAt: news.updatedAt,
       slideCount: sql<number>`count(${newsSlides.id})::int`,
@@ -38,7 +39,7 @@ export async function listNews() {
     .from(news)
     .leftJoin(newsSlides, eq(newsSlides.newsId, news.id))
     .groupBy(news.id)
-    .orderBy(desc(news.createdAt))
+    .orderBy(asc(news.sortOrder), desc(news.createdAt))
   return rows
 }
 
@@ -121,14 +122,36 @@ export async function deleteSlide(slideId: number) {
   return { ok: true as const }
 }
 
-// Active une news (et désactive les autres pour n'avoir qu'un popup à la fois),
-// puis envoie une notification push à tous les clients abonnés.
+// Active/désactive une news individuellement (sans toucher les autres).
+export async function toggleNewsActive(newsId: number, isActive: boolean) {
+  if (!newsId) return { ok: false as const }
+  await db
+    .update(news)
+    .set({ isActive, updatedAt: sql`now()` })
+    .where(eq(news.id, newsId))
+  revalidatePath("/admin")
+  revalidatePath("/")
+  return { ok: true as const }
+}
+
+// Met à jour l'ordre d'affichage d'une liste de news [{ id, sortOrder }].
+export async function reorderNews(items: { id: number; sortOrder: number }[]) {
+  if (!items.length) return { ok: true as const }
+  for (const item of items) {
+    await db.update(news).set({ sortOrder: item.sortOrder }).where(eq(news.id, item.id))
+  }
+  revalidatePath("/admin")
+  revalidatePath("/")
+  return { ok: true as const }
+}
+
+// Publie une news (active) et envoie une notification push.
 export async function publishAndNotify(newsId: number) {
   if (!newsId) return { ok: false as const }
   const [item] = await db.select().from(news).where(eq(news.id, newsId))
   if (!item) return { ok: false as const }
 
-  await db.update(news).set({ isActive: false }).where(notInArray(news.id, [newsId]))
+  // Active cette news sans toucher les autres — plusieurs peuvent être actives simultanément.
   await db.update(news).set({ isActive: true, updatedAt: sql`now()` }).where(eq(news.id, newsId))
 
   await notifyAllClients({
@@ -145,28 +168,27 @@ export async function publishAndNotify(newsId: number) {
 
 /* ----------------------------- CLIENT : POPUP --------------------------- */
 
-// Renvoie la news active la plus récente non encore vue par ce client, avec ses slides.
+// Renvoie toutes les news actives (ordonnées par sortOrder) avec leurs slides,
+// pour les afficher en séquence de popups côté client.
 export async function getActiveNewsForUser(userToken: string | null | undefined) {
   const token = userToken?.trim()
   const active = await db
     .select()
     .from(news)
     .where(eq(news.isActive, true))
-    .orderBy(desc(news.updatedAt))
+    .orderBy(asc(news.sortOrder), asc(news.createdAt))
 
+  const result = []
   for (const item of active) {
-    // Note : on n'ignore plus les news déjà vues — le popup réapparaît à chaque visite
-    // tant que la news est active (comportement souhaité).
     const slides = await db
       .select()
       .from(newsSlides)
       .where(eq(newsSlides.newsId, item.id))
       .orderBy(asc(newsSlides.order), asc(newsSlides.id))
 
-    // Si la news n'a aucun slide, on affiche tout de même un slide par défaut
-    // basé sur son titre, pour que le popup apparaisse bien côté client.
+    // Si la news n'a aucun slide, on génère un slide par défaut basé sur son titre.
     if (slides.length === 0) {
-      return {
+      result.push({
         news: item,
         slides: [
           {
@@ -187,7 +209,8 @@ export async function getActiveNewsForUser(userToken: string | null | undefined)
             promoUsed: false,
           },
         ],
-      }
+      })
+      continue
     }
     // Indique pour chaque promo si ce client l'a déjà utilisée.
     const slidesWithUsage = await Promise.all(
@@ -204,9 +227,9 @@ export async function getActiveNewsForUser(userToken: string | null | undefined)
         return { ...s, promoUsed }
       }),
     )
-    return { news: item, slides: slidesWithUsage }
+    result.push({ news: item, slides: slidesWithUsage })
   }
-  return null
+  return result.length > 0 ? result : null
 }
 
 // Marque une news comme vue par ce client.

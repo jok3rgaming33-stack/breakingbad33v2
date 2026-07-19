@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   listNews,
   getNewsWithSlides,
@@ -10,10 +10,12 @@ import {
   upsertSlide,
   deleteSlide,
   publishAndNotify,
+  toggleNewsActive,
+  reorderNews,
   type SlideInput,
 } from "@/app/actions/news"
 import { uploadMedia } from "@/lib/upload-media"
-import { BlobMedia, isVideoUrl } from "@/components/blob-media"
+import { BlobMedia } from "@/components/blob-media"
 import {
   Newspaper,
   Plus,
@@ -27,12 +29,16 @@ import {
   CheckCircle2,
   Upload,
   X,
+  ChevronUp,
+  ChevronDown,
+  GripVertical,
 } from "lucide-react"
 
 type NewsRow = {
   id: number
   title: string
   isActive: boolean
+  sortOrder: number
   createdAt: Date | string
   updatedAt: Date | string
   slideCount: number
@@ -64,9 +70,10 @@ export function AdminNews() {
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [busy, setBusy] = useState(false)
   const [publishedId, setPublishedId] = useState<number | null>(null)
-  // Index du slide en cours d'upload d'image (pour afficher le spinner localement).
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  // Suivi de l'état toggle en cours pour éviter double-clic
+  const [togglingId, setTogglingId] = useState<number | null>(null)
 
   const refreshList = async () => {
     setLoading(true)
@@ -123,11 +130,31 @@ export function AdminNews() {
     }
   }
 
-  // Enregistre le titre et tous les slides actuellement à l'écran (upsert).
+  // Toggle actif/inactif directement depuis la liste
+  const handleToggleActive = async (id: number, current: boolean) => {
+    setTogglingId(id)
+    try {
+      await toggleNewsActive(id, !current)
+      setList(prev => prev.map(n => n.id === id ? { ...n, isActive: !current } : n))
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
+  // Déplace une news vers le haut ou le bas dans la liste
+  const handleReorder = async (idx: number, dir: "up" | "down") => {
+    const newList = [...list]
+    const target = dir === "up" ? idx - 1 : idx + 1
+    if (target < 0 || target >= newList.length) return
+    ;[newList[idx], newList[target]] = [newList[target], newList[idx]]
+    const reordered = newList.map((n, i) => ({ ...n, sortOrder: i }))
+    setList(reordered)
+    await reorderNews(reordered.map(n => ({ id: n.id, sortOrder: n.sortOrder })))
+  }
+
   const persistAll = async () => {
     if (!selectedId) return
     await updateNews(selectedId, { title })
-    // On enregistre chaque slide dans l'ordre d'affichage.
     for (let i = 0; i < slides.length; i++) {
       const s = slides[i]
       const input: SlideInput = {
@@ -155,7 +182,6 @@ export function AdminNews() {
     if (!selectedId) return
     setBusy(true)
     try {
-      // On enregistre d'abord tout le contenu pour ne jamais publier une annonce vide.
       await persistAll()
       const res = await publishAndNotify(selectedId)
       if (res.ok) {
@@ -168,9 +194,8 @@ export function AdminNews() {
     }
   }
 
-  // Ajoute un slide vierge localement (sera persisté au premier enregistrement).
   const addLocalSlide = () => {
-    setSlides((prev) => [
+    setSlides(prev => [
       ...prev,
       {
         id: 0,
@@ -192,10 +217,9 @@ export function AdminNews() {
   }
 
   const updateSlideField = (idx: number, patch: Partial<Slide>) => {
-    setSlides((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)))
+    setSlides(prev => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)))
   }
 
-  // Upload d'une image ou vidéo depuis l'appareil vers Blob, puis renseigne l'URL du slide.
   const handleImageUpload = async (idx: number, file: File) => {
     const isImage = file.type.startsWith("image/")
     const isVideo = file.type.startsWith("video/")
@@ -209,7 +233,7 @@ export function AdminNews() {
       const { url } = await uploadMedia(file)
       updateSlideField(idx, { imageUrl: url })
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Échec de l'envoi.")
+      setUploadError(err instanceof Error ? err.message : "Echec de l'envoi.")
     } finally {
       setUploadingIdx(null)
     }
@@ -259,7 +283,7 @@ export function AdminNews() {
         setBusy(false)
       }
     } else {
-      setSlides((prev) => prev.filter((_, i) => i !== idx))
+      setSlides(prev => prev.filter((_, i) => i !== idx))
     }
   }
 
@@ -270,7 +294,10 @@ export function AdminNews() {
         <div className="mb-6 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <Newspaper className="h-5 w-5 text-accent" aria-hidden="true" />
-            <h2 className="text-lg font-bold">News &amp; annonces</h2>
+            <div>
+              <h2 className="text-lg font-bold">News &amp; annonces</h2>
+              <p className="text-xs text-muted-foreground">Chaque news = un popup independant. Activez/desactivez et reordonnez librement.</p>
+            </div>
           </div>
           <button
             type="button"
@@ -290,28 +317,86 @@ export function AdminNews() {
         ) : list.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
             <Newspaper className="h-10 w-10" aria-hidden="true" />
-            <p className="text-sm">Aucune annonce. Crée ta première news.</p>
+            <p className="text-sm">Aucune annonce. Cree ta premiere news.</p>
           </div>
         ) : (
-          <ul className="flex flex-col gap-3">
-            {list.map((n) => (
-              <li key={n.id}>
-                <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 p-4">
-                  <button type="button" onClick={() => openNews(n.id)} className="flex-1 text-left">
-                    <div className="flex items-center gap-2">
+          <ul className="flex flex-col gap-2">
+            {list.map((n, idx) => (
+              <li key={n.id} className="rounded-2xl border border-border bg-background/60">
+                <div className="flex items-center gap-3 p-3">
+                  {/* Poignee de tri + boutons ordre */}
+                  <div className="flex shrink-0 flex-col items-center gap-0.5 text-muted-foreground">
+                    <button
+                      type="button"
+                      onClick={() => handleReorder(idx, "up")}
+                      disabled={idx === 0 || togglingId !== null}
+                      className="rounded p-0.5 transition-colors hover:text-foreground disabled:opacity-30"
+                      aria-label="Monter"
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                    <GripVertical className="h-4 w-4 opacity-40" aria-hidden="true" />
+                    <button
+                      type="button"
+                      onClick={() => handleReorder(idx, "down")}
+                      disabled={idx === list.length - 1 || togglingId !== null}
+                      className="rounded p-0.5 transition-colors hover:text-foreground disabled:opacity-30"
+                      aria-label="Descendre"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+
+                  {/* Numero ordre */}
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-secondary text-xs font-bold text-muted-foreground">
+                    {idx + 1}
+                  </span>
+
+                  {/* Contenu cliquable */}
+                  <button type="button" onClick={() => openNews(n.id)} className="min-w-0 flex-1 text-left">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">{n.title}</span>
-                      {n.isActive && (
+                      {n.isActive ? (
                         <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-accent">
                           En ligne
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Desactive
                         </span>
                       )}
                     </div>
                     <div className="text-xs text-muted-foreground">{n.slideCount} slide(s)</div>
                   </button>
+
+                  {/* Toggle actif/inactif */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleActive(n.id, n.isActive)}
+                    disabled={togglingId === n.id}
+                    title={n.isActive ? "Desactiver" : "Activer"}
+                    aria-label={n.isActive ? "Desactiver cette news" : "Activer cette news"}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 transition-colors focus:outline-none disabled:opacity-50 ${
+                      n.isActive ? "border-accent bg-accent" : "border-border bg-secondary"
+                    }`}
+                  >
+                    {togglingId === n.id ? (
+                      <Loader2 className="absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 animate-spin text-white" aria-hidden="true" />
+                    ) : (
+                      <span
+                        className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                          n.isActive ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    )}
+                  </button>
+
+                  {/* Supprimer */}
                   <button
                     type="button"
                     onClick={() => handleDeleteNews(n.id)}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-destructive"
+                    disabled={busy}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
                     aria-label="Supprimer l'annonce"
                   >
                     <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -325,7 +410,7 @@ export function AdminNews() {
     )
   }
 
-  /* --------------------------- Vue édition --------------------------- */
+  /* --------------------------- Vue edition --------------------------- */
   return (
     <div className="rounded-3xl border border-border bg-card p-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -351,12 +436,12 @@ export function AdminNews() {
             ) : (
               <Send className="h-4 w-4" aria-hidden="true" />
             )}
-            {publishedId === selectedId ? "Publié + notifié" : "Publier + Notifier"}
+            {publishedId === selectedId ? "Publie + notifie" : "Publier + Notifier"}
           </button>
         </div>
       </div>
 
-      {/* Titre de la news */}
+      {/* Titre */}
       <div className="mb-6">
         <label htmlFor="news-title" className="mb-2 block text-sm font-medium">
           Titre de l&apos;annonce
@@ -365,7 +450,7 @@ export function AdminNews() {
           <input
             id="news-title"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={e => setTitle(e.target.value)}
             onBlur={handleSaveTitle}
             className="flex-1 rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
           />
@@ -414,23 +499,25 @@ export function AdminNews() {
               <div className="flex flex-col gap-3">
                 <input
                   value={s.title ?? ""}
-                  onChange={(e) => updateSlideField(idx, { title: e.target.value })}
+                  onChange={e => updateSlideField(idx, { title: e.target.value })}
                   placeholder="Titre du slide"
                   className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                 />
                 <textarea
                   value={s.content ?? ""}
-                  onChange={(e) => updateSlideField(idx, { content: e.target.value })}
-                  placeholder="Contenu / description (les sauts de ligne sont conservés)"
+                  onChange={e => updateSlideField(idx, { content: e.target.value })}
+                  placeholder="Contenu / description"
                   rows={5}
                   className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                 />
+
+                {/* Upload image/video */}
                 <div className="flex flex-col gap-2">
                   {s.imageUrl ? (
                     <div className="relative overflow-hidden rounded-xl border border-border">
                       <BlobMedia
                         src={s.imageUrl}
-                        alt="Aperçu du slide"
+                        alt="Apercu du slide"
                         className="max-h-40 w-full object-cover"
                         videoProps={{ muted: true, playsInline: true, preload: "metadata", controls: true, style: { maxHeight: "160px" } }}
                       />
@@ -438,7 +525,7 @@ export function AdminNews() {
                         type="button"
                         onClick={() => updateSlideField(idx, { imageUrl: "" })}
                         className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
-                        aria-label="Retirer le média"
+                        aria-label="Retirer le media"
                       >
                         <X className="h-4 w-4" aria-hidden="true" />
                       </button>
@@ -455,12 +542,12 @@ export function AdminNews() {
                       ) : (
                         <Upload className="h-4 w-4" aria-hidden="true" />
                       )}
-                      Image / Vidéo
+                      {uploadingIdx === idx ? "Upload..." : "Image / Video"}
                       <input
                         type="file"
                         accept="image/*,video/*"
                         className="hidden"
-                        onChange={(e) => {
+                        onChange={e => {
                           const f = e.target.files?.[0]
                           if (f) handleImageUpload(idx, f)
                           e.target.value = ""
@@ -471,8 +558,8 @@ export function AdminNews() {
                       <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                       <input
                         value={s.imageUrl ?? ""}
-                        onChange={(e) => updateSlideField(idx, { imageUrl: e.target.value })}
-                        placeholder="ou colle une URL (image ou vidéo)"
+                        onChange={e => updateSlideField(idx, { imageUrl: e.target.value })}
+                        placeholder="ou colle une URL"
                         className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                       />
                     </div>
@@ -481,16 +568,17 @@ export function AdminNews() {
                     <p className="text-xs text-destructive">{uploadError}</p>
                   )}
                 </div>
+
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     value={s.buttonText ?? ""}
-                    onChange={(e) => updateSlideField(idx, { buttonText: e.target.value })}
+                    onChange={e => updateSlideField(idx, { buttonText: e.target.value })}
                     placeholder="Texte du bouton"
                     className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                   />
                   <input
                     value={s.buttonLink ?? ""}
-                    onChange={(e) => updateSlideField(idx, { buttonLink: e.target.value })}
+                    onChange={e => updateSlideField(idx, { buttonLink: e.target.value })}
                     placeholder="Lien du bouton"
                     className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                   />
@@ -505,44 +593,40 @@ export function AdminNews() {
                   <div className="flex flex-col gap-2">
                     <input
                       value={s.promoCode ?? ""}
-                      onChange={(e) => updateSlideField(idx, { promoCode: e.target.value.toUpperCase() })}
+                      onChange={e => updateSlideField(idx, { promoCode: e.target.value.toUpperCase() })}
                       placeholder="Code promo (ex. WELCOME10)"
                       className="w-full rounded-xl border border-border bg-card px-3 py-2.5 font-mono text-sm outline-none transition-colors focus:border-accent"
                     />
                     <div className="grid grid-cols-3 gap-2">
                       <select
                         value={s.promoType ?? "fixed"}
-                        onChange={(e) => updateSlideField(idx, { promoType: e.target.value })}
+                        onChange={e => updateSlideField(idx, { promoType: e.target.value })}
                         className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent [color-scheme:dark]"
                       >
-                        <option value="fixed">€ fixe</option>
+                        <option value="fixed">euro fixe</option>
                         <option value="percent">% pourcent</option>
                         <option value="produit">Produit offert</option>
                       </select>
                       <input
                         type="number"
                         value={s.promoValue ?? ""}
-                        onChange={(e) =>
-                          updateSlideField(idx, { promoValue: e.target.value ? Number(e.target.value) : null })
-                        }
+                        onChange={e => updateSlideField(idx, { promoValue: e.target.value ? Number(e.target.value) : null })}
                         placeholder={s.promoType === "produit" ? "Nb offert" : "Valeur"}
                         className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                       />
                       <input
                         type="number"
                         value={s.minAmount ?? ""}
-                        onChange={(e) =>
-                          updateSlideField(idx, { minAmount: e.target.value ? Number(e.target.value) : null })
-                        }
-                        placeholder="Min. €"
+                        onChange={e => updateSlideField(idx, { minAmount: e.target.value ? Number(e.target.value) : null })}
+                        placeholder="Min. euro"
                         className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                       />
                     </div>
                     {s.promoType === "produit" && (
                       <input
                         value={s.productName ?? ""}
-                        onChange={(e) => updateSlideField(idx, { productName: e.target.value })}
-                        placeholder="Nom du produit offert (ex. X-Taze)"
+                        onChange={e => updateSlideField(idx, { productName: e.target.value })}
+                        placeholder="Nom du produit offert"
                         className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                       />
                     )}
@@ -550,7 +634,7 @@ export function AdminNews() {
                       <input
                         type="checkbox"
                         checked={s.isSingleUse}
-                        onChange={(e) => updateSlideField(idx, { isSingleUse: e.target.checked })}
+                        onChange={e => updateSlideField(idx, { isSingleUse: e.target.checked })}
                         className="h-4 w-4 rounded border-border accent-[var(--accent)]"
                       />
                       Usage unique par client

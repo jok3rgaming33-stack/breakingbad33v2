@@ -151,6 +151,8 @@ export const news = pgTable("news", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   isActive: boolean("is_active").notNull().default(false),
+  // Ordre d'apparition lors de la connexion (0 = premier). Modifiable par drag-to-reorder.
+  sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
@@ -276,6 +278,16 @@ export const broadcastNotifications = pgTable("broadcast_notifications", {
 })
 
 export type BroadcastNotification = typeof broadcastNotifications.$inferSelect
+
+// Trace les lectures de notifications push par membre (pour suivi lu/non-lu dans l'admin).
+export const notificationReads = pgTable("notification_reads", {
+  id: serial("id").primaryKey(),
+  notificationId: integer("notification_id").notNull(),
+  customerToken: text("customer_token").notNull(),
+  readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type NotificationRead = typeof notificationReads.$inferSelect
 
 export type AdminAccount = typeof adminAccounts.$inferSelect
 export type Category = typeof categories.$inferSelect

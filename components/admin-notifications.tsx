@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useRef, useCallback } from "react"
+import { useState, useCallback } from "react"
 import {
   Bell, Send, Users, User, Upload, X, Loader2, Check,
-  Clock, ChevronDown, ChevronUp, History, PlusCircle,
+  Clock, ChevronDown, ChevronUp, History, PlusCircle, Eye, EyeOff,
 } from "lucide-react"
-import { sendBroadcastNotification } from "@/app/actions/notifications"
+import { sendBroadcastNotification, getNotificationReads } from "@/app/actions/notifications"
 import { uploadMedia } from "@/lib/upload-media"
 import type { BroadcastNotificationRow } from "@/app/actions/notifications"
 import type { AdminUserRow } from "@/app/actions/account"
@@ -30,7 +30,6 @@ export function AdminNotifications({ initialHistory, users }: Props) {
   const [selectedTokens, setSelectedTokens] = useState<Set<string>>(new Set())
   const [searchUser, setSearchUser] = useState("")
 
-  const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadErr, setUploadErr] = useState("")
 
@@ -40,6 +39,26 @@ export function AdminNotifications({ initialHistory, users }: Props) {
 
   // --- Historique ---
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  // Map notificationId -> tableau de tokens ayant lu
+  const [reads, setReads] = useState<Record<number, { customerToken: string; readAt: Date | string }[]>>({})
+  const [loadingReads, setLoadingReads] = useState<number | null>(null)
+
+  const toggleExpand = useCallback(async (id: number) => {
+    if (expandedId === id) {
+      setExpandedId(null)
+      return
+    }
+    setExpandedId(id)
+    if (!reads[id]) {
+      setLoadingReads(id)
+      try {
+        const result = await getNotificationReads(id)
+        setReads(prev => ({ ...prev, [id]: result }))
+      } catch { /* best-effort */ } finally {
+        setLoadingReads(null)
+      }
+    }
+  }, [expandedId, reads])
 
   const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -227,20 +246,15 @@ export function AdminNotifications({ initialHistory, users }: Props) {
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={uploading}
-                  className="flex items-center gap-2 rounded-xl border border-dashed border-border bg-background px-4 py-3 text-sm text-muted-foreground transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
-                >
+                <label className={`flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-border bg-background px-4 py-3 text-sm text-muted-foreground transition-colors hover:border-accent hover:text-accent ${uploading ? "pointer-events-none opacity-50" : ""}`}>
                   {uploading
                     ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                     : <Upload className="h-4 w-4" aria-hidden="true" />
                   }
-                  {uploading ? "Upload en cours..." : "Uploader une image depuis ton terminal"}
-                </button>
+                  {uploading ? "Upload en cours..." : "Uploader une image"}
+                  <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
+                </label>
               )}
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleUpload} />
               {uploadErr && <p className="mt-1.5 text-xs text-destructive">{uploadErr}</p>}
             </div>
 
@@ -372,11 +386,25 @@ export function AdminNotifications({ initialHistory, users }: Props) {
             <ul className="divide-y divide-border">
               {history.map(n => {
                 const expanded = expandedId === n.id
+                const notifReads = reads[n.id] ?? null
+                const readTokens = new Set((notifReads ?? []).map(r => r.customerToken))
+
+                // Calcule la mailing list de cette notification
+                let recipientTokens: string[] = []
+                if (n.recipients === "all") {
+                  // Pour "all" on affiche tous les users
+                } else {
+                  try { recipientTokens = JSON.parse(n.recipients) } catch { recipientTokens = [] }
+                }
+                const isAll = n.recipients === "all"
+                const targetUsers = isAll ? users : users.filter(u => recipientTokens.includes(u.token))
+                const readCount = notifReads ? targetUsers.filter(u => readTokens.has(u.token)).length : null
+
                 return (
                   <li key={n.id} className="px-5 py-4">
                     <button
                       type="button"
-                      onClick={() => setExpandedId(expanded ? null : n.id)}
+                      onClick={() => toggleExpand(n.id)}
                       className="flex w-full items-start gap-4 text-left"
                     >
                       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent">
@@ -387,11 +415,21 @@ export function AdminNotifications({ initialHistory, users }: Props) {
                         <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{n.body}</p>
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
-                        {/* Statut push + messagerie */}
                         <span className="flex items-center gap-1 rounded-lg bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
                           <Check className="h-3 w-3" aria-hidden="true" />
-                          Push + msg · {n.sentCount}
+                          Envoyee · {n.sentCount}
                         </span>
+                        {/* Badge lu/non-lu — chargé au premier expand */}
+                        {loadingReads === n.id ? (
+                          <span className="flex items-center gap-1 rounded-lg bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                          </span>
+                        ) : readCount !== null ? (
+                          <span className={`flex items-center gap-1 rounded-lg px-2 py-0.5 text-xs font-semibold ${readCount > 0 ? "bg-emerald-500/15 text-emerald-400" : "bg-secondary text-muted-foreground"}`}>
+                            <Eye className="h-3 w-3" aria-hidden="true" />
+                            {readCount}/{targetUsers.length} lu{readCount > 1 ? "s" : ""}
+                          </span>
+                        ) : null}
                         <span className="flex items-center gap-1 text-xs text-muted-foreground">
                           <Clock className="h-3 w-3" aria-hidden="true" />
                           {fmtDate(n.createdAt)}
@@ -421,6 +459,42 @@ export function AdminNotifications({ initialHistory, users }: Props) {
                             <img src={n.imageUrl} alt="Image notification" className="h-24 w-auto rounded-lg border border-border object-cover" />
                           </div>
                         )}
+                        {/* Tableau lu / non-lu par membre */}
+                        {notifReads !== null && targetUsers.length > 0 && (
+                          <div className="space-y-1.5">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Suivi reception ({readCount}/{targetUsers.length})
+                            </p>
+                            <div className="max-h-48 overflow-y-auto rounded-xl border border-border bg-background">
+                              {targetUsers.map(u => {
+                                const hasRead = readTokens.has(u.token)
+                                const readEntry = (notifReads ?? []).find(r => r.customerToken === u.token)
+                                return (
+                                  <div key={u.token} className="flex items-center gap-3 border-b border-border/50 px-3 py-2 last:border-0">
+                                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${hasRead ? "bg-emerald-500/20" : "bg-secondary"}`}>
+                                      {hasRead
+                                        ? <Eye className="h-3 w-3 text-emerald-400" aria-hidden="true" />
+                                        : <EyeOff className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                                      }
+                                    </span>
+                                    <span className="flex-1 truncate text-xs font-medium text-foreground">{u.pseudo ?? "—"}</span>
+                                    {hasRead && readEntry && (
+                                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                                        {fmtDate(readEntry.readAt)}
+                                      </span>
+                                    )}
+                                    {!hasRead && (
+                                      <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">
+                                        Non recu
+                                      </span>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+
                         <div className="flex items-center justify-between pt-1 border-t border-border">
                           <p className="text-xs text-muted-foreground">
                             {recipientLabel(n.recipients, n.sentCount)}
