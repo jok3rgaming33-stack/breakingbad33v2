@@ -157,12 +157,21 @@ export async function createGeneralInquiryThread(input: {
   return { ok: true as const, id: thread.id }
 }
 
-// Tous les fils (usage interne)
+// Fils affichés dans le récap commandes :
+// - exclut les notifications broadcast
+// - exclut les discussions directes (status discussion/pris_en_charge/ouvert/ferme)
+// - exclut les fils sans article (total = 0 ou null) → ils vont dans Messagerie
 export async function getThreads() {
   const threads = await db
     .select()
     .from(orderThreads)
-    .where(ne(orderThreads.status, "notification"))
+    .where(
+      and(
+        ne(orderThreads.status, "notification"),
+        notInArray(orderThreads.status, ["discussion", "pris_en_charge", "ouvert", "ferme"]),
+        gt(orderThreads.total, 0),
+      )
+    )
     .orderBy(desc(orderThreads.updatedAt))
   return threads
 }
