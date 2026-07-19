@@ -50,25 +50,48 @@ export function VendorInbox({
 
   const selected = threads.find((t) => t.id === selectedId) ?? null
 
-  // Ouvre le panneau de gestion des articles et pré-charge les produits + items existants
+  // Ouvre le panneau et pré-charge les articles existants de la commande
   const openProductsPanel = useCallback(async () => {
     if (!selected) return
     setProductsOpen(true)
-    if (allProducts.length === 0) {
-      setLoadingProducts(true)
-      const prods = await listProducts()
+    setLoadingProducts(true)
+
+    // Charge le catalogue si pas encore fait
+    let prods = allProducts
+    if (prods.length === 0) {
+      prods = await listProducts()
       setAllProducts(prods)
-      setLoadingProducts(false)
     }
-    // Parse le champ products texte existant en items structurés (best-effort)
-    // Format attendu : "Produit A ×2, Produit B ×1"
+    setLoadingProducts(false)
+
+    // Parse le champ products : format "Titre ×qty" séparé par ", "
+    // Reconstruit les OrderProductItem avec prevQty = qty actuel (pour calculer le bon delta stock)
+    const parsed: OrderProductItem[] = []
     if (selected.products) {
-      // on garde les items vides pour l'instant, le vendeur les remplira
+      const segments = selected.products.split(",").map((s) => s.trim())
+      for (const seg of segments) {
+        // ex: "Kéta (Needles) ×1" ou "X-Taze ×5"
+        const match = seg.match(/^(.+?)\s*[×x]\s*(\d+)$/i)
+        if (!match) continue
+        const titleRaw = match[1].trim()
+        const qty = parseInt(match[2], 10)
+        // Cherche le produit correspondant par titre (insensible à la casse)
+        const prod = prods.find(
+          (p) => p.title.toLowerCase() === titleRaw.toLowerCase()
+        )
+        if (prod) {
+          const price = prod.variants?.[0]?.price ?? 0
+          parsed.push({ productId: prod.id, title: prod.title, qty, price, prevQty: qty })
+        } else {
+          // Produit non trouvé dans le catalogue (supprimé ?) → on l'ajoute quand même
+          parsed.push({ productId: -1, title: titleRaw, qty, price: 0, prevQty: qty })
+        }
+      }
     }
-    // Initialise avec les articles courants si déjà parsés, sinon vide
-    setOrderItems([])
+
+    setOrderItems(parsed)
     setProductSearch("")
-  }, [selected, allProducts.length])
+  }, [selected, allProducts])
 
   // Garde une référence à la commande ouverte pour le rafraîchissement périodique
   const selectedIdRef = useRef<number | null>(null)
@@ -120,9 +143,10 @@ export function VendorInbox({
     try {
       const result = await updateOrderProducts(selectedId, orderItems)
       if (result.ok) {
+        const newProductsText = orderItems.filter(i => i.qty > 0).map(i => `${i.title} ×${i.qty}`).join(", ")
         setThreads((prev) => prev.map((t) =>
           t.id === selectedId
-            ? { ...t, total: result.newTotal, products: orderItems.filter(i => i.qty > 0).map(i => `${i.title} ×${i.qty}`).join(", ") }
+            ? { ...t, total: result.newTotal, products: newProductsText, summary: result.newSummary ?? t.summary }
             : t
         ))
         const data = await getThread(selectedId)

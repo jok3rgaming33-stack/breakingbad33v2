@@ -681,22 +681,55 @@ export async function updateOrderProducts(threadId: number, items: OrderProductI
   }
 
   // Reconstruit la colonne products (texte)
-  const newProducts = items
-    .filter((i) => i.qty > 0)
-    .map((i) => `${i.title} ×${i.qty}`)
-    .join(", ")
+  const activeItems = items.filter((i) => i.qty > 0)
+  const newProducts = activeItems.map((i) => `${i.title} ×${i.qty}`).join(", ")
+
+  // Reconstruit le summary complet (même format que la commande initiale)
+  const lines: string[] = []
+  for (const item of activeItems) {
+    lines.push(`• ${item.qty}x ${item.title} — ${item.qty * item.price}€`)
+  }
+  const dateStr = thread.scheduledDate
+    ? new Date(thread.scheduledDate).toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10)
+
+  let deliveryLine = ""
+  if (thread.fulfillment === "meetup") {
+    deliveryLine = `Retrait sur place (meet-up)${thread.scheduledSlot ? ` à ${thread.scheduledSlot}` : ""}`
+  } else if (thread.fulfillment === "locker") {
+    deliveryLine = `Mondial Relay${thread.scheduledSlot ? ` — ${thread.scheduledSlot}` : ""}`
+  } else {
+    deliveryLine = `Livraison${thread.address ? ` à ${thread.address}` : ""}${thread.scheduledSlot ? ` — créneau ${thread.scheduledSlot}` : ""}`
+  }
+
+  // Calcul sous-total (hors frais de livraison potentiels déjà dans l'ancien total)
+  const subTotal = activeItems.reduce((s, i) => s + i.qty * i.price, 0)
+
+  const newSummary = [
+    `Commande mise à jour`,
+    ...lines,
+    `Date : ${dateStr}`,
+    deliveryLine,
+    `Sous-total : ${subTotal}€`,
+    `TOTAL : ${newTotal}€`,
+  ].join("\n")
 
   await db
     .update(orderThreads)
-    .set({ products: newProducts, total: newTotal, updatedAt: sql`now()` })
+    .set({ products: newProducts, total: newTotal, summary: newSummary, updatedAt: sql`now()` })
     .where(eq(orderThreads.id, threadId))
 
-  // Message récapitulatif au client
+  // Message récapitulatif au client avec détail complet
   if (changes.length > 0) {
     const body = [
       `Mise à jour de ta commande #${threadId} :`,
       ``,
       ...changes,
+      ``,
+      // Récap complet des articles après modification
+      ...activeItems.map((i) => `• ${i.qty}x ${i.title} — ${i.qty * i.price}€`),
+      ``,
+      deliveryLine,
       ``,
       `Nouveau total : ${newTotal}€`,
     ].join("\n")
@@ -711,7 +744,7 @@ export async function updateOrderProducts(threadId: number, items: OrderProductI
   }
 
   revalidatePath("/admin")
-  return { ok: true as const, newTotal }
+  return { ok: true as const, newTotal, newSummary }
 }
 
 // Admin : confirme la reception du depot XMR et lance la preparation.
