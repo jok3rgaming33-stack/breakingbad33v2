@@ -1,12 +1,13 @@
 "use server"
 
 import { db } from "@/lib/db"
-import { orderThreads, threadMessages } from "@/lib/db/schema"
+import { orderThreads, threadMessages, products } from "@/lib/db/schema"
 import { and, desc, eq, gt, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { normalizeStatus, statusMeta } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { notifyCustomer, notifyVendor } from "@/lib/push"
+import { adjustStock } from "@/app/actions/products"
 
 export type NewOrderInput = {
   customerName: string
@@ -331,6 +332,9 @@ export async function updateThreadStatus(
       case "preparation":
         body = "⚙️ Nous sommes en train de préparer tes articles."
         break
+      case "pret_meetup":
+        body = "Ton colis est prêt. Tu peux venir le récupérer lors de notre rendez-vous."
+        break
       case "livraison": {
         // Inclure le numéro de suivi Colissimo s'il existe
         const colNum = current.colissimoNumber || colissimoNumber
@@ -631,6 +635,80 @@ export async function notifyDeposit(threadId: number) {
 
   revalidatePath("/admin")
   return { ok: true as const }
+}
+
+// Représente un article dans la commande (envoyé depuis le panneau de gestion)
+export type OrderProductItem = {
+  productId: number
+  title: string
+  qty: number        // quantité choisie (0 = suppression)
+  price: number      // prix unitaire pour cette quantité (variant)
+  prevQty: number    // quantité précédente avant modification (pour l'ajustement stock)
+}
+
+// Admin : met à jour les articles d'une commande existante.
+// - Recalcule le total
+// - Ajuste le stock de chaque produit (delta = prevQty - newQty)
+// - Envoie un message récapitulatif au client + push
+export async function updateOrderProducts(threadId: number, items: OrderProductItem[]) {
+  if (!threadId || !items.length) return { ok: false as const }
+  const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
+  if (!thread) return { ok: false as const }
+
+  // Calcul du nouveau total et des lignes de changement
+  const changes: string[] = []
+  let newTotal = 0
+
+  for (const item of items) {
+    const lineTotal = item.qty * item.price
+    newTotal += lineTotal
+
+    const delta = item.prevQty - item.qty // positif = stock rendu, négatif = stock consommé
+    if (delta !== 0) {
+      await adjustStock(item.productId, delta)
+    }
+
+    if (item.qty === 0) {
+      changes.push(`- ${item.title} retiré de la commande (rupture de stock ou annulation de l'article).`)
+    } else if (item.qty !== item.prevQty) {
+      const diff = item.qty - item.prevQty
+      const sign = diff > 0 ? `+${diff}` : `${diff}`
+      changes.push(`- ${item.title} : quantité ${sign} (nouvelle qté : ${item.qty} × ${item.price}€ = ${lineTotal}€)`)
+    }
+  }
+
+  // Reconstruit la colonne products (texte)
+  const newProducts = items
+    .filter((i) => i.qty > 0)
+    .map((i) => `${i.title} ×${i.qty}`)
+    .join(", ")
+
+  await db
+    .update(orderThreads)
+    .set({ products: newProducts, total: newTotal, updatedAt: sql`now()` })
+    .where(eq(orderThreads.id, threadId))
+
+  // Message récapitulatif au client
+  if (changes.length > 0) {
+    const body = [
+      `Mise à jour de ta commande #${threadId} :`,
+      ``,
+      ...changes,
+      ``,
+      `Nouveau total : ${newTotal}€`,
+    ].join("\n")
+
+    await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
+    await notifyCustomer(thread.customerToken, {
+      title: `Commande #${threadId} modifiée`,
+      body: `Total mis à jour : ${newTotal}€`,
+      url: "/",
+      tag: `order-update-${threadId}`,
+    })
+  }
+
+  revalidatePath("/admin")
+  return { ok: true as const, newTotal }
 }
 
 // Admin : confirme la reception du depot XMR et lance la preparation.

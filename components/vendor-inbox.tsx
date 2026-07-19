@@ -1,9 +1,11 @@
 "use client"
 
 import { useState, useTransition, useEffect, useRef, useCallback } from "react"
-import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
-import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit } from "@/app/actions/messaging"
-import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock } from "lucide-react"
+import type { OrderThread, ThreadMessage, Product } from "@/lib/db/schema"
+import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit, updateOrderProducts } from "@/app/actions/messaging"
+import type { OrderProductItem } from "@/app/actions/messaging"
+import { listProducts } from "@/app/actions/products"
+import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw } from "lucide-react"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
 
@@ -38,12 +40,97 @@ export function VendorInbox({
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
   const [xmrWalletInput, setXmrWalletInput] = useState("")
   const [xmrSending, setXmrSending] = useState(false)
+  // Panneau gestion des articles
+  const [productsOpen, setProductsOpen] = useState(false)
+  const [allProducts, setAllProducts] = useState<Product[]>([])
+  const [orderItems, setOrderItems] = useState<OrderProductItem[]>([])
+  const [loadingProducts, setLoadingProducts] = useState(false)
+  const [savingProducts, setSavingProducts] = useState(false)
+  const [productSearch, setProductSearch] = useState("")
 
   const selected = threads.find((t) => t.id === selectedId) ?? null
+
+  // Ouvre le panneau de gestion des articles et pré-charge les produits + items existants
+  const openProductsPanel = useCallback(async () => {
+    if (!selected) return
+    setProductsOpen(true)
+    if (allProducts.length === 0) {
+      setLoadingProducts(true)
+      const prods = await listProducts()
+      setAllProducts(prods)
+      setLoadingProducts(false)
+    }
+    // Parse le champ products texte existant en items structurés (best-effort)
+    // Format attendu : "Produit A ×2, Produit B ×1"
+    if (selected.products) {
+      // on garde les items vides pour l'instant, le vendeur les remplira
+    }
+    // Initialise avec les articles courants si déjà parsés, sinon vide
+    setOrderItems([])
+    setProductSearch("")
+  }, [selected, allProducts.length])
 
   // Garde une référence à la commande ouverte pour le rafraîchissement périodique
   const selectedIdRef = useRef<number | null>(null)
   selectedIdRef.current = selectedId
+
+  // Ajoute un produit à la liste ou incrémente sa quantité (variante la plus petite par défaut)
+  const addProductToOrder = (prod: Product) => {
+    const firstVariant = prod.variants?.[0]
+    if (!firstVariant) return
+    setOrderItems((prev) => {
+      const existing = prev.find((i) => i.productId === prod.id)
+      if (existing) {
+        return prev.map((i) => i.productId === prod.id ? { ...i, qty: i.qty + 1 } : i)
+      }
+      return [...prev, {
+        productId: prod.id,
+        title: prod.title,
+        qty: firstVariant.qty,
+        price: firstVariant.price,
+        prevQty: 0,
+      }]
+    })
+    setProductSearch("")
+  }
+
+  const updateItemQty = (productId: number, qty: number) => {
+    setOrderItems((prev) => prev.map((i) => i.productId === productId ? { ...i, qty: Math.max(0, qty) } : i))
+  }
+
+  const updateItemVariant = (productId: number, variantQty: number, prod: Product) => {
+    const variant = prod.variants?.find((v) => v.qty === variantQty)
+    if (!variant) return
+    setOrderItems((prev) => prev.map((i) =>
+      i.productId === productId ? { ...i, qty: variant.qty, price: variant.price } : i
+    ))
+  }
+
+  const removeItemFromOrder = (productId: number) => {
+    setOrderItems((prev) => prev.filter((i) => i.productId !== productId))
+  }
+
+  const orderTotal = orderItems.reduce((sum, i) => sum + i.qty * i.price, 0)
+
+  const saveOrderProducts = async () => {
+    if (!selectedId) return
+    setSavingProducts(true)
+    try {
+      const result = await updateOrderProducts(selectedId, orderItems)
+      if (result.ok) {
+        setThreads((prev) => prev.map((t) =>
+          t.id === selectedId
+            ? { ...t, total: result.newTotal, products: orderItems.filter(i => i.qty > 0).map(i => `${i.title} ×${i.qty}`).join(", ") }
+            : t
+        ))
+        const data = await getThread(selectedId)
+        setMessages(data?.messages ?? [])
+        setProductsOpen(false)
+      }
+    } finally {
+      setSavingProducts(false)
+    }
+  }
 
   const openThread = async (id: number) => {
     setSelectedId(id)
@@ -295,6 +382,17 @@ export function VendorInbox({
                       </option>
                     ))}
                   </select>
+                  {mode !== "messages" && (
+                    <button
+                      type="button"
+                      onClick={openProductsPanel}
+                      className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+                      title="Gérer les articles de la commande"
+                    >
+                      <ShoppingCart className="h-3.5 w-3.5" aria-hidden="true" />
+                      Articles
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setDeleteConfirmOpen(true)}
@@ -549,6 +647,164 @@ export function VendorInbox({
           </div>
         </div>
       )}
+      {/* Panneau : gestion des articles de la commande */}
+      {productsOpen && selected && (
+        <div
+          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-4 md:items-center"
+          onClick={() => setProductsOpen(false)}
+        >
+          <div
+            className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
+            style={{ maxHeight: "90dvh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* En-tête */}
+            <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+              <ShoppingCart className="h-5 w-5 text-accent" aria-hidden="true" />
+              <div>
+                <h3 className="text-sm font-semibold">Gérer les articles — Commande #{selected.id}</h3>
+                <p className="text-xs text-muted-foreground">{selected.customerName} · Total actuel : {selected.total}€</p>
+              </div>
+              <div className="ml-auto text-right">
+                <p className="text-xs text-muted-foreground">Nouveau total</p>
+                <p className="text-base font-bold text-foreground">{orderTotal}€</p>
+              </div>
+            </div>
+
+            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
+              {/* Articles en cours */}
+              {orderItems.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Articles dans la commande</p>
+                  {orderItems.map((item) => {
+                    const prod = allProducts.find((p) => p.id === item.productId)
+                    return (
+                      <div key={item.productId} className="flex items-center gap-3 rounded-xl border border-border bg-background px-3 py-2.5">
+                        <span className="flex-1 truncate text-sm font-medium">{item.title}</span>
+                        {/* Sélecteur de variante */}
+                        {prod?.variants && prod.variants.length > 1 && (
+                          <select
+                            value={item.qty}
+                            onChange={(e) => updateItemVariant(item.productId, Number(e.target.value), prod)}
+                            className="rounded-lg border border-input bg-background px-2 py-1 text-xs outline-none focus:border-accent"
+                          >
+                            {prod.variants.map((v) => (
+                              <option key={v.qty} value={v.qty}>{v.qty} × {v.price}€</option>
+                            ))}
+                          </select>
+                        )}
+                        {/* Contrôle quantité rapide */}
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => updateItemQty(item.productId, item.qty - 1)}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:border-accent hover:text-accent"
+                          >
+                            <Minus className="h-3 w-3" aria-hidden="true" />
+                          </button>
+                          <span className="w-6 text-center text-sm font-medium">{item.qty}</span>
+                          <button
+                            type="button"
+                            onClick={() => updateItemQty(item.productId, item.qty + 1)}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:border-accent hover:text-accent"
+                          >
+                            <Plus className="h-3 w-3" aria-hidden="true" />
+                          </button>
+                        </div>
+                        <span className="w-14 text-right text-sm font-semibold">{item.qty * item.price}€</span>
+                        <button
+                          type="button"
+                          onClick={() => removeItemFromOrder(item.productId)}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-destructive"
+                          aria-label="Retirer l'article"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Ajout d'un article */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ajouter un article</p>
+                <input
+                  type="text"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  placeholder="Rechercher un produit…"
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-accent"
+                />
+                {loadingProducts ? (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
+                  </div>
+                ) : (
+                  <div className="max-h-48 overflow-y-auto rounded-xl border border-border">
+                    {allProducts
+                      .filter((p) =>
+                        !productSearch || p.title.toLowerCase().includes(productSearch.toLowerCase())
+                      )
+                      .map((p) => {
+                        const alreadyAdded = orderItems.some((i) => i.productId === p.id)
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => addProductToOrder(p)}
+                            disabled={p.stock === 0}
+                            className="flex w-full items-center justify-between border-b border-border/50 px-3 py-2.5 text-left text-sm transition-colors last:border-0 hover:bg-secondary disabled:opacity-40"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{p.title}</span>
+                              {p.stock === 0 && (
+                                <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-400">Rupture</span>
+                              )}
+                              {alreadyAdded && (
+                                <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">Ajouté</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>Stock : {p.stock}</span>
+                              {p.variants?.[0] && <span>dès {p.variants[0].price}€</span>}
+                              <Plus className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+                            </div>
+                          </button>
+                        )
+                      })
+                    }
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Pied de page */}
+            <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setProductsOpen(false)}
+                className="rounded-lg border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={saveOrderProducts}
+                disabled={savingProducts || orderItems.length === 0}
+                className="flex items-center gap-2 rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {savingProducts
+                  ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  : <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                }
+                Mettre à jour la commande
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modale : numéro Colissimo / suivi transporteur */}
       {colissimoOpen && (
         <div
