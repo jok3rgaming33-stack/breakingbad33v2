@@ -177,14 +177,17 @@ export async function getThreads() {
   return threads
 }
 
-// Commandes actives hors locker : tout sauf "livree", "annulee", "discussion" et fulfillment locker
+// Statuts réservés à la Messagerie — exclus de toutes les vues Commandes
+const DISCUSSION_STATUSES = ["discussion", "pris_en_charge", "ouvert", "ferme"] as const
+
+// Commandes actives hors locker : tout sauf "livree", "annulee", discussions et fulfillment locker
 export async function getActiveOrders() {
   const threads = await db
     .select()
     .from(orderThreads)
     .where(
       and(
-        notInArray(orderThreads.status, ["livree", "annulee", "discussion", "notification"]),
+        notInArray(orderThreads.status, ["livree", "annulee", "notification", ...DISCUSSION_STATUSES]),
         ne(orderThreads.fulfillment, "locker"),
       )
     )
@@ -192,7 +195,7 @@ export async function getActiveOrders() {
   return threads
 }
 
-// Commandes Locker Mondial Relay actives (non livrees, non annulees, hors fils TRK internes)
+// Commandes Locker Mondial Relay actives (non livrees, non annulees, hors fils TRK et discussions)
 export async function getLockerOrders() {
   const threads = await db
     .select()
@@ -200,14 +203,14 @@ export async function getLockerOrders() {
     .where(
       and(
         eq(orderThreads.fulfillment, "locker"),
-        notInArray(orderThreads.status, ["livree", "annulee", "trk_token"]),
+        notInArray(orderThreads.status, ["livree", "annulee", "trk_token", ...DISCUSSION_STATUSES]),
       )
     )
     .orderBy(desc(orderThreads.updatedAt))
   return threads
 }
 
-// Commandes clôturées (livree ou annulee), toutes livraisons confondues
+// Commandes clôturées (livree ou annulee), toutes livraisons confondues, sans discussions
 export async function getPastOrders() {
   return db
     .select()
@@ -218,7 +221,7 @@ export async function getPastOrders() {
           eq(orderThreads.status, "livree"),
           eq(orderThreads.status, "annulee"),
         ),
-        ne(orderThreads.status, "trk_token"),
+        notInArray(orderThreads.status, ["trk_token", ...DISCUSSION_STATUSES]),
       )
     )
     .orderBy(desc(orderThreads.updatedAt))
