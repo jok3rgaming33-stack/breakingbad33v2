@@ -74,19 +74,20 @@ export function VendorInbox({
   const selectedIdRef = useRef<number | null>(null)
   selectedIdRef.current = selectedId
 
-  // Ajoute un produit à la liste ou incrémente sa quantité (variante la plus petite par défaut)
+  // Ajoute un produit (qty = 1 pack commandé, price = prix du conditionnement)
   const addProductToOrder = (prod: Product) => {
     const firstVariant = prod.variants?.[0]
     if (!firstVariant) return
     setOrderItems((prev) => {
       const existing = prev.find((i) => i.productId === prod.id)
       if (existing) {
+        // Déjà dans la liste : on incrémente le nombre de packs de 1
         return prev.map((i) => i.productId === prod.id ? { ...i, qty: i.qty + 1 } : i)
       }
       return [...prev, {
         productId: prod.id,
         title: prod.title,
-        qty: firstVariant.qty,
+        qty: 1,               // 1 pack commandé, pas la taille du conditionnement
         price: firstVariant.price,
         prevQty: 0,
       }]
@@ -98,11 +99,12 @@ export function VendorInbox({
     setOrderItems((prev) => prev.map((i) => i.productId === productId ? { ...i, qty: Math.max(0, qty) } : i))
   }
 
+  // Changer de conditionnement : on garde le nombre de packs en cours, seul le prix change
   const updateItemVariant = (productId: number, variantQty: number, prod: Product) => {
     const variant = prod.variants?.find((v) => v.qty === variantQty)
     if (!variant) return
     setOrderItems((prev) => prev.map((i) =>
-      i.productId === productId ? { ...i, qty: variant.qty, price: variant.price } : i
+      i.productId === productId ? { ...i, price: variant.price } : i
     ))
   }
 
@@ -684,12 +686,16 @@ export function VendorInbox({
                         {/* Sélecteur de variante */}
                         {prod?.variants && prod.variants.length > 1 && (
                           <select
-                            value={item.qty}
-                            onChange={(e) => updateItemVariant(item.productId, Number(e.target.value), prod)}
+                            value={item.price}
+                            onChange={(e) => {
+                              // Retrouve la variante par son prix et passe le qty du conditionnement
+                              const chosen = prod.variants?.find((v) => v.price === Number(e.target.value))
+                              if (chosen) updateItemVariant(item.productId, chosen.qty, prod)
+                            }}
                             className="rounded-lg border border-input bg-background px-2 py-1 text-xs outline-none focus:border-accent"
                           >
                             {prod.variants.map((v) => (
-                              <option key={v.qty} value={v.qty}>{v.qty} × {v.price}€</option>
+                              <option key={v.qty} value={v.price}>{v.qty} × {v.price}€</option>
                             ))}
                           </select>
                         )}
