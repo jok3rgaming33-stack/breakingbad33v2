@@ -7,6 +7,7 @@ import {
 } from "lucide-react"
 import { sendBroadcastNotification, getNotificationReads } from "@/app/actions/notifications"
 import { uploadMedia } from "@/lib/upload-media"
+import { BlobMedia } from "@/components/blob-media"
 import type { BroadcastNotificationRow } from "@/app/actions/notifications"
 import type { AdminUserRow } from "@/app/actions/account"
 
@@ -233,16 +234,26 @@ export function AdminNotifications({ initialHistory, users }: Props) {
                 Image <span className="text-muted-foreground text-xs">(optionnel)</span>
               </p>
               {imageUrl ? (
-                <div className="relative inline-block">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={imageUrl} alt="Apercu" className="h-28 w-auto rounded-xl border border-border object-cover" />
+                <div className="relative w-full overflow-hidden rounded-xl border border-border bg-secondary/40">
+                  <BlobMedia
+                    src={imageUrl}
+                    alt="Apercu de la piece jointe"
+                    className="max-h-64 w-full object-contain"
+                    videoProps={{
+                      controls: true,
+                      muted: true,
+                      playsInline: true,
+                      preload: "metadata",
+                      style: { maxHeight: "256px", width: "100%", objectFit: "contain" },
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={() => setImageUrl("")}
-                    className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-white shadow"
+                    className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-foreground shadow backdrop-blur transition-colors hover:bg-background"
                     aria-label="Supprimer l'image"
                   >
-                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    <X className="h-4 w-4" aria-hidden="true" />
                   </button>
                 </div>
               ) : (
