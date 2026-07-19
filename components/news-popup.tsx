@@ -153,12 +153,14 @@ export function NewsPopup({ token }: { token?: string }) {
 
         {/* Image ou vidéo — hauteur bornée pour ne pas déborder sur mobile */}
         {slide?.imageUrl && (
-          <div className="w-full shrink-0 overflow-hidden bg-secondary" style={{ maxHeight: "45dvh" }}>
+          // object-contain : affiche l'image/vidéo en entier sans la recadrer.
+          // max-h-[45dvh] la borne en hauteur pour ne pas envahir l'écran.
+          <div className="w-full shrink-0 overflow-hidden bg-secondary/40 flex items-center justify-center" style={{ maxHeight: "45dvh" }}>
             <BlobMedia
               src={slide.imageUrl}
               alt={slide.title ?? ""}
-              className="w-full h-full object-cover"
-              videoProps={{ muted: true, playsInline: true, autoPlay: false, controls: true, preload: "metadata", style: { maxHeight: "45dvh", width: "100%", objectFit: "cover" } }}
+              className="max-h-[45dvh] w-full object-contain"
+              videoProps={{ muted: true, playsInline: true, autoPlay: false, controls: true, preload: "metadata", style: { maxHeight: "45dvh", width: "100%", objectFit: "contain" } }}
             />
           </div>
         )}

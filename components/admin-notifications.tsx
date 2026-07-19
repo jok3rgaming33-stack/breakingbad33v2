@@ -456,7 +456,7 @@ export function AdminNotifications({ initialHistory, users }: Props) {
                           <div className="space-y-1">
                             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Image</p>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={n.imageUrl} alt="Image notification" className="h-24 w-auto rounded-lg border border-border object-cover" />
+                            <img src={n.imageUrl} alt="Image notification" className="max-h-48 w-full rounded-lg border border-border object-contain bg-secondary/40" />
                           </div>
                         )}
                         {/* Tableau lu / non-lu par membre */}

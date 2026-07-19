@@ -12,6 +12,7 @@ import {
   markThreadRead,
 } from "@/app/actions/messaging"
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
+import { MessageBody } from "@/components/message-body"
 
 type UserData = { pseudo?: string; token?: string } | null
 
@@ -449,7 +450,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
                         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
                           {isClient ? "Vous" : "Le Chimiste"} · {formatDate(m.createdAt)}
                         </div>
-                        <p className="whitespace-pre-wrap break-all leading-relaxed font-mono text-sm">{m.body}</p>
+                        <MessageBody body={m.body} />
                       </div>
                     )
                   })}

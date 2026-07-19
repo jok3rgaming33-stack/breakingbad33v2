@@ -514,12 +514,12 @@ export function AdminNews() {
                 {/* Upload image/video */}
                 <div className="flex flex-col gap-2">
                   {s.imageUrl ? (
-                    <div className="relative overflow-hidden rounded-xl border border-border">
+                    <div className="relative overflow-hidden rounded-xl border border-border bg-secondary/40 flex items-center justify-center">
                       <BlobMedia
                         src={s.imageUrl}
                         alt="Apercu du slide"
-                        className="max-h-40 w-full object-cover"
-                        videoProps={{ muted: true, playsInline: true, preload: "metadata", controls: true, style: { maxHeight: "160px" } }}
+                        className="max-h-40 w-full object-contain"
+                        videoProps={{ muted: true, playsInline: true, preload: "metadata", controls: true, style: { maxHeight: "160px", width: "100%", objectFit: "contain" } }}
                       />
                       <button
                         type="button"

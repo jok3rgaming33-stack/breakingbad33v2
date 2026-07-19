@@ -5,6 +5,7 @@ import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
 import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit } from "@/app/actions/messaging"
 import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock } from "lucide-react"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
+import { MessageBody } from "@/components/message-body"
 
 function formatDate(value: Date | string) {
   const d = new Date(value)
@@ -323,13 +324,13 @@ export function VendorInbox({
                       className={`flex flex-col ${isVendeur ? "items-end" : "items-start"}`}
                     >
                       <div
-                        className={`max-w-[85%] whitespace-pre-wrap break-all rounded-2xl px-4 py-2.5 text-sm ${
+                        className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
                           isVendeur
                             ? "bg-accent text-accent-foreground"
                             : "bg-secondary text-secondary-foreground"
                         }`}
                       >
-                        {m.body}
+                        <MessageBody body={m.body} />
                       </div>
                       <span className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
                         {isVendeur ? "Vous" : selected.customerName} · {formatDate(m.createdAt)}
