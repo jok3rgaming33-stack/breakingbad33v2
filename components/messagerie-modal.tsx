@@ -9,7 +9,7 @@ import {
   createGeneralInquiryThread,
   markThreadRead,
 } from "@/app/actions/messaging"
-import { statusMeta } from "@/lib/order-status"
+import { statusMeta, isDiscussionStatus } from "@/lib/order-status"
 
 type UserData = { pseudo?: string; token?: string } | null
 
@@ -48,6 +48,7 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
   const [threads, setThreads] = useState<Thread[]>([])
   const [loadingList, setLoadingList] = useState(false)
   const [view, setView] = useState<"list" | "compose" | "thread">("list")
+  const [tab, setTab] = useState<"commandes" | "discussions">("commandes")
   const [selected, setSelected] = useState<Thread | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
@@ -157,9 +158,12 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
 
   if (!isOpen) return null
 
+  const orderThreads = threads.filter((t) => !isDiscussionStatus(t.status))
+  const discussionThreads = threads.filter((t) => isDiscussionStatus(t.status))
+
   const title =
     view === "thread"
-      ? selected?.status === "discussion"
+      ? isDiscussionStatus(selected?.status)
         ? "Discussion"
         : `Commande #${selected?.id}`
       : view === "compose"
@@ -199,66 +203,126 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
           </button>
         </div>
 
-        {/* Liste des discussions */}
+        {/* Liste */}
         {view === "list" && (
           <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex flex-col gap-2 border-b border-border p-4">
+            {/* Onglets Commandes / Discussions */}
+            <div className="flex gap-1 border-b border-border px-4 pt-3">
               <button
                 type="button"
-                onClick={() => setView("compose")}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-3.5 text-sm font-bold uppercase tracking-wide text-accent-foreground transition-opacity hover:opacity-90"
+                onClick={() => setTab("commandes")}
+                className={`flex items-center gap-1.5 rounded-t-lg px-4 py-2 text-sm font-medium transition-colors ${tab === "commandes" ? "border-b-2 border-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
-                <FlaskConical className="h-4 w-4" aria-hidden="true" />
-                Contacter le chimiste
+                <Package className="h-3.5 w-3.5" aria-hidden="true" />
+                Commandes
+                {orderThreads.length > 0 && (
+                  <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] font-semibold text-accent">{orderThreads.length}</span>
+                )}
               </button>
-
+              <button
+                type="button"
+                onClick={() => setTab("discussions")}
+                className={`flex items-center gap-1.5 rounded-t-lg px-4 py-2 text-sm font-medium transition-colors ${tab === "discussions" ? "border-b-2 border-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
+                Discussions
+                {discussionThreads.length > 0 && (
+                  <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] font-semibold text-accent">{discussionThreads.length}</span>
+                )}
+              </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            {/* Bouton composer — uniquement dans l'onglet discussions */}
+            {tab === "discussions" && (
+              <div className="border-b border-border p-3">
+                <button
+                  type="button"
+                  onClick={() => setView("compose")}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-3 text-sm font-bold uppercase tracking-wide text-accent-foreground transition-opacity hover:opacity-90"
+                >
+                  <FlaskConical className="h-4 w-4" aria-hidden="true" />
+                  Contacter le chimiste
+                </button>
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto p-4">
               {loadingList ? (
                 <div className="flex items-center justify-center py-12 text-muted-foreground">
                   <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
                 </div>
-              ) : threads.length === 0 ? (
-                <div className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
-                  <MessageSquare className="h-10 w-10" aria-hidden="true" />
-                  <p className="text-sm">Aucune discussion pour le moment.</p>
-                </div>
               ) : (
-                <ul className="flex flex-col gap-3">
-                  {threads.map((t) => {
-                    const meta = statusMeta(t.status)
-                    const isGeneral = t.status === "discussion"
-                    return (
-                      <li key={t.id}>
-                        <button
-                          type="button"
-                          onClick={() => openThread(t)}
-                          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 p-4 text-left transition-colors hover:border-accent"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-secondary text-secondary-foreground">
-                              {isGeneral ? (
-                                <FlaskConical className="h-4 w-4" aria-hidden="true" />
-                              ) : (
-                                <Package className="h-4 w-4" aria-hidden="true" />
-                              )}
-                            </span>
-                            <div>
-                              <div className="font-semibold">
-                                {isGeneral ? "Discussion générale" : `Commande #${t.id}`}
+                <>
+                  {tab === "commandes" && (
+                    <ul className="flex flex-col gap-3">
+                      {orderThreads.length === 0 ? (
+                        <li className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
+                          <Package className="h-10 w-10" aria-hidden="true" />
+                          <p className="text-sm">Aucune commande pour le moment.</p>
+                        </li>
+                      ) : orderThreads.map((t) => {
+                        const meta = statusMeta(t.status)
+                        return (
+                          <li key={t.id}>
+                            <button
+                              type="button"
+                              onClick={() => openThread(t)}
+                              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 p-4 text-left transition-colors hover:border-accent"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-secondary text-secondary-foreground">
+                                  <Package className="h-4 w-4" aria-hidden="true" />
+                                </span>
+                                <div>
+                                  <div className="font-semibold">{`Commande #${t.id}`}</div>
+                                  <div className="text-xs text-muted-foreground">{formatDate(t.createdAt)}</div>
+                                </div>
                               </div>
-                              <div className="text-xs text-muted-foreground">{formatDate(t.createdAt)}</div>
-                            </div>
-                          </div>
-                          <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${meta.badge}`}>
-                            {meta.label}
-                          </span>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
+                              <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${meta.badge}`}>
+                                {meta.label}
+                              </span>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+
+                  {tab === "discussions" && (
+                    <ul className="flex flex-col gap-3">
+                      {discussionThreads.length === 0 ? (
+                        <li className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
+                          <MessageSquare className="h-10 w-10" aria-hidden="true" />
+                          <p className="text-sm">Aucune discussion pour le moment.</p>
+                        </li>
+                      ) : discussionThreads.map((t) => {
+                        const meta = statusMeta(t.status)
+                        return (
+                          <li key={t.id}>
+                            <button
+                              type="button"
+                              onClick={() => openThread(t)}
+                              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 p-4 text-left transition-colors hover:border-accent"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-secondary text-secondary-foreground">
+                                  <FlaskConical className="h-4 w-4" aria-hidden="true" />
+                                </span>
+                                <div>
+                                  <div className="font-semibold">Discussion #{t.id}</div>
+                                  <div className="text-xs text-muted-foreground">{formatDate(t.createdAt)}</div>
+                                </div>
+                              </div>
+                              <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${meta.badge}`}>
+                                {meta.label}
+                              </span>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </>
               )}
             </div>
           </div>

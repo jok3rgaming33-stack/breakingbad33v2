@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import type { OrderThread, ThreadMessage } from "@/lib/db/schema"
 import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit } from "@/app/actions/messaging"
 import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock } from "lucide-react"
-import { VENDOR_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
+import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 
 function formatDate(value: Date | string) {
   const d = new Date(value)
@@ -221,9 +221,16 @@ export function VendorInbox({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm font-medium">{t.customerName}</span>
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusMeta(t.status).badge}`}>
-                      {statusMeta(t.status).label}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {mode === "messages" && (
+                        <span className="rounded-full bg-teal-500/15 px-2 py-0.5 text-[10px] font-semibold text-teal-300 border border-teal-500/30">
+                          Discussion
+                        </span>
+                      )}
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusMeta(t.status).badge}`}>
+                        {statusMeta(t.status).label}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     {t.fulfillment === "meetup" ? (
@@ -278,7 +285,10 @@ export function VendorInbox({
                     <option value="" disabled>
                       Changer le statut…
                     </option>
-                    {VENDOR_STATUS_OPTIONS.map((s) => (
+                    {(mode === "messages"
+                      ? VENDOR_DISCUSSION_STATUS_OPTIONS
+                      : VENDOR_STATUS_OPTIONS
+                    ).map((s) => (
                       <option key={s} value={s}>
                         {STATUS_META[s].label}
                       </option>

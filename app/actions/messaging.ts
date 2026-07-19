@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { orderThreads, threadMessages } from "@/lib/db/schema"
-import { and, desc, eq, gt, isNull, ne, notInArray, or, sql } from "drizzle-orm"
+import { and, desc, eq, gt, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { normalizeStatus, statusMeta } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
@@ -214,12 +214,12 @@ export async function getPastOrders() {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
-// Discussions directes uniquement (pas des commandes)
+// Discussions directes — tous les statuts discussion (discussion, pris_en_charge, ouvert, ferme)
 export async function getDiscussions() {
   const threads = await db
     .select()
     .from(orderThreads)
-    .where(eq(orderThreads.status, "discussion"))
+    .where(inArray(orderThreads.status, ["discussion", "pris_en_charge", "ouvert", "ferme"]))
     .orderBy(desc(orderThreads.updatedAt))
   return threads
 }
@@ -307,6 +307,15 @@ export async function updateThreadStatus(
   if (nextKey !== prevKey) {
     let body: string | null = null
     switch (nextKey) {
+      case "pris_en_charge":
+        body = "Ta demande a bien été reçue et est en cours de traitement."
+        break
+      case "ouvert":
+        body = "Ta discussion est ouverte. Tu peux continuer à échanger."
+        break
+      case "ferme":
+        body = "Cette discussion a été clôturée. Tu peux toujours la consulter ici."
+        break
       case "validee":
         body = "✅ Ta commande a été validée et prise en charge."
         break
