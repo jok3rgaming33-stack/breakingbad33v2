@@ -134,6 +134,8 @@ export type AdminUserRow = {
   id: number
   pseudo: string
   token: string
+  // Surnom interne admin uniquement — jamais exposé côté client.
+  nickname: string | null
   createdAt: Date | string
   orderCount: number
   totalSpent: number
@@ -148,6 +150,7 @@ export async function listUsers(): Promise<AdminUserRow[]> {
       id: users.id,
       pseudo: users.pseudo,
       token: users.token,
+      nickname: users.nickname,
       createdAt: users.createdAt,
       loyaltyAdjustment: users.loyaltyAdjustment,
       flags: users.flags,
@@ -156,9 +159,19 @@ export async function listUsers(): Promise<AdminUserRow[]> {
     })
     .from(users)
     .leftJoin(orderThreads, eq(orderThreads.customerToken, users.token))
-    .groupBy(users.id, users.pseudo, users.token, users.createdAt, users.loyaltyAdjustment, users.flags)
+    .groupBy(users.id, users.pseudo, users.token, users.nickname, users.createdAt, users.loyaltyAdjustment, users.flags)
     .orderBy(desc(users.createdAt))
   return rows
+}
+
+// Définit le surnom interne d'un compte (visible uniquement de l'admin).
+export async function setUserNickname(id: number, nickname: string) {
+  if (!id) return { ok: false as const }
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
+  const value = nickname.trim().slice(0, 60) || null
+  await db.update(users).set({ nickname: value }).where(eq(users.id, id))
+  revalidatePath("/admin")
+  return { ok: true as const, nickname: value }
 }
 
 // Met à jour les étiquettes (flags) d'un compte client (réservé admin).

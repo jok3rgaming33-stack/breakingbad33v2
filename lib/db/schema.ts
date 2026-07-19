@@ -11,6 +11,8 @@ export const users = pgTable("users", {
   loyaltySpent: integer("loyalty_spent").notNull().default(0),
   // Étiquettes posées par l'admin : 'absent' | 'suspect' | 'fidele' | 'banni'.
   flags: jsonb("flags").$type<string[]>().notNull().default([]),
+  // Surnom interne visible uniquement de l'admin, jamais exposé au client.
+  nickname: text("nickname"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 

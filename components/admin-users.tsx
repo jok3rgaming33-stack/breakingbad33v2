@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useRef, useEffect } from "react"
 import type { AdminUserRow } from "@/app/actions/account"
-import { deleteUserAccount, setLoyaltyAdjustment, setUserFlags } from "@/app/actions/account"
+import { deleteUserAccount, setLoyaltyAdjustment, setUserFlags, setUserNickname } from "@/app/actions/account"
 import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle, Pencil, Check, X, Copy, Tag, ChevronDown, MessageSquare, Send } from "lucide-react"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { createGeneralInquiryThread } from "@/app/actions/messaging"
@@ -118,6 +118,10 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [contactMsg, setContactMsg] = useState("")
   const [contactSending, setContactSending] = useState(false)
   const [contactDone, setContactDone] = useState(false)
+  // Édition du surnom interne (nickname)
+  const [nickEditId, setNickEditId] = useState<number | null>(null)
+  const [nickValue, setNickValue] = useState("")
+  const [nickSavingId, setNickSavingId] = useState<number | null>(null)
 
   const totalPoints = (u: AdminUserRow) => Math.max(0, computeLoyaltyPoints(u.totalSpent) + u.loyaltyAdjustment)
 
@@ -183,11 +187,32 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
     }
   }
 
+  const startNickEdit = (u: AdminUserRow) => {
+    setNickEditId(u.id)
+    setNickValue(u.nickname ?? "")
+  }
+
+  const saveNickname = async (u: AdminUserRow) => {
+    setNickSavingId(u.id)
+    try {
+      const res = await setUserNickname(u.id, nickValue)
+      if (res.ok) {
+        setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, nickname: res.nickname } : x)))
+        setNickEditId(null)
+      }
+    } finally {
+      setNickSavingId(null)
+    }
+  }
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return users
     return users.filter(
-      (u) => u.pseudo.toLowerCase().includes(q) || u.token.toLowerCase().includes(q),
+      (u) =>
+        u.pseudo.toLowerCase().includes(q) ||
+        u.token.toLowerCase().includes(q) ||
+        (u.nickname ?? "").toLowerCase().includes(q),
     )
   }, [users, query])
 
@@ -266,6 +291,12 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
             <thead>
               <tr className="border-b border-border bg-background/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Pseudo</th>
+                <th className="px-4 py-3 font-medium">
+                  <span className="flex items-center gap-1.5">
+                    Surnom interne
+                    <span className="rounded-full border border-border bg-background/60 px-1.5 py-0.5 text-[9px] font-semibold normal-case tracking-normal text-muted-foreground">privé</span>
+                  </span>
+                </th>
                 <th className="px-4 py-3 font-medium">Token</th>
                 <th className="px-4 py-3 font-medium">Signalement</th>
                 <th className="px-4 py-3 font-medium">Inscrit le</th>
@@ -277,7 +308,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                     Aucun compte à afficher.
                   </td>
                 </tr>
@@ -285,6 +316,62 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                 filtered.map((u) => (
                   <tr key={u.id} className="border-b border-border/60 last:border-0 hover:bg-secondary/40">
                     <td className="px-4 py-3 font-medium">{u.pseudo}</td>
+
+                    {/* Surnom interne — éditable en place, invisible du client */}
+                    <td className="px-4 py-3">
+                      {nickEditId === u.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={nickValue}
+                            maxLength={60}
+                            onChange={(e) => setNickValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.nativeEvent.isComposing) saveNickname(u)
+                              if (e.key === "Escape") setNickEditId(null)
+                            }}
+                            autoFocus
+                            placeholder="ex: Thomas, Rue Leclerc…"
+                            className="w-36 rounded-lg border border-accent bg-background px-2 py-1 text-xs outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => saveNickname(u)}
+                            disabled={nickSavingId === u.id}
+                            className="rounded-md bg-accent p-1 text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                            aria-label="Enregistrer le surnom"
+                          >
+                            {nickSavingId === u.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                              : <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                            }
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNickEditId(null)}
+                            className="rounded-md border border-border p-1 text-muted-foreground transition-colors hover:bg-secondary"
+                            aria-label="Annuler"
+                          >
+                            <X className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => startNickEdit(u)}
+                          className="group flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-colors hover:bg-secondary"
+                          title="Cliquer pour définir un surnom interne"
+                        >
+                          {u.nickname ? (
+                            <span className="font-medium text-foreground">{u.nickname}</span>
+                          ) : (
+                            <span className="italic text-muted-foreground/50">—</span>
+                          )}
+                          <Pencil className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+                        </button>
+                      )}
+                    </td>
+
                     <td className="px-4 py-3">
                       <button
                         type="button"
