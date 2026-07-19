@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import {
   users, orderThreads, threadMessages, accountCreations,
   userVerifications, loyaltyCodes, promoUsages, userNewsReads,
-  pushSubscriptions, restockAlerts,
+  pushSubscriptions, restockAlerts, reservedPseudos,
 } from "@/lib/db/schema"
 import { eq, desc, sql, and, gte, inArray } from "drizzle-orm"
 import { del } from "@vercel/blob"
@@ -28,6 +28,12 @@ export async function createAccount(token: string, pseudo: string) {
   const existing = await db.select().from(users).where(eq(users.token, t)).limit(1)
   if (existing.length > 0) {
     return { ok: true as const, pseudo: existing[0].pseudo }
+  }
+
+  // Vérifie que le pseudo n'est pas déjà réservé (compte actif OU supprimé).
+  const taken = await db.select({ id: reservedPseudos.id }).from(reservedPseudos).where(eq(reservedPseudos.pseudo, p)).limit(1)
+  if (taken.length > 0) {
+    return { ok: false as const, error: "Ce pseudo est déjà pris. Choisis-en un autre." }
   }
 
   // --- Contrôles anti-comptes multiples (uniquement pour un NOUVEAU compte) ---
@@ -59,6 +65,8 @@ export async function createAccount(token: string, pseudo: string) {
     }
   }
 
+  // Réserve le pseudo de façon permanente (même si le compte est supprimé plus tard).
+  await db.insert(reservedPseudos).values({ pseudo: p }).onConflictDoNothing()
   await db.insert(users).values({ token: t, pseudo: p })
 
   // Journalise l'IP pour faire respecter la limite mensuelle.
@@ -241,6 +249,14 @@ export async function purgeUserData(token: string) {
   // 4. Logs de connexion
   await deleteLoginLogsByToken(t)
 
-  // 5. Compte utilisateur
+  // 5. Marque le pseudo comme appartenant à un compte supprimé (ne l'efface PAS de reserved_pseudos).
+  const userRow = await db.select({ pseudo: users.pseudo }).from(users).where(eq(users.token, t)).limit(1)
+  if (userRow[0]) {
+    await db.update(reservedPseudos)
+      .set({ deletedAt: sql`now()` })
+      .where(eq(reservedPseudos.pseudo, userRow[0].pseudo))
+  }
+
+  // 6. Compte utilisateur
   await db.delete(users).where(eq(users.token, t))
 }

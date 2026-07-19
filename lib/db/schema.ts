@@ -82,6 +82,18 @@ export const userVerifications = pgTable("user_verifications", {
   validatedAt: timestamp("validated_at", { withTimezone: true }),
 })
 
+// Registre permanent des pseudos utilisés ou supprimés.
+// Un pseudo inscrit ici ne peut JAMAIS être repris par un autre compte, même après suppression.
+// deletedAt = null signifie que le compte est actif (ligne insérée à la création, jamais retirée).
+export const reservedPseudos = pgTable("reserved_pseudos", {
+  id: serial("id").primaryKey(),
+  pseudo: text("pseudo").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+})
+
+export type ReservedPseudo = typeof reservedPseudos.$inferSelect
+
 // Journal des créations de compte par IP (limite 1/mois/IP, conservé même après suppression).
 export const accountCreations = pgTable("account_creations", {
   id: serial("id").primaryKey(),
