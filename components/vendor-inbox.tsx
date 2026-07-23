@@ -70,27 +70,51 @@ export function VendorInbox({
     }
     setLoadingProducts(false)
 
-    // Parse le champ products : format "Titre ×qty" séparé par ", "
-    // Reconstruit les OrderProductItem avec prevQty = qty actuel (pour calculer le bon delta stock)
+    // Extrait d'abord les prix réels depuis le summary (source de vérité).
+    // Format summary : "• 1x Titre — 30€" ou "• 1x Titre ×5 — 150€"
+    const summaryPrices: Record<string, number> = {}
+    if (selected.summary) {
+      for (const line of selected.summary.split("\n")) {
+        // Capture : titre (avec variante optionnelle) et prix ligne
+        const m = line.match(/^•\s+\d+x\s+(.+?)\s*(?:[×x]\d+)?\s*—\s*(\d+)€/)
+        if (m) summaryPrices[m[1].trim().toLowerCase()] = parseInt(m[2], 10)
+      }
+    }
+
+    // Parse le champ products pour les noms et quantités
+    // Formats possibles : "1x Titre" ou "1x Titre ×5" ou "Titre ×1"
     const parsed: OrderProductItem[] = []
     if (selected.products) {
       const segments = selected.products.split(",").map((s) => s.trim())
       for (const seg of segments) {
-        // ex: "Kéta (Needles) ×1" ou "X-Taze ×5"
-        const match = seg.match(/^(.+?)\s*[×x]\s*(\d+)$/i)
-        if (!match) continue
-        const titleRaw = match[1].trim()
-        const qty = parseInt(match[2], 10)
-        // Cherche le produit correspondant par titre (insensible à la casse)
-        const prod = prods.find(
-          (p) => p.title.toLowerCase() === titleRaw.toLowerCase()
-        )
+        // Formats : "1x Titre ×5", "1x Titre", "Titre ×1"
+        let titleRaw = ""
+        let qty = 1
+        const withCount = seg.match(/^(\d+)x\s+(.+)$/)
+        if (withCount) {
+          qty = parseInt(withCount[1], 10)
+          titleRaw = withCount[2].replace(/\s*[×x]\d+$/, "").trim()
+        } else {
+          const withX = seg.match(/^(.+?)\s*[×x]\s*(\d+)$/i)
+          if (withX) { titleRaw = withX[1].trim(); qty = parseInt(withX[2], 10) }
+          else titleRaw = seg
+        }
+
+        const prod = prods.find((p) => p.title.toLowerCase() === titleRaw.toLowerCase())
+
+        // Prix : summary en priorité, sinon variante catalogue correspondante, sinon première variante
+        const summaryPrice = summaryPrices[titleRaw.toLowerCase()]
+        const catalogPrice = prod
+          ? (prod.variants?.find((v) => v.qty === qty)?.price ?? prod.variants?.[0]?.price ?? 0)
+          : 0
+        const price = summaryPrice !== undefined
+          ? Math.round(summaryPrice / qty)   // prix unitaire = total ligne / qty
+          : catalogPrice
+
         if (prod) {
-          const price = prod.variants?.[0]?.price ?? 0
           parsed.push({ productId: prod.id, title: prod.title, qty, price, prevQty: qty })
         } else {
-          // Produit non trouvé dans le catalogue (supprimé ?) → on l'ajoute quand même
-          parsed.push({ productId: -1, title: titleRaw, qty, price: 0, prevQty: qty })
+          parsed.push({ productId: -1, title: titleRaw, qty, price, prevQty: qty })
         }
       }
     }
