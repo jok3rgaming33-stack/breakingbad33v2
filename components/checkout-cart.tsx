@@ -43,6 +43,37 @@ function dateOffset(days: number) {
   return d.toISOString().split("T")[0]
 }
 
+// Cutoff horaire selon le jour de la semaine :
+//   Dim(0)–Jeu(4) : plus de commande après 23h20 → premier créneau = J+1
+//   Ven(5)–Sam(6) : plus de commande après 01h20 → premier créneau = J+1
+// Retourne { minDate, isCutoff, cutoffLabel }
+function getOrderCutoff(now: Date): { minDate: string; isCutoff: boolean; cutoffLabel: string } {
+  const day = now.getDay()   // 0=Dim, 1=Lun, …, 6=Sam
+  const h = now.getHours()
+  const m = now.getMinutes()
+  const totalMinutes = h * 60 + m
+
+  let isCutoff = false
+  let cutoffLabel = ""
+
+  if (day >= 0 && day <= 4) {
+    // Dimanche à Jeudi : cutoff 23h20
+    if (totalMinutes >= 23 * 60 + 20) {
+      isCutoff = true
+      cutoffLabel = "Les commandes sont fermées après 23h20. Le premier créneau disponible est demain."
+    }
+  } else {
+    // Vendredi (5) et Samedi (6) : cutoff 01h20
+    if (totalMinutes >= 1 * 60 + 20) {
+      isCutoff = true
+      cutoffLabel = "Les commandes sont fermées après 01h20. Le premier créneau disponible est demain."
+    }
+  }
+
+  const minDate = isCutoff ? dateOffset(1) : dateOffset(0)
+  return { minDate, isCutoff, cutoffLabel }
+}
+
 // Convertit une date yyyy-mm-dd en nom de jour français (ex. "Lundi")
 const FR_DAYS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"]
 function dateToFrDay(dateStr: string): string {
@@ -125,8 +156,9 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   // Extrait le jour depuis le libellé d'un slot (ex: "Lundi 14h-16h" → "Lundi")
   const slotDay = (label: string) => label.split(/\s+/)[0] ?? ""
 
-  // Créneaux proposés : filtrés par jour de la date choisie + créneaux passés masqués.
+  // Règle de cutoff horaire (23h20 dim-jeu / 01h20 ven-sam).
   const now = new Date()
+  const { minDate, isCutoff, cutoffLabel } = getOrderCutoff(now)
   const availableDeliverySlots = useMemo(() => {
     if (!date) return []
     const dayName = dateToFrDay(date)
@@ -149,6 +181,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.meetupSlots, date])
+
+  // Si la date choisie est antérieure au minDate (cutoff vient de passer), on la réinitialise.
+  useEffect(() => {
+    if (date && date < minDate) setDate("")
+  }, [date, minDate])
 
   // Si le créneau sélectionné n'est plus disponible (ex. changement de date), on le réinitialise.
   useEffect(() => {
@@ -708,11 +745,17 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   <CalendarDays className="h-4 w-4 text-accent" aria-hidden="true" />
                   Date souhaitée (sous 3 jours max)
                 </label>
+                {isCutoff && (
+                  <p className="mb-2 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+                    <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    {cutoffLabel}
+                  </p>
+                )}
                 <input
                   id="date"
                   type="date"
                   value={date}
-                  min={dateOffset(0)}
+                  min={minDate}
                   max={dateOffset(3)}
                   onChange={(e) => setDate(e.target.value)}
                   className="w-full rounded-2xl border border-border bg-background/60 px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent [color-scheme:dark]"
