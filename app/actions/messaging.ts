@@ -781,6 +781,94 @@ export async function deleteOrderThread(threadId: number) {
   return { ok: true as const }
 }
 
+// ─── Génération de commande par l'admin depuis la messagerie ────────────────
+export type AdminOrderItem = {
+  productId: number
+  title: string
+  qty: number      // nombre de packs commandés
+  price: number    // prix unitaire du conditionnement choisi
+}
+
+export type AdminOrderInput = {
+  // Contexte client (issu du fil de discussion sélectionné)
+  customerName: string
+  customerToken: string | null
+  // Articles
+  items: AdminOrderItem[]
+  // Mode de livraison
+  fulfillment: "livraison" | "meetup" | "locker"
+  // Livraison domicile
+  address?: string
+  deliveryFee?: number
+  // Meetup
+  meetupDate?: string    // "2026-07-19"
+  meetupSlot?: string    // "Dimanche 22h"
+  // Locker
+  lockerAddress?: string
+}
+
+export async function adminCreateOrder(input: AdminOrderInput) {
+  if (!input.items.length) return { ok: false as const, error: "Aucun article." }
+
+  const subtotal = input.items.reduce((s, i) => s + i.qty * i.price, 0)
+  const fee = input.fulfillment === "livraison" ? (input.deliveryFee ?? 0) : input.fulfillment === "locker" ? 10 : 0
+  const total = subtotal + fee
+
+  const lines = input.items.map((i) => `• ${i.qty}x ${i.title} — ${i.qty * i.price}€`).join("\n")
+  const productsShort = input.items.map((i) => `${i.qty}x ${i.title}`).join(", ")
+
+  let modeLine = ""
+  let scheduledDate: string | null = null
+  let scheduledSlot: string | null = null
+  let address: string | null = null
+
+  if (input.fulfillment === "meetup") {
+    scheduledDate = input.meetupDate ?? null
+    scheduledSlot = input.meetupSlot ?? null
+    modeLine = `Retrait sur place (meet-up)${scheduledSlot ? ` à ${scheduledSlot}` : ""}`
+  } else if (input.fulfillment === "locker") {
+    address = input.lockerAddress ?? null
+    modeLine = `Retrait en Locker Mondial Relay${address ? ` — ${address}` : ""} (frais 10€)`
+  } else {
+    address = input.address ?? null
+    scheduledSlot = null
+    modeLine = `Livraison à ${address ?? "adresse non précisée"}${fee > 0 ? ` (frais ${fee}€)` : ""}`
+  }
+
+  const summary = [
+    `Nouvelle commande de ${input.customerName}`,
+    ``,
+    lines,
+    ``,
+    scheduledDate ? `Date : ${scheduledDate}` : null,
+    modeLine,
+    ``,
+    `Sous-total : ${subtotal}€`,
+    fee > 0 ? `${input.fulfillment === "locker" ? "Locker" : "Livraison"} : ${fee}€` : null,
+    `TOTAL : ${total}€`,
+  ].filter(Boolean).join("\n")
+
+  // Décrémente le stock de chaque article
+  for (const item of input.items) {
+    await adjustStock(item.productId, -item.qty)
+  }
+
+  // Crée le fil de commande exactement comme si le client l'avait passé
+  const result = await createOrderThread({
+    customerName: input.customerName,
+    customerToken: input.customerToken ?? undefined,
+    summary,
+    products: productsShort,
+    total,
+    fulfillment: input.fulfillment,
+    address: address ?? undefined,
+    scheduledDate: scheduledDate ?? undefined,
+    scheduledSlot: scheduledSlot ?? undefined,
+  })
+
+  return { ok: true as const, ...result, total }
+}
+
 // Compte les fils "nouveau" (badge boîte de réception)
 export async function countNewThreads() {
   const [row] = await db

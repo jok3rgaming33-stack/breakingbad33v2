@@ -8,6 +8,7 @@ import { listProducts } from "@/app/actions/products"
 import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw } from "lucide-react"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
+import { AdminCreateOrderModal } from "@/components/admin-create-order-modal"
 
 function formatDate(value: Date | string) {
   const d = new Date(value)
@@ -40,6 +41,8 @@ export function VendorInbox({
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
   const [xmrWalletInput, setXmrWalletInput] = useState("")
   const [xmrSending, setXmrSending] = useState(false)
+  // Modale création de commande depuis messagerie
+  const [createOrderOpen, setCreateOrderOpen] = useState(false)
   // Panneau gestion des articles
   const [productsOpen, setProductsOpen] = useState(false)
   const [allProducts, setAllProducts] = useState<Product[]>([])
@@ -408,6 +411,17 @@ export function VendorInbox({
                       </option>
                     ))}
                   </select>
+                  {mode === "messages" && (
+                    <button
+                      type="button"
+                      onClick={() => setCreateOrderOpen(true)}
+                      className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+                      title="Créer une commande pour ce client"
+                    >
+                      <ShoppingCart className="h-3.5 w-3.5" aria-hidden="true" />
+                      Créer commande
+                    </button>
+                  )}
                   {mode !== "messages" && (
                     <button
                       type="button"
@@ -673,6 +687,20 @@ export function VendorInbox({
           </div>
         </div>
       )}
+      {/* Modale : créer une commande depuis messagerie */}
+      {createOrderOpen && selected && (
+        <AdminCreateOrderModal
+          customerName={selected.customerName}
+          customerToken={selected.customerToken ?? null}
+          onClose={() => setCreateOrderOpen(false)}
+          onCreated={(orderId) => {
+            // Rafraîchit la liste après création
+            refresh()
+            setCreateOrderOpen(false)
+          }}
+        />
+      )}
+
       {/* Panneau : gestion des articles de la commande */}
       {productsOpen && selected && (
         <div
