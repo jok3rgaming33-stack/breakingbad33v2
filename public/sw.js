@@ -26,6 +26,9 @@ self.addEventListener("push", (event) => {
     tag: data.tag || undefined,
     data: { url: data.url || "/" },
     vibrate: [80, 40, 80],
+    // Propriété "image" : grande image affichée dans le corps de la notification
+    // (Android Chrome, Edge). Ignorée silencieusement sur les plateformes qui ne la supportent pas.
+    ...(data.image ? { image: data.image } : {}),
   }
 
   // Ping le serveur pour marquer la notification comme reçue/lue par ce client.
