@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import type { OrderThread, ThreadMessage, Product } from "@/lib/db/schema"
-import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit, updateOrderProducts } from "@/app/actions/messaging"
+import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit, updateOrderProducts, deleteMessage } from "@/app/actions/messaging"
 import type { OrderProductItem } from "@/app/actions/messaging"
 import { listProducts } from "@/app/actions/products"
 import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw } from "lucide-react"
@@ -41,6 +41,9 @@ export function VendorInbox({
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
   const [xmrWalletInput, setXmrWalletInput] = useState("")
   const [xmrSending, setXmrSending] = useState(false)
+  // Suppression d'un message
+  const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<number | null>(null)
+  const [deletingMsgId, setDeletingMsgId] = useState<number | null>(null)
   // Modale création de commande depuis messagerie
   const [createOrderOpen, setCreateOrderOpen] = useState(false)
   // Panneau gestion des articles
@@ -456,20 +459,80 @@ export function VendorInbox({
                 messages.map((m) => {
                   const isVendeur = m.sender === "vendeur"
                   const readAt = (m as any).clientReadAt as string | null | undefined
+                  const isConfirming = confirmDeleteMsgId === m.id
+                  const isDeleting = deletingMsgId === m.id
+
+                  const handleDelete = async () => {
+                    setDeletingMsgId(m.id)
+                    await deleteMessage(m.id)
+                    setMessages((prev) => prev.filter((x) => x.id !== m.id))
+                    setConfirmDeleteMsgId(null)
+                    setDeletingMsgId(null)
+                  }
+
                   return (
                     <div
                       key={m.id}
-                      className={`flex flex-col ${isVendeur ? "items-end" : "items-start"}`}
+                      className={`group flex flex-col ${isVendeur ? "items-end" : "items-start"}`}
                     >
-                      <div
-                        className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
-                          isVendeur
-                            ? "bg-accent text-accent-foreground"
-                            : "bg-secondary text-secondary-foreground"
-                        }`}
-                      >
-                        <MessageBody body={m.body} />
+                      <div className={`flex items-end gap-1.5 ${isVendeur ? "flex-row-reverse" : "flex-row"}`}>
+                        {/* Bulle message */}
+                        <div
+                          className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm transition-opacity ${
+                            isDeleting ? "opacity-40" : ""
+                          } ${
+                            isVendeur
+                              ? "bg-accent text-accent-foreground"
+                              : "bg-secondary text-secondary-foreground"
+                          }`}
+                        >
+                          <MessageBody body={m.body} />
+                        </div>
+
+                        {/* Bouton supprimer — visible au survol de la ligne */}
+                        {!isConfirming && (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteMsgId(m.id)}
+                            disabled={isDeleting}
+                            className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/40 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 disabled:pointer-events-none"
+                            aria-label="Supprimer ce message"
+                            title="Supprimer ce message"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        )}
+
+                        {/* Confirmation inline */}
+                        {isConfirming && (
+                          <div className="mb-1 flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={handleDelete}
+                              disabled={isDeleting}
+                              className="flex h-6 w-6 items-center justify-center rounded-full bg-destructive/15 text-destructive transition-colors hover:bg-destructive/30 disabled:opacity-50"
+                              aria-label="Confirmer la suppression"
+                              title="Confirmer"
+                            >
+                              {isDeleting
+                                ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                                : <Check className="h-3 w-3" aria-hidden="true" />
+                              }
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteMsgId(null)}
+                              className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-secondary"
+                              aria-label="Annuler"
+                              title="Annuler"
+                            >
+                              <X className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                          </div>
+                        )}
                       </div>
+
+                      {/* Méta — expéditeur, date, lu/non-lu */}
                       <span className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
                         {isVendeur ? "Vous" : selected.customerName} · {formatDate(m.createdAt)}
                         {isVendeur && (

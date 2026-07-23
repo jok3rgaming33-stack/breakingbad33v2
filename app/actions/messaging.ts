@@ -249,6 +249,14 @@ export async function getThread(id: number) {
   return { thread, messages }
 }
 
+// Supprime un message unique d'un fil (admin uniquement, sans impact sur le statut ou le total).
+export async function deleteMessage(messageId: number) {
+  if (!messageId) return { ok: false as const }
+  await db.delete(threadMessages).where(eq(threadMessages.id, messageId))
+  revalidatePath("/admin")
+  return { ok: true as const }
+}
+
 // Ajoute un message dans un fil (vendeur ou client)
 export async function addMessage(threadId: number, sender: "client" | "vendeur", body: string) {
   const text = body?.trim()
