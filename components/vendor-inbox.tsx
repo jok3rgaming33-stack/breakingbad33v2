@@ -473,67 +473,23 @@ export function VendorInbox({
                   return (
                     <div
                       key={m.id}
-                      className={`group flex flex-col ${isVendeur ? "items-end" : "items-start"}`}
+                      className={`flex flex-col ${isVendeur ? "items-end" : "items-start"}`}
                     >
-                      <div className={`flex items-end gap-1.5 ${isVendeur ? "flex-row-reverse" : "flex-row"}`}>
-                        {/* Bulle message */}
-                        <div
-                          className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm transition-opacity ${
-                            isDeleting ? "opacity-40" : ""
-                          } ${
-                            isVendeur
-                              ? "bg-accent text-accent-foreground"
-                              : "bg-secondary text-secondary-foreground"
-                          }`}
-                        >
-                          <MessageBody body={m.body} />
-                        </div>
-
-                        {/* Bouton supprimer — visible au survol de la ligne */}
-                        {!isConfirming && (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeleteMsgId(m.id)}
-                            disabled={isDeleting}
-                            className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/40 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 disabled:pointer-events-none"
-                            aria-label="Supprimer ce message"
-                            title="Supprimer ce message"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                          </button>
-                        )}
-
-                        {/* Confirmation inline */}
-                        {isConfirming && (
-                          <div className="mb-1 flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={handleDelete}
-                              disabled={isDeleting}
-                              className="flex h-6 w-6 items-center justify-center rounded-full bg-destructive/15 text-destructive transition-colors hover:bg-destructive/30 disabled:opacity-50"
-                              aria-label="Confirmer la suppression"
-                              title="Confirmer"
-                            >
-                              {isDeleting
-                                ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-                                : <Check className="h-3 w-3" aria-hidden="true" />
-                              }
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteMsgId(null)}
-                              className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-secondary"
-                              aria-label="Annuler"
-                              title="Annuler"
-                            >
-                              <X className="h-3 w-3" aria-hidden="true" />
-                            </button>
-                          </div>
-                        )}
+                      {/* Bulle */}
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm transition-opacity ${
+                          isDeleting ? "opacity-40" : ""
+                        } ${
+                          isVendeur
+                            ? "bg-accent text-accent-foreground"
+                            : "bg-secondary text-secondary-foreground"
+                        }`}
+                      >
+                        <MessageBody body={m.body} />
                       </div>
 
-                      {/* Méta — expéditeur, date, lu/non-lu */}
-                      <span className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+                      {/* Méta — expéditeur, date, lu/non-lu + poubelle (mes messages uniquement) */}
+                      <span className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
                         {isVendeur ? "Vous" : selected.customerName} · {formatDate(m.createdAt)}
                         {isVendeur && (
                           readAt
@@ -545,6 +501,43 @@ export function VendorInbox({
                                 <Clock className="h-3 w-3" aria-hidden="true" />
                                 <span>Non lu</span>
                               </span>
+                        )}
+                        {isVendeur && !isConfirming && (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteMsgId(m.id)}
+                            disabled={isDeleting}
+                            className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground/40 transition-colors hover:text-destructive disabled:pointer-events-none"
+                            aria-label="Supprimer ce message"
+                            title="Supprimer"
+                          >
+                            {isDeleting
+                              ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                              : <Trash2 className="h-3 w-3" aria-hidden="true" />
+                            }
+                          </button>
+                        )}
+                        {isVendeur && isConfirming && (
+                          <>
+                            <span className="text-destructive/70">Supprimer ?</span>
+                            <button
+                              type="button"
+                              onClick={handleDelete}
+                              disabled={isDeleting}
+                              className="font-medium text-destructive transition-colors hover:text-destructive/70 disabled:opacity-50"
+                              aria-label="Confirmer"
+                            >
+                              Oui
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteMsgId(null)}
+                              className="font-medium text-muted-foreground transition-colors hover:text-foreground"
+                              aria-label="Annuler"
+                            >
+                              Non
+                            </button>
+                          </>
                         )}
                       </span>
                     </div>
