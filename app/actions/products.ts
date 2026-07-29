@@ -6,6 +6,7 @@ import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { notifyRestock } from "@/app/actions/restock"
 import { revalidatePath } from "next/cache"
 import { asc, eq, sql } from "drizzle-orm"
+import { del } from "@vercel/blob"
 
 // Liste tous les produits (admin) triés par section puis ordre.
 export async function listProducts(): Promise<Product[]> {
@@ -103,6 +104,34 @@ export async function saveProduct(input: ProductInput) {
 }
 
 // Supprime un produit (réservé admin).
+// Supprime un fichier média d'un produit : retire du Blob ET de la colonne media en base.
+export async function deleteProductMedia(productId: number, mediaUrl: string) {
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
+  if (!productId || !mediaUrl) return { ok: false as const }
+
+  // 1. Supprimer le fichier du Blob (fire-and-forget si URL externe)
+  try {
+    if (mediaUrl.includes("blob.vercel-storage.com")) {
+      await del(mediaUrl)
+    }
+  } catch {
+    // On continue même si la suppression Blob échoue (fichier déjà absent)
+  }
+
+  // 2. Retirer l'URL du tableau JSON media en base
+  const row = await db.select({ media: products.media, image: products.image }).from(products).where(eq(products.id, productId)).limit(1)
+  if (!row[0]) return { ok: false as const }
+
+  const updatedMedia = (row[0].media ?? []).filter((m: ProductMedia) => m.url !== mediaUrl)
+  const updatedImage = row[0].image === mediaUrl ? (updatedMedia[0]?.url ?? "") : row[0].image
+
+  await db.update(products).set({ media: updatedMedia, image: updatedImage }).where(eq(products.id, productId))
+
+  revalidatePath("/")
+  revalidatePath("/admin")
+  return { ok: true as const, updatedMedia, updatedImage }
+}
+
 export async function deleteProduct(id: number) {
   if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
   if (!id) return { ok: false as const }

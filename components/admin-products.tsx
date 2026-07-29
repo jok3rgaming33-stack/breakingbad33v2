@@ -6,7 +6,7 @@ import { Plus, Trash2, Pencil, Minus, X, Loader2, PackagePlus, Save, GripVertica
 import { BADGE_OPTIONS } from "@/lib/badges"
 import { uploadMedia } from "@/lib/upload-media"
 import { BlobMedia } from "@/components/blob-media"
-import { listProducts, saveProduct, deleteProduct, adjustStock, reorderProducts, type ProductInput } from "@/app/actions/products"
+import { listProducts, saveProduct, deleteProduct, adjustStock, reorderProducts, deleteProductMedia, type ProductInput } from "@/app/actions/products"
 import { listCategories, createCategory, renameCategory, deleteCategory, reorderCategories } from "@/app/actions/categories"
 import type { Product, ProductVariant, ProductMedia, Category } from "@/lib/db/schema"
 
@@ -593,6 +593,7 @@ function CategoryManager({ categories, onChange }: { categories: Category[]; onC
 function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormState) => void }) {
   const [uploading, setUploading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [deletingUrl, setDeletingUrl] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const handleFiles = async (files: FileList | null) => {
@@ -605,10 +606,10 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
         const { url, type } = await uploadMedia(file)
         added.push({ type, url })
       } catch (e) {
-        setErr(e instanceof Error ? e.message : "Échec de l'envoi.")
+        setErr(e instanceof Error ? e.message : "Echec de l'envoi.")
       }
     }
-    // Le premier média importé (image OU vidéo) devient l'image principale si aucune n'est définie.
+    // Le premier média importé devient l'image principale si aucune n'est définie.
     const firstMedia = added[0]
     setForm({
       ...form,
@@ -619,13 +620,25 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
     if (inputRef.current) inputRef.current.value = ""
   }
 
-  const removeMedia = (url: string) => {
-    setForm({ ...form, media: form.media.filter((m) => m.url !== url), image: form.image === url ? "" : form.image })
+  const removeMedia = async (url: string) => {
+    setDeletingUrl(url)
+    // Si le produit existe déjà en base, on supprime aussi le fichier Blob côté serveur.
+    if (form.id) {
+      const res = await deleteProductMedia(form.id, url)
+      if (res.ok) {
+        setForm({ ...form, media: res.updatedMedia as ProductMedia[], image: res.updatedImage })
+        setDeletingUrl(null)
+        return
+      }
+    }
+    // Nouveau produit pas encore sauvegardé : suppression locale uniquement.
+    setForm({ ...form, media: form.media.filter((m) => m.url !== url), image: form.image === url ? (form.media.find(m => m.url !== url)?.url ?? "") : form.image })
+    setDeletingUrl(null)
   }
 
   return (
     <div>
-      <span className="mb-1.5 block text-sm font-medium">Médias (images / vidéos)</span>
+      <span className="mb-1.5 block text-sm font-medium">Medias (images / videos)</span>
       <input
         ref={inputRef}
         type="file"
@@ -641,28 +654,34 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
         className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-background/60 py-3 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50"
       >
         {uploading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Upload className="h-4 w-4" aria-hidden="true" />}
-        {uploading ? "Envoi…" : "Importer depuis l'appareil"}
+        {uploading ? "Envoi..." : "Importer depuis l'appareil"}
       </button>
       {err && <p className="mt-1.5 text-xs text-destructive">{err}</p>}
 
       {form.media.length > 0 && (
         <div className="mt-3 grid grid-cols-3 gap-2">
           {form.media.map((m) => (
-            <div key={m.url} className="group relative overflow-hidden rounded-lg border border-border bg-black">
+            <div key={m.url} className="relative overflow-hidden rounded-lg border border-border bg-black">
               <BlobMedia
                 src={m.url}
-                alt="Média produit"
+                alt="Media produit"
                 mediaType={m.type}
                 className="w-full object-contain"
                 videoProps={{ muted: true, playsInline: true, preload: "metadata", autoPlay: false, loop: false, style: { maxHeight: "120px" } }}
               />
+              {/* Bouton poubelle toujours visible — fonctionne sur mobile et desktop */}
               <button
                 type="button"
                 onClick={() => removeMedia(m.url)}
-                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
-                aria-label="Retirer"
+                disabled={deletingUrl === m.url}
+                className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow transition-opacity hover:opacity-90 disabled:opacity-50"
+                aria-label="Supprimer ce media"
+                title="Supprimer"
               >
-                <X className="h-3 w-3" aria-hidden="true" />
+                {deletingUrl === m.url
+                  ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                  : <Trash2 className="h-3 w-3" aria-hidden="true" />
+                }
               </button>
               {form.image === m.url && (
                 <span className="absolute bottom-1 left-1 rounded bg-accent px-1.5 py-0.5 text-[9px] font-bold text-accent-foreground">
@@ -679,7 +698,7 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
           value={form.image}
           onChange={(e) => setForm({ ...form, image: e.target.value })}
           className="input"
-          placeholder="/pdt/exemple.png ou https://…"
+          placeholder="/pdt/exemple.png ou https://..."
         />
       </Field>
     </div>
