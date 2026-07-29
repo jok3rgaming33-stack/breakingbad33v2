@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { X, ArrowLeft, Package, Send, Loader2, Lock, Bell, BellOff, ShieldAlert } from "lucide-react"
+import { X, ArrowLeft, Package, Send, Loader2, Lock, Bell, BellOff, ShieldAlert, Paperclip, FlaskConical } from "lucide-react"
 import {
   getThreadsForToken,
   getLockerOrdersForToken,
@@ -13,6 +13,18 @@ import {
 } from "@/app/actions/messaging"
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
+import { BlobMedia } from "@/components/blob-media"
+
+async function uploadMessageMedia(file: File): Promise<{ url: string; type: "image" | "video" }> {
+  const fd = new FormData()
+  fd.append("file", file)
+  const res = await fetch("/api/messages/upload", { method: "POST", body: fd })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}))
+    throw new Error(d?.error ?? "Echec de l'envoi.")
+  }
+  return res.json()
+}
 
 type UserData = { pseudo?: string; token?: string } | null
 
@@ -72,6 +84,9 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
   const [loadingThread, setLoadingThread] = useState(false)
   const [reply, setReply] = useState("")
   const [sending, setSending] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadErr, setUploadErr] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   // Notification push
   const [pushSupported, setPushSupported] = useState(false)
   const [pushGranted, setPushGranted] = useState(false)
@@ -156,6 +171,26 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
       setReply("")
     } finally {
       setSending(false)
+    }
+  }
+
+  const handleMediaUpload = async (files: FileList | null) => {
+    if (!selected || !files || files.length === 0) return
+    setUploading(true)
+    setUploadErr(null)
+    try {
+      for (const file of Array.from(files)) {
+        const { url, type } = await uploadMessageMedia(file)
+        const tag = type === "video" ? `[video]${url}[/video]` : `[image]${url}[/image]`
+        await addMessage(selected.id, "client", tag)
+      }
+      const data = await getThread(selected.id)
+      if (data) setMessages(data.messages as Message[])
+    } catch (e) {
+      setUploadErr(e instanceof Error ? e.message : "Echec de l'envoi.")
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
     }
   }
 
@@ -486,33 +521,75 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
               </div>
             )}
 
-            {/* Zone de réponse (hors TRK — autorisée même sur les fils clôturés) */}
+            {/* Zone de réponse */}
             {!isTrkSelected && (
               <div className="border-t border-border p-4">
-                <div className="flex items-end gap-2">
-                  <textarea
-                    value={reply}
-                    onChange={(e) => setReply(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                        e.preventDefault()
-                        handleSend()
-                      }
-                    }}
-                    placeholder="Écrire un message..."
-                    rows={2}
-                    className="flex-1 resize-none rounded-2xl border border-border bg-background/60 px-3 py-2 text-sm outline-none transition-colors focus:border-accent"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSend}
-                    disabled={!reply.trim() || sending}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-accent text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-                    aria-label="Envoyer"
-                  >
-                    {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-                  </button>
-                </div>
+                {isClosedStatus(selected.status) ? (
+                  /* Commande cloturee : lecture seule + bouton messagerie directe */
+                  <div className="flex flex-col gap-3 rounded-2xl border border-border bg-background/60 px-4 py-3 text-center">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Cette commande est cloturee. Tu ne peux plus y ecrire.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { handleClose(); }}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+                    >
+                      <FlaskConical className="h-4 w-4" aria-hidden="true" />
+                      Contacter le chimiste
+                    </button>
+                  </div>
+                ) : (
+                  /* Commande active : saisie texte + upload media */
+                  <>
+                    {uploadErr && <p className="mb-2 text-xs text-destructive">{uploadErr}</p>}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*,video/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => handleMediaUpload(e.target.files)}
+                    />
+                    <div className="flex items-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border bg-background/60 text-muted-foreground transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
+                        aria-label="Joindre une photo ou video"
+                        title="Joindre une photo ou video"
+                      >
+                        {uploading
+                          ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                          : <Paperclip className="h-5 w-5" aria-hidden="true" />
+                        }
+                      </button>
+                      <textarea
+                        value={reply}
+                        onChange={(e) => setReply(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                            e.preventDefault()
+                            handleSend()
+                          }
+                        }}
+                        placeholder="Ecrire un message..."
+                        rows={2}
+                        className="flex-1 resize-none rounded-2xl border border-border bg-background/60 px-3 py-2 text-sm outline-none transition-colors focus:border-accent"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSend}
+                        disabled={!reply.trim() || sending}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-accent text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                        aria-label="Envoyer"
+                      >
+                        {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </>

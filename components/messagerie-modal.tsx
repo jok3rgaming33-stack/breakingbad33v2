@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { X, ArrowLeft, MessageSquare, Send, Loader2, FlaskConical, Package } from "lucide-react"
+import { X, ArrowLeft, MessageSquare, Send, Loader2, FlaskConical, Package, Paperclip } from "lucide-react"
 import {
   getThreadsForToken,
   getThread,
@@ -10,6 +10,18 @@ import {
   markThreadRead,
 } from "@/app/actions/messaging"
 import { statusMeta, isDiscussionStatus } from "@/lib/order-status"
+import { MessageBody } from "@/components/message-body"
+
+async function uploadMessageMedia(file: File): Promise<{ url: string; type: "image" | "video" }> {
+  const fd = new FormData()
+  fd.append("file", file)
+  const res = await fetch("/api/messages/upload", { method: "POST", body: fd })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}))
+    throw new Error(d?.error ?? "Echec de l'envoi.")
+  }
+  return res.json()
+}
 
 type UserData = { pseudo?: string; token?: string } | null
 
@@ -56,6 +68,9 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
   const [sending, setSending] = useState(false)
   const [composeText, setComposeText] = useState("")
   const [creating, setCreating] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadErr, setUploadErr] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const selectedRef = useRef<number | null>(null)
   selectedRef.current = selected?.id ?? null
@@ -136,6 +151,26 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
       }
     } finally {
       setCreating(false)
+    }
+  }
+
+  const handleMediaUpload = async (files: FileList | null) => {
+    if (!selected || !files || files.length === 0) return
+    setUploading(true)
+    setUploadErr(null)
+    try {
+      for (const file of Array.from(files)) {
+        const { url, type } = await uploadMessageMedia(file)
+        const tag = type === "video" ? `[video]${url}[/video]` : `[image]${url}[/image]`
+        await addMessage(selected.id, "client", tag)
+      }
+      const data = await getThread(selected.id)
+      if (data) setMessages(data.messages as Message[])
+    } catch (e) {
+      setUploadErr(e instanceof Error ? e.message : "Echec de l'envoi.")
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
     }
   }
 
@@ -393,7 +428,7 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
                         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
                           {isClient ? "Vous" : "Le chimiste"} · {formatDate(m.createdAt)}
                         </div>
-                        <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p>
+                        <MessageBody body={m.body} />
                       </div>
                     )
                   })}
@@ -401,11 +436,39 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
               )}
             </div>
             <div className="border-t border-border p-4">
+              {uploadErr && <p className="mb-2 text-xs text-destructive">{uploadErr}</p>}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="hidden"
+                onChange={(e) => handleMediaUpload(e.target.files)}
+              />
               <div className="flex items-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border bg-background/60 text-muted-foreground transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
+                  aria-label="Joindre une photo ou video"
+                  title="Joindre une photo ou video"
+                >
+                  {uploading
+                    ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                    : <Paperclip className="h-5 w-5" aria-hidden="true" />
+                  }
+                </button>
                 <textarea
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
-                  placeholder="Écrire un message..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                      e.preventDefault()
+                      handleSend()
+                    }
+                  }}
+                  placeholder="Ecrire un message..."
                   rows={2}
                   className="flex-1 resize-none rounded-2xl border border-border bg-background/60 px-3 py-2 text-sm outline-none transition-colors focus:border-accent"
                 />
