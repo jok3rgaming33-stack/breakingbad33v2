@@ -5,7 +5,7 @@ import type { OrderThread, ThreadMessage, Product } from "@/lib/db/schema"
 import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit, updateOrderProducts, deleteMessage } from "@/app/actions/messaging"
 import type { OrderProductItem } from "@/app/actions/messaging"
 import { listProducts } from "@/app/actions/products"
-import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw } from "lucide-react"
+import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip } from "lucide-react"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
 import { AdminCreateOrderModal } from "@/components/admin-create-order-modal"
@@ -27,6 +27,8 @@ export function VendorInbox({
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
   const [reply, setReply] = useState("")
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [isPending, startTransition] = useTransition()
   // Modale de motif d'annulation
   const [cancelOpen, setCancelOpen] = useState(false)
@@ -227,6 +229,7 @@ export function VendorInbox({
   const sendReply = () => {
     if (!reply.trim() || selectedId == null) return
     const body = reply.trim()
+
     setReply("")
     startTransition(async () => {
       await addMessage(selectedId, "vendeur", body)
@@ -236,6 +239,29 @@ export function VendorInbox({
         prev.map((t) => (t.id === selectedId ? { ...t, status: t.status === "nouveau" ? "en cours" : t.status } : t)),
       )
     })
+  }
+
+  const handleMediaUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0 || selectedId == null) return
+    setUploading(true)
+    try {
+      for (const file of Array.from(files)) {
+        const fd = new FormData()
+        fd.append("file", file)
+        const res = await fetch("/api/messages/upload", { method: "POST", body: fd })
+        if (!res.ok) throw new Error("Echec de l'envoi.")
+        const { url, type } = await res.json()
+        const tag = type === "video" ? `[video]${url}[/video]` : `[image]${url}[/image]`
+        await addMessage(selectedId, "vendeur", tag)
+      }
+      const data = await getThread(selectedId)
+      setMessages(data?.messages ?? [])
+    } catch {
+      // erreur silencieuse — on peut ajouter un toast plus tard
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
   }
 
   const changeStatus = (status: string) => {
@@ -591,7 +617,28 @@ export function VendorInbox({
             )}
 
             <div className="border-t border-border p-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="hidden"
+                onChange={(e) => handleMediaUpload(e.target.files)}
+              />
               <div className="flex items-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
+                  aria-label="Joindre une photo ou video"
+                  title="Joindre une photo ou video"
+                >
+                  {uploading
+                    ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    : <Paperclip className="h-4 w-4" aria-hidden="true" />
+                  }
+                </button>
                 <textarea
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
