@@ -1,4 +1,3 @@
-import { get } from "@vercel/blob"
 import { type NextRequest, NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
@@ -7,8 +6,9 @@ export const dynamic = "force-dynamic"
  * Proxy pour les médias Vercel Blob (store privé).
  * GET /api/media?url=<blobUrl>
  *
- * Les médias produits sont du contenu public (affiché à tous les visiteurs).
- * Aucune auth requise — on valide uniquement que l'URL appartient au store Blob.
+ * @vercel/blob v2.5 a supprimé get() avec stream/blob.
+ * On fetch directement l'URL privée avec le Bearer token serveur,
+ * puis on restreame la réponse au client.
  */
 export async function GET(request: NextRequest): Promise<NextResponse | Response> {
   const { searchParams } = new URL(request.url)
@@ -22,23 +22,32 @@ export async function GET(request: NextRequest): Promise<NextResponse | Response
     return NextResponse.json({ error: "URL non autorisée" }, { status: 403 })
   }
 
+  const token = process.env.BLOB_READ_WRITE_TOKEN
+  if (!token) {
+    return NextResponse.json({ error: "Token Blob manquant côté serveur" }, { status: 500 })
+  }
+
   try {
-    const result = await get(blobUrl, { access: "private" })
+    const upstream = await fetch(blobUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
 
-    if (!result) {
-      return NextResponse.json({ error: "Fichier introuvable" }, { status: 404 })
+    if (!upstream.ok) {
+      return NextResponse.json(
+        { error: `Blob: ${upstream.status} ${upstream.statusText}` },
+        { status: upstream.status },
+      )
     }
 
-    if (result.statusCode === 304) {
-      return new Response(null, { status: 304 })
-    }
+    const contentType = upstream.headers.get("content-type") ?? "application/octet-stream"
+    const contentLength = upstream.headers.get("content-length")
 
     const headers = new Headers()
-    headers.set("Content-Type", result.blob.contentType)
-    headers.set("Content-Length", String(result.blob.size))
+    headers.set("Content-Type", contentType)
+    if (contentLength) headers.set("Content-Length", contentLength)
     headers.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
 
-    return new Response(result.stream, { headers })
+    return new Response(upstream.body, { status: 200, headers })
   } catch (error) {
     console.error("[media proxy] error:", error)
     return NextResponse.json({ error: "Erreur lors de la récupération" }, { status: 500 })
