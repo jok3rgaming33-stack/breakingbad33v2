@@ -108,6 +108,8 @@ export function AdminNotifications({ initialHistory, users }: Props) {
         title: t, body: b,
         imageUrl: imageUrl || undefined,
         recipients,
+        // Permet à l'action serveur de construire une URL proxy absolue pour le payload push
+        appOrigin: window.location.origin,
       })
       if (!res.ok) { setSendErr(res.error ?? "Erreur."); return }
       setSent(res.sentCount)
@@ -466,8 +468,11 @@ export function AdminNotifications({ initialHistory, users }: Props) {
                         {n.imageUrl && (
                           <div className="space-y-1">
                             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Image</p>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={n.imageUrl} alt="Image notification" className="max-h-48 w-full rounded-lg border border-border object-contain bg-secondary/40" />
+                            <BlobMedia
+                              src={n.imageUrl}
+                              alt="Image notification"
+                              className="max-h-48 w-full rounded-lg border border-border object-contain bg-secondary/40"
+                            />
                           </div>
                         )}
                         {/* Tableau lu / non-lu par membre */}

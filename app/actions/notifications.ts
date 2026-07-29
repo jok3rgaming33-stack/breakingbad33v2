@@ -18,6 +18,15 @@ export type BroadcastInput = {
   body: string
   imageUrl?: string
   recipients: NotificationRecipient
+  // Origine absolue de l'app (ex: "https://monsite.com") passée par le client
+  // pour construire une URL proxy absolue accessible par l'OS Android dans le payload push.
+  appOrigin?: string
+}
+
+/** Convertit une URL Blob privée en URL proxy absolue fetchable sans token (par le SW / l'OS). */
+function toAbsoluteProxyUrl(blobUrl: string, origin: string): string {
+  if (!blobUrl.includes(".blob.vercel-storage.com")) return blobUrl
+  return `${origin}/api/media?url=${encodeURIComponent(blobUrl)}`
 }
 
 // Envoie une notification dans la messagerie de chaque destinataire.
@@ -56,12 +65,15 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
 
   const notificationId = inserted.id
 
-  // Envoi push uniquement — même comportement que les news.
-  // notificationId + customerToken sont injectés pour que le SW pinge /api/notification-read.
+  // L'image dans le payload push doit être une URL absolue publiquement accessible
+  // (l'OS Android la fetche sans token). On passe par notre proxy /api/media.
+  const pushImageUrl = input.imageUrl && input.appOrigin
+    ? toAbsoluteProxyUrl(input.imageUrl, input.appOrigin)
+    : input.imageUrl ?? undefined
+
   let sentCount = 0
 
   if (input.recipients === "all") {
-    // Pour "all" on envoie un push par abonnement avec le customerToken individuel
     for (const t of targets) {
       const payload = {
         title: `BreakingBad33 — ${title}`,
@@ -70,7 +82,7 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
         tag: `notif-${notificationId}`,
         notificationId,
         customerToken: t.token,
-        ...(input.imageUrl ? { image: input.imageUrl } : {}),
+        ...(pushImageUrl ? { image: pushImageUrl } : {}),
       }
       await notifyCustomer(t.token, payload).catch(() => {})
       sentCount++
@@ -85,7 +97,7 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
           tag: `notif-${notificationId}`,
           notificationId,
           customerToken: t.token,
-          ...(input.imageUrl ? { image: input.imageUrl } : {}),
+          ...(pushImageUrl ? { image: pushImageUrl } : {}),
         }
         await notifyCustomer(t.token, payload)
         sentCount++
