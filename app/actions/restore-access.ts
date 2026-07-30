@@ -71,6 +71,37 @@ export async function grantRestoreAccess(
   return { ok: true }
 }
 
+// ─── Admin : état du rétablissement d'accès pour un client ────────────────────────────────────
+export async function getRestoreStatus(customerToken: string): Promise<{
+  pending: boolean          // lien envoyé mais pas encore utilisé
+  expired: boolean          // lien expiré (24h dépassées)
+  mustSetPassword: boolean  // lien consommé, mot de passe pas encore défini
+  done: boolean             // mot de passe défini — accès rétabli
+  expiresAt: string | null  // ISO string pour afficher le délai restant
+} | null> {
+  if (!(await isAdminAuthenticated())) return null
+  const rows = await db.select({
+    accessRestoreToken: users.accessRestoreToken,
+    accessRestoreExpires: users.accessRestoreExpires,
+    mustSetPassword: users.mustSetPassword,
+  }).from(users).where(eq(users.token, customerToken)).limit(1)
+  const u = rows[0]
+  if (!u) return null
+
+  const now = new Date()
+  const hasToken = !!u.accessRestoreToken
+  const expired = !!u.accessRestoreExpires && u.accessRestoreExpires < now
+  const mustSet = u.mustSetPassword
+
+  return {
+    pending:         hasToken && !expired && mustSet,   // envoyé, pas encore consulté
+    expired:         hasToken && expired && mustSet,    // délai dépassé
+    mustSetPassword: mustSet,                           // connecté, mdp non défini
+    done:            !hasToken && !mustSet,             // tout bon
+    expiresAt:       u.accessRestoreExpires ? u.accessRestoreExpires.toISOString() : null,
+  }
+}
+
 // ─── Client : connexion via le token de rétablissement (URL ?restore=xxx) ─────────────────────
 export async function loginWithRestoreToken(restoreToken: string): Promise<{
   ok: boolean

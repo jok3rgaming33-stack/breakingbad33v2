@@ -6,7 +6,7 @@ import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThr
 import type { OrderProductItem } from "@/app/actions/messaging"
 import { listProducts } from "@/app/actions/products"
 import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock } from "lucide-react"
-import { grantRestoreAccess } from "@/app/actions/restore-access"
+import { grantRestoreAccess, getRestoreStatus } from "@/app/actions/restore-access"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
 import { AdminCreateOrderModal } from "@/components/admin-create-order-modal"
@@ -50,6 +50,8 @@ export function VendorInbox({
   // Rétablissement d'accès client
   const [restoring, setRestoring] = useState(false)
   const [restoreOk, setRestoreOk] = useState(false)
+  type RestoreStatus = Awaited<ReturnType<typeof getRestoreStatus>>
+  const [restoreStatus, setRestoreStatus] = useState<RestoreStatus>(null)
   // Modale création de commande depuis messagerie
   const [createOrderOpen, setCreateOrderOpen] = useState(false)
   // Panneau gestion des articles
@@ -268,6 +270,18 @@ export function VendorInbox({
     }
   }
 
+  // Charge le statut de rétablissement dès qu'un fil de discussion est ouvert,
+  // puis le rafraîchit toutes les 10s pour détecter ouverture/définition mdp en temps réel.
+  useEffect(() => {
+    const token = selected?.customerToken
+    if (!token || mode !== "messages") { setRestoreStatus(null); return }
+    let cancelled = false
+    const fetch = () => getRestoreStatus(token).then(s => { if (!cancelled) setRestoreStatus(s) }).catch(() => {})
+    fetch()
+    const interval = setInterval(fetch, 10_000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [selectedId, mode])
+
   const handleRestoreAccess = async () => {
     const token = selected?.customerToken
     if (!token || restoring) return
@@ -277,6 +291,9 @@ export function VendorInbox({
       const res = await grantRestoreAccess(token, window.location.origin, selectedId ?? undefined)
       if (res.ok) {
         setRestoreOk(true)
+        // Recharge le statut immédiatement après envoi
+        const status = await getRestoreStatus(token)
+        setRestoreStatus(status)
         setTimeout(() => setRestoreOk(false), 4000)
       }
     } finally {
@@ -541,6 +558,34 @@ export function VendorInbox({
                 </div>
               </div>
             </div>
+
+            {/* Bandeau statut rétablissement d'accès */}
+            {mode === "messages" && restoreStatus && !restoreStatus.done && (
+              <div className={`flex items-center gap-2.5 border-b px-4 py-2.5 text-xs ${
+                restoreStatus.expired
+                  ? "border-destructive/20 bg-destructive/10 text-destructive"
+                  : restoreStatus.mustSetPassword && !restoreStatus.pending
+                  ? "border-amber-500/20 bg-amber-500/10 text-amber-400"
+                  : "border-amber-500/20 bg-amber-500/10 text-amber-400"
+              }`}>
+                {restoreStatus.expired ? (
+                  <>
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>Le lien de retablissement a <strong>expire</strong> — le client ne l&apos;a pas ouvert dans les 24h. Renvoie un nouveau lien.</span>
+                  </>
+                ) : restoreStatus.mustSetPassword && !restoreStatus.pending ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+                    <span>Le client a <strong>ouvert le lien</strong> et est en train de definir son mot de passe.</span>
+                  </>
+                ) : (
+                  <>
+                    <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>Lien de retablissement <strong>envoye</strong> — en attente d&apos;ouverture par le client{restoreStatus.expiresAt ? ` (expire ${new Date(restoreStatus.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })})` : ""}.</span>
+                  </>
+                )}
+              </div>
+            )}
 
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
               {loadingThread ? (
