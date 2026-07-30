@@ -18,6 +18,11 @@ export const users = pgTable("users", {
   tempPasswordHash: text("temp_password_hash"),
   tempPasswordExpires: timestamp("temp_password_expires", { withTimezone: true }),
   tempPasswordBlocked: boolean("temp_password_blocked").notNull().default(false),
+  // Rétablissement d'accès : token one-time envoyé par l'admin via notification push.
+  // Le client se connecte avec ce token, puis est obligé de définir un nouveau mot de passe.
+  accessRestoreToken: text("access_restore_token"),
+  accessRestoreExpires: timestamp("access_restore_expires", { withTimezone: true }),
+  mustSetPassword: boolean("must_set_password").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 

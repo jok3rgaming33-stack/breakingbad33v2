@@ -149,6 +149,8 @@ export type AdminUserRow = {
   totalSpent: number
   loyaltyAdjustment: number
   flags: string[]
+  // true si un rétablissement d'accès est en attente (le client doit encore définir son mdp)
+  mustSetPassword: boolean
 }
 
 // Répertoire de tous les comptes enregistrés, avec nombre de commandes et total dépensé.
@@ -162,12 +164,13 @@ export async function listUsers(): Promise<AdminUserRow[]> {
       createdAt: users.createdAt,
       loyaltyAdjustment: users.loyaltyAdjustment,
       flags: users.flags,
+      mustSetPassword: users.mustSetPassword,
       orderCount: sql<number>`count(${orderThreads.id})::int`,
       totalSpent: sql<number>`coalesce(sum(${orderThreads.total}), 0)::int`,
     })
     .from(users)
     .leftJoin(orderThreads, eq(orderThreads.customerToken, users.token))
-    .groupBy(users.id, users.pseudo, users.token, users.nickname, users.createdAt, users.loyaltyAdjustment, users.flags)
+    .groupBy(users.id, users.pseudo, users.token, users.nickname, users.createdAt, users.loyaltyAdjustment, users.flags, users.mustSetPassword)
     .orderBy(desc(users.createdAt))
   return rows
 }

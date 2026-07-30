@@ -1,13 +1,14 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Plus, CheckCircle2, Copy, AlertTriangle, Loader2, History, HelpCircle, KeyRound, X, Send, MessageCircleWarning } from "lucide-react"
+import { Plus, CheckCircle2, Copy, AlertTriangle, Loader2, History, HelpCircle, KeyRound, X, Send, MessageCircleWarning, Eye, EyeOff, ShieldCheck } from "lucide-react"
 import { adminLogin } from "@/app/actions/admin-auth"
 import { createAccount, ensureAccount, getAccount, getCustomerStats } from "@/app/actions/account"
 import { verifyHuman } from "@/app/actions/security"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { HowItWorksModal } from "@/components/how-it-works-modal"
 import { createGeneralInquiryThread } from "@/app/actions/messaging"
+import { loginWithRestoreToken, setPasswordAfterRestore, PASSWORD_RULES } from "@/app/actions/restore-access"
 
 const CRYSTAL_COUNT = 4
 
@@ -263,6 +264,16 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
     setIsLoggedIn(true)
   }
 
+  // Rétablissement d'accès : token one-time dans l'URL (?restore=xxx)
+  const [restoreStep, setRestoreStep] = useState<"idle" | "checking" | "set-password" | "done">("idle")
+  const [restoreError, setRestoreError] = useState("")
+  const [restoreUserToken, setRestoreUserToken] = useState("") // token courant avant changement
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [showNewPw, setShowNewPw] = useState(false)
+  const [showConfirmPw, setShowConfirmPw] = useState(false)
+  const [savingPassword, setSavingPassword] = useState(false)
+
   const [copiedField, setCopiedField] = useState<"pseudo" | "key" | null>(null)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const [showLostKey, setShowLostKey] = useState(false)
@@ -324,6 +335,32 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
     }
   }
 
+  // Intercepte ?restore=xxx dans l'URL pour connexion one-time
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const rt = params.get("restore")
+    if (!rt) return
+    // Nettoie l'URL immédiatement (sécurité — le token ne doit pas rester visible)
+    window.history.replaceState({}, "", window.location.pathname)
+    setRestoreStep("checking")
+    setRestoreError("")
+    loginWithRestoreToken(rt).then((res) => {
+      if (!res.ok) {
+        setRestoreStep("idle")
+        setRestoreError(res.error ?? "Lien invalide ou expiré.")
+        return
+      }
+      // Connecte temporairement avec l'ancien token pour pouvoir appeler setPasswordAfterRestore
+      setRestoreUserToken(res.userToken!)
+      localStorage.setItem("authToken", res.userToken!)
+      localStorage.setItem("userPseudo", res.pseudo ?? "")
+      setRestoreStep("set-password")
+    }).catch(() => {
+      setRestoreStep("idle")
+      setRestoreError("Impossible de traiter ce lien. Réessaie.")
+    })
+  }, [])
+
   // Charge les statistiques réelles du client dès l'affichage du tableau de bord
   useEffect(() => {
     if (!isLoggedIn) return
@@ -334,6 +371,171 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
       .then((s) => setStats(s))
       .catch(() => setStats({ points: 0, active: 0, past: 0 }))
   }, [isLoggedIn])
+
+  const handleSetPassword = async () => {
+    if (savingPassword) return
+    setRestoreError("")
+    if (!newPassword || !confirmPassword) {
+      setRestoreError("Remplis les deux champs.")
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setRestoreError("Les deux mots de passe ne correspondent pas.")
+      return
+    }
+    setSavingPassword(true)
+    try {
+      const res = await setPasswordAfterRestore(restoreUserToken, newPassword, confirmPassword)
+      if (!res.ok) {
+        setRestoreError(res.error ?? "Erreur lors de la sauvegarde.")
+        return
+      }
+      // Le token a changé — on met à jour localStorage avec le nouveau
+      localStorage.setItem("authToken", res.newToken!)
+      setRestoreStep("done")
+      // Connexion effective après un court délai
+      setTimeout(() => {
+        const pseudo = localStorage.getItem("userPseudo") ?? ""
+        setGeneratedPseudo(pseudo)
+        setIsLoggedIn(true)
+      }, 1800)
+    } finally {
+      setSavingPassword(false)
+    }
+  }
+
+  // Écran intermédiaire : définir le mot de passe après rétablissement d'accès
+  if (restoreStep === "checking") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+        <div className="flex flex-col items-center gap-4 p-8 text-center">
+          <Loader2 className="h-10 w-10 animate-spin text-accent" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">Verification du lien de retablissement...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (restoreStep === "set-password" || restoreStep === "done") {
+    return (
+      <div className="relative min-h-screen bg-background text-foreground pt-16">
+        <div className="mx-auto max w-md max-w-md px-6 py-16">
+          <div className="rounded-3xl border border-border bg-card p-8">
+            <div className="mb-6 flex flex-col items-center gap-3 text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/15">
+                <ShieldCheck className="h-7 w-7 text-accent" aria-hidden="true" />
+              </span>
+              <h1 className="text-2xl font-bold">Definir ton mot de passe</h1>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Choisis un mot de passe securise que tu memoriseras. Il remplacera ta cle d&apos;acces.
+              </p>
+              <p className="rounded-xl border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                {PASSWORD_RULES.hint}
+              </p>
+            </div>
+
+            {restoreStep === "done" ? (
+              <div className="flex flex-col items-center gap-3 py-4 text-center">
+                <CheckCircle2 className="h-10 w-10 text-accent" aria-hidden="true" />
+                <p className="font-semibold text-accent">Mot de passe enregistre !</p>
+                <p className="text-sm text-muted-foreground">Connexion en cours...</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {/* Nouveau mot de passe */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Nouveau mot de passe</label>
+                  <div className="relative">
+                    <input
+                      type={showNewPw ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Minimum 8 caracteres..."
+                      className="w-full rounded-xl border border-border bg-background/60 py-3 pl-4 pr-11 text-sm outline-none transition-colors focus:border-accent"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPw((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      aria-label={showNewPw ? "Masquer" : "Afficher"}
+                    >
+                      {showNewPw ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Confirmation */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Confirmer le mot de passe</label>
+                  <div className="relative">
+                    <input
+                      type={showConfirmPw ? "text" : "password"}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.nativeEvent.isComposing) handleSetPassword()
+                      }}
+                      placeholder="Resaisir le mot de passe..."
+                      className="w-full rounded-xl border border-border bg-background/60 py-3 pl-4 pr-11 text-sm outline-none transition-colors focus:border-accent"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPw((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      aria-label={showConfirmPw ? "Masquer" : "Afficher"}
+                    >
+                      {showConfirmPw ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Indicateurs de force */}
+                {newPassword.length > 0 && (
+                  <ul className="flex flex-col gap-1 text-xs">
+                    {[
+                      { ok: newPassword.length >= 8, label: "8 caracteres minimum" },
+                      { ok: /[A-Z]/.test(newPassword), label: "Une lettre majuscule" },
+                      { ok: /[0-9]/.test(newPassword), label: "Un chiffre" },
+                      { ok: /[-_/*ù]/.test(newPassword), label: "Un symbole parmi : - _ / * u" },
+                      { ok: confirmPassword.length > 0 && newPassword === confirmPassword, label: "Mots de passe identiques" },
+                    ].map((r) => (
+                      <li key={r.label} className={`flex items-center gap-1.5 ${r.ok ? "text-accent" : "text-muted-foreground/60"}`}>
+                        <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${r.ok ? "border-accent bg-accent/10" : "border-border"}`}>
+                          {r.ok && <CheckCircle2 className="h-2.5 w-2.5" aria-hidden="true" />}
+                        </span>
+                        {r.label}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {restoreError && (
+                  <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    {restoreError}
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleSetPassword}
+                  disabled={savingPassword}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-3 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {savingPassword
+                    ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    : <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                  }
+                  Enregistrer et se connecter
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Dashboard affiché juste après la connexion
   if (isLoggedIn) {

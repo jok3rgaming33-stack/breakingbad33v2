@@ -3,7 +3,7 @@
 import { useMemo, useState, useRef, useEffect } from "react"
 import type { AdminUserRow } from "@/app/actions/account"
 import { deleteUserAccount, setLoyaltyAdjustment, setUserFlags, setUserNickname } from "@/app/actions/account"
-import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle, Pencil, Check, X, Copy, Tag, ChevronDown, MessageSquare, Send } from "lucide-react"
+import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle, Pencil, Check, X, Copy, Tag, ChevronDown, MessageSquare, Send, KeyRound } from "lucide-react"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { createGeneralInquiryThread } from "@/app/actions/messaging"
 
@@ -373,19 +373,27 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                     </td>
 
                     <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => copyToken(u)}
-                        title="Copier le token complet"
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background/60 px-2 py-1 font-mono text-xs transition-colors hover:bg-secondary"
-                      >
-                        {shortToken(u.token)}
-                        {copiedId === u.id ? (
-                          <Check className="h-3 w-3 text-accent" aria-hidden="true" />
-                        ) : (
-                          <Copy className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                      <div className="flex flex-col items-start gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => copyToken(u)}
+                          title="Copier le token complet"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background/60 px-2 py-1 font-mono text-xs transition-colors hover:bg-secondary"
+                        >
+                          {shortToken(u.token)}
+                          {copiedId === u.id ? (
+                            <Check className="h-3 w-3 text-accent" aria-hidden="true" />
+                          ) : (
+                            <Copy className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                          )}
+                        </button>
+                        {u.mustSetPassword && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+                            <KeyRound className="h-2.5 w-2.5" aria-hidden="true" />
+                            Mdp a definir
+                          </span>
                         )}
-                      </button>
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <FlagSelector user={u} onToggle={toggleFlag} />

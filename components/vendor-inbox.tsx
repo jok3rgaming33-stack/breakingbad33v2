@@ -5,8 +5,8 @@ import type { OrderThread, ThreadMessage, Product } from "@/lib/db/schema"
 import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit, updateOrderProducts, deleteMessage } from "@/app/actions/messaging"
 import type { OrderProductItem } from "@/app/actions/messaging"
 import { listProducts } from "@/app/actions/products"
-import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Copy, Check as CheckIcon, Unlock } from "lucide-react"
-import { sendTempPassword, unblockTempPassword } from "@/app/actions/temp-password"
+import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock } from "lucide-react"
+import { grantRestoreAccess } from "@/app/actions/restore-access"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
 import { AdminCreateOrderModal } from "@/components/admin-create-order-modal"
@@ -47,6 +47,9 @@ export function VendorInbox({
   // Suppression d'un message
   const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<number | null>(null)
   const [deletingMsgId, setDeletingMsgId] = useState<number | null>(null)
+  // Rétablissement d'accès client
+  const [restoring, setRestoring] = useState(false)
+  const [restoreOk, setRestoreOk] = useState(false)
   // Modale création de commande depuis messagerie
   const [createOrderOpen, setCreateOrderOpen] = useState(false)
   // Panneau gestion des articles
@@ -265,6 +268,22 @@ export function VendorInbox({
     }
   }
 
+  const handleRestoreAccess = async () => {
+    const token = selected?.customerToken
+    if (!token || restoring) return
+    setRestoring(true)
+    setRestoreOk(false)
+    try {
+      const res = await grantRestoreAccess(token, window.location.origin)
+      if (res.ok) {
+        setRestoreOk(true)
+        setTimeout(() => setRestoreOk(false), 4000)
+      }
+    } finally {
+      setRestoring(false)
+    }
+  }
+
   const changeStatus = (status: string) => {
     if (selectedId == null) return
     // L'annulation passe par une modale pour saisir le motif communiqué au client.
@@ -466,15 +485,37 @@ export function VendorInbox({
                     ))}
                   </select>
                   {mode === "messages" && (
-                    <button
-                      type="button"
-                      onClick={() => setCreateOrderOpen(true)}
-                      className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
-                      title="Créer une commande pour ce client"
-                    >
-                      <ShoppingCart className="h-3.5 w-3.5" aria-hidden="true" />
-                      Créer commande
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setCreateOrderOpen(true)}
+                        className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+                        title="Créer une commande pour ce client"
+                      >
+                        <ShoppingCart className="h-3.5 w-3.5" aria-hidden="true" />
+                        Créer commande
+                      </button>
+                      {/* Bouton rétablissement d'accès — visible uniquement dans les fils de discussion (clé perdue) */}
+                      <button
+                        type="button"
+                        onClick={handleRestoreAccess}
+                        disabled={restoring || restoreOk}
+                        className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-60 ${
+                          restoreOk
+                            ? "border-green-500/40 bg-green-500/10 text-green-400"
+                            : "border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
+                        }`}
+                        title="Envoyer une notification de rétablissement d'accès au client"
+                      >
+                        {restoring
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                          : restoreOk
+                          ? <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                          : <Unlock className="h-3.5 w-3.5" aria-hidden="true" />
+                        }
+                        {restoreOk ? "Notification envoyée" : "Rétablir l'accès"}
+                      </button>
+                    </>
                   )}
                   {mode !== "messages" && (
                     <button
