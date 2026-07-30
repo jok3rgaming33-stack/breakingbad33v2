@@ -274,7 +274,7 @@ export function VendorInbox({
     setRestoring(true)
     setRestoreOk(false)
     try {
-      const res = await grantRestoreAccess(token, window.location.origin)
+      const res = await grantRestoreAccess(token, window.location.origin, selectedId ?? undefined)
       if (res.ok) {
         setRestoreOk(true)
         setTimeout(() => setRestoreOk(false), 4000)

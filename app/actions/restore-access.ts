@@ -7,38 +7,21 @@ import { eq } from "drizzle-orm"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { notifyCustomer, notifyVendor } from "@/lib/push"
 import { revalidatePath } from "next/cache"
+import { validatePassword } from "@/lib/password-rules"
+import { orderThreads, threadMessages } from "@/lib/db/schema"
+
+// Re-export pour les composants qui importaient depuis ici avant
+export { PASSWORD_RULES, validatePassword } from "@/lib/password-rules"
 
 const RESTORE_VALIDITY_MS = 24 * 60 * 60 * 1000 // 24h pour connexion one-time
 
-// Règles de complexité du mot de passe (affiché côté client aussi)
-export const PASSWORD_RULES = {
-  minLength: 8,
-  // Au moins une majuscule, un chiffre, un symbole parmi : - _ / * ù
-  pattern: /^(?=.*[A-Z])(?=.*[0-9])(?=.*[-_/*ù]).{8,}$/,
-  hint: "8 caractères min. dont une majuscule, un chiffre et un symbole parmi : - _ / * ù",
-}
-
-export function validatePassword(password: string): { ok: true } | { ok: false; error: string } {
-  if (!password || password.length < PASSWORD_RULES.minLength) {
-    return { ok: false, error: `Minimum ${PASSWORD_RULES.minLength} caractères.` }
-  }
-  if (!/[A-Z]/.test(password)) {
-    return { ok: false, error: "Au moins une lettre majuscule requise." }
-  }
-  if (!/[0-9]/.test(password)) {
-    return { ok: false, error: "Au moins un chiffre requis." }
-  }
-  if (!/[-_/*ù]/.test(password)) {
-    return { ok: false, error: "Au moins un symbole parmi : - _ / * ù" }
-  }
-  return { ok: true }
-}
-
-// ─── Admin : octroie un accès de rétablissement à un client identifié par son pseudo ──────────
-// Génère un token one-time, le stocke en base et envoie une push notification.
+// ─── Admin : octroie un accès de rétablissement à un client identifié par son token ────────────
+// Génère un token one-time, le stocke en base, envoie une push notification (si dispo)
+// ET poste le lien directement dans le fil de discussion ouvert (visible même sans push).
 export async function grantRestoreAccess(
   customerToken: string,
   appOrigin: string,
+  threadId?: number, // fil de discussion actif — on y poste le lien pour garantir la réception
 ): Promise<{ ok: boolean; error?: string }> {
   if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
 
@@ -46,7 +29,7 @@ export async function grantRestoreAccess(
   const user = rows[0]
   if (!user) return { ok: false, error: "Client introuvable." }
 
-  // Token one-time URL-safe
+  // Token one-time URL-safe (64 chars hex)
   const restoreToken = crypto.randomBytes(32).toString("hex")
   const expires = new Date(Date.now() + RESTORE_VALIDITY_MS)
 
@@ -56,15 +39,36 @@ export async function grantRestoreAccess(
     mustSetPassword: true,
   }).where(eq(users.id, user.id))
 
-  // L'URL de connexion one-time est encodée dans la notification push
   const restoreUrl = `${appOrigin}/?restore=${restoreToken}`
 
+  // 1) Push notification (best-effort — le client peut ne pas avoir de subscription active)
   await notifyCustomer(customerToken, {
     title: "BreakingBad33 — Acces retabli",
-    body: "Ton acces a ete retabli. Appuie sur cette notification pour te reconnecter. Tu devras definir un nouveau mot de passe.",
+    body: "Ton acces a ete retabli. Appuie sur cette notification pour te reconnecter et definir ton mot de passe.",
     url: restoreUrl,
     tag: "access-restore",
-  })
+  }).catch(() => {/* silencieux si pas de sub */})
+
+  // 2) Message dans le fil de discussion — GARANTI visible même sans push subscription
+  const targetThreadId = threadId ?? (await db
+    .select({ id: orderThreads.id })
+    .from(orderThreads)
+    .where(eq(orderThreads.customerToken, customerToken))
+    .orderBy(orderThreads.updatedAt)
+    .limit(1)
+    .then(r => r[0]?.id))
+
+  if (targetThreadId) {
+    const msg = `Ton acces a ete retabli par le chimiste.\n\nClique sur ce lien pour te reconnecter et choisir ton nouveau mot de passe :\n\n${restoreUrl}\n\n(Lien valable 24h)`
+    await db.insert(threadMessages).values({
+      threadId: targetThreadId,
+      sender: "vendeur",
+      body: msg,
+    })
+    await db.update(orderThreads)
+      .set({ updatedAt: new Date() })
+      .where(eq(orderThreads.id, targetThreadId))
+  }
 
   revalidatePath("/admin")
   return { ok: true }
