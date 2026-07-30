@@ -53,9 +53,23 @@ export default function Home() {
   }, [userData?.token, isAdmin, refreshUnread])
 
   // Au montage, on restaure la session pour éviter de retomber sur l'écran de
-  // connexion lors d'un rechargement ou d'un nouvel onglet ("Voir le site").
+  // connexion lors d'un rechargement de la même session navigateur.
   useEffect(() => {
     let cancelled = false
+
+    // Sécurité fermeture navigateur :
+    // sessionStorage est vidé par le navigateur quand tous les onglets du site
+    // sont fermés. S'il n'y a pas de marqueur "bb33_session_alive", c'est que le
+    // navigateur vient d'être rouvert → on purge localStorage pour forcer la
+    // reconnexion. On pose ensuite le marqueur pour les rechargements dans la
+    // même session.
+    const sessionAlive = sessionStorage.getItem("bb33_session_alive")
+    if (!sessionAlive) {
+      localStorage.removeItem("authToken")
+      localStorage.removeItem("userPseudo")
+      localStorage.removeItem("isAdmin")
+    }
+    sessionStorage.setItem("bb33_session_alive", "1")
 
     // 1) Session locale (client OU admin connecté via la page de connexion)
     const token = localStorage.getItem("authToken")

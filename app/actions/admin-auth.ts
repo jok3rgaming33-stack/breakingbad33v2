@@ -28,7 +28,7 @@ async function setSessionCookie(value: string) {
     secure: isHttps,
     sameSite: isHttps ? "none" : "lax",
     path: "/",
-    maxAge: 60 * 60 * 24 * 30, // 30 jours (accès durable)
+    // Pas de maxAge → cookie de session : supprimé à la fermeture du navigateur.
   })
 }
 

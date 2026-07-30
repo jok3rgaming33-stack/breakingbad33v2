@@ -27,7 +27,7 @@ export async function vendorLogin(_prevState: { error?: string } | null, formDat
     secure: isHttps,
     sameSite: isHttps ? "none" : "lax",
     path: "/",
-    maxAge: 60 * 60 * 12, // 12h
+    // Pas de maxAge → cookie de session : supprimé à la fermeture du navigateur.
   })
 
   redirect("/messagerie")
