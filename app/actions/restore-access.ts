@@ -10,9 +10,6 @@ import { revalidatePath } from "next/cache"
 import { validatePassword } from "@/lib/password-rules"
 import { orderThreads, threadMessages } from "@/lib/db/schema"
 
-// Re-export pour les composants qui importaient depuis ici avant
-export { PASSWORD_RULES, validatePassword } from "@/lib/password-rules"
-
 const RESTORE_VALIDITY_MS = 24 * 60 * 60 * 1000 // 24h pour connexion one-time
 
 // ─── Admin : octroie un accès de rétablissement à un client identifié par son token ────────────

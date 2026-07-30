@@ -8,7 +8,8 @@ import { verifyHuman } from "@/app/actions/security"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { HowItWorksModal } from "@/components/how-it-works-modal"
 import { createGeneralInquiryThread } from "@/app/actions/messaging"
-import { loginWithRestoreToken, setPasswordAfterRestore, PASSWORD_RULES } from "@/app/actions/restore-access"
+import { loginWithRestoreToken, setPasswordAfterRestore } from "@/app/actions/restore-access"
+import { PASSWORD_RULES } from "@/lib/password-rules"
 
 const CRYSTAL_COUNT = 4
 
