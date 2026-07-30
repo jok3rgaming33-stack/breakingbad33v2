@@ -272,7 +272,12 @@ export async function addMessage(threadId: number, sender: "client" | "vendeur",
   // Notification push à l'autre partie.
   const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
   if (thread) {
-    const preview = text.length > 80 ? `${text.slice(0, 77)}…` : text
+    // Nettoie les balises média pour le preview push (ex: [image]url[/image] → "Photo jointe")
+    const cleanPreview = text
+      .replace(/\[image\][^\]]*\[\/image\]/gi, "📷 Photo jointe")
+      .replace(/\[video\][^\]]*\[\/video\]/gi, "🎥 Video jointe")
+      .trim()
+    const preview = cleanPreview.length > 80 ? `${cleanPreview.slice(0, 77)}…` : cleanPreview
     if (sender === "vendeur") {
       // Message du vendeur → on prévient le client.
       await notifyCustomer(thread.customerToken, {

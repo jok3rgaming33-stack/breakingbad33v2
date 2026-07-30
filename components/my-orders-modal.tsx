@@ -140,6 +140,12 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, token])
 
+  // Synchronise selectedRef avec selected pour que le polling toutes les 8s
+  // rafraichisse bien les messages du fil ouvert.
+  useEffect(() => {
+    selectedRef.current = selected?.id ?? null
+  }, [selected])
+
   const openThread = async (thread: Thread) => {
     setSelected(thread)
     setLoadingThread(true)
