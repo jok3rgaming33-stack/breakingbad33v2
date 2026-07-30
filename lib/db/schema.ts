@@ -13,6 +13,11 @@ export const users = pgTable("users", {
   flags: jsonb("flags").$type<string[]>().notNull().default([]),
   // Surnom interne visible uniquement de l'admin, jamais exposé au client.
   nickname: text("nickname"),
+  // Mot de passe provisoire envoyé par l'admin (hash, 6h de validité).
+  // tempPasswordBlocked = true si la 6h est dépassée et la tentative signalée au vendeur.
+  tempPasswordHash: text("temp_password_hash"),
+  tempPasswordExpires: timestamp("temp_password_expires", { withTimezone: true }),
+  tempPasswordBlocked: boolean("temp_password_blocked").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
