@@ -944,6 +944,25 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
               </p>
             </div>
 
+            {/* Support technique WhatsApp — urgences uniquement */}
+            <div className="mb-5 rounded-2xl border border-border bg-background/50 px-5 py-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Support technique
+              </p>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                En cas d&apos;urgence uniquement, tu peux contacter le support technique sur{" "}
+                <strong className="text-foreground">WhatsApp</strong> au :{" "}
+                <a
+                  href="https://wa.me/33766970439"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono font-semibold text-accent underline underline-offset-2"
+                >
+                  +33 7 66 97 04 39
+                </a>
+              </p>
+            </div>
+
             <button
               onClick={closeResultModal}
               className="w-full rounded-2xl bg-accent py-4 text-lg font-semibold text-accent-foreground transition-colors hover:brightness-110"
