@@ -11,6 +11,7 @@ type ThreadMessage = { id: number; sender: string; body: string; createdAt: Date
 type ThreadDetail = { messages: ThreadMessage[] } & OrderThread
 
 function formatDate(value: Date | string) {
+  // Dernière activité si fourni via updatedAt côté appelant
   const d = new Date(value)
   return d.toLocaleString("fr-FR", {
     day: "2-digit",
@@ -247,7 +248,9 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
                         </div>
                       </td>
                       <td className="px-4 py-3 font-semibold">{t.total}€</td>
-                      <td className="px-4 py-3 text-muted-foreground">{formatDate(t.createdAt)}</td>
+                      <td className="px-4 py-3 text-muted-foreground" title="Dernier message / activité">
+                        {formatDate(t.updatedAt ?? t.createdAt)}
+                      </td>
                       <td className="px-4 py-3">
                         <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">
                           <Coins className="h-3 w-3" aria-hidden="true" />+{computeLoyaltyPoints(t.total ?? 0)}

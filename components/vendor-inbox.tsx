@@ -10,11 +10,12 @@ import { grantRestoreAccess, getRestoreStatus } from "@/app/actions/restore-acce
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
 import { AdminCreateOrderModal } from "@/components/admin-create-order-modal"
-
-function formatDate(value: Date | string) {
-  const d = new Date(value)
-  return d.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
-}
+import {
+  formatMessageTime,
+  formatThreadActivity,
+  threadActivityAt,
+  sortByActivityDesc,
+} from "@/lib/format-time"
 
 export function VendorInbox({
   initialThreads,
@@ -23,7 +24,7 @@ export function VendorInbox({
   initialThreads: OrderThread[]
   mode?: "orders" | "locker" | "messages" | "past"
 }) {
-  const [threads, setThreads] = useState(initialThreads)
+  const [threads, setThreads] = useState(() => sortByActivityDesc(initialThreads))
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
@@ -208,7 +209,7 @@ export function VendorInbox({
   const refresh = useCallback(async () => {
     try {
       const latest = mode === "messages" ? await getDiscussions() : mode === "locker" ? await getLockerOrders() : mode === "past" ? await getPastOrders() : await getActiveOrders()
-      setThreads(latest)
+      setThreads(sortByActivityDesc(latest))
       const openId = selectedIdRef.current
       if (openId != null) {
         const data = await getThread(openId)
@@ -241,8 +242,19 @@ export function VendorInbox({
       await addMessage(selectedId, "vendeur", body)
       const data = await getThread(selectedId)
       setMessages(data?.messages ?? [])
+      const now = data?.thread?.updatedAt ?? new Date().toISOString()
       setThreads((prev) =>
-        prev.map((t) => (t.id === selectedId ? { ...t, status: t.status === "nouveau" ? "en cours" : t.status } : t)),
+        sortByActivityDesc(
+          prev.map((t) =>
+            t.id === selectedId
+              ? {
+                  ...t,
+                  status: t.status === "nouveau" ? "en cours" : t.status,
+                  updatedAt: now as typeof t.updatedAt,
+                }
+              : t,
+          ),
+        ),
       )
     })
   }
@@ -262,6 +274,14 @@ export function VendorInbox({
       }
       const data = await getThread(selectedId)
       setMessages(data?.messages ?? [])
+      const now = data?.thread?.updatedAt ?? new Date().toISOString()
+      setThreads((prev) =>
+        sortByActivityDesc(
+          prev.map((t) =>
+            t.id === selectedId ? { ...t, updatedAt: now as typeof t.updatedAt } : t,
+          ),
+        ),
+      )
     } catch {
       // erreur silencieuse — on peut ajouter un toast plus tard
     } finally {
@@ -461,7 +481,7 @@ export function VendorInbox({
                     )}
                     <span>{t.total}€</span>
                     <span aria-hidden="true">•</span>
-                    <span>{formatDate(t.createdAt)}</span>
+                    <span title="Dernier message">{formatThreadActivity(threadActivityAt(t))}</span>
                   </div>
                 </button>
               </li>
@@ -639,10 +659,10 @@ export function VendorInbox({
 
                       {/* Méta — expéditeur, date, lu/non-lu + poubelle (mes messages uniquement) */}
                       <span className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                        {isVendeur ? "Vous" : selected.customerName} · {formatDate(m.createdAt)}
+                        {isVendeur ? "Vous" : selected.customerName} · {formatMessageTime(m.createdAt)}
                         {isVendeur && (
                           readAt
-                            ? <span title={`Lu le ${formatDate(readAt)}`} className="flex items-center gap-0.5 text-accent">
+                            ? <span title={`Lu le ${formatMessageTime(readAt)}`} className="flex items-center gap-0.5 text-accent">
                                 <CheckCheck className="h-3 w-3" aria-hidden="true" />
                                 <span>Lu</span>
                               </span>
