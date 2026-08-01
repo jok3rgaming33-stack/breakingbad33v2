@@ -7,13 +7,17 @@ import { createAccount, ensureAccount, getAccount, getCustomerStats } from "@/ap
 import { verifyHuman } from "@/app/actions/security"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { HowItWorksModal } from "@/components/how-it-works-modal"
-import { createGeneralInquiryThread } from "@/app/actions/messaging"
 import { loginWithRestoreToken, setPasswordAfterRestore } from "@/app/actions/restore-access"
+import { submitLostKeyClaim } from "@/app/actions/lost-key"
 import { PASSWORD_RULES } from "@/lib/password-rules"
 
 const CRYSTAL_COUNT = 4
 
-export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boolean }) => void }) {
+export function LoginPage({
+  onSuccess,
+}: {
+  onSuccess: (opts?: { openOrders?: boolean; openMessaging?: boolean }) => void
+}) {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [showResultModal, setShowResultModal] = useState(false)
   const [generatedPseudo, setGeneratedPseudo] = useState("")
@@ -317,16 +321,38 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
     }
   }
 
+  const [lostKeyProvisional, setLostKeyProvisional] = useState<{
+    token: string
+    pseudo: string
+  } | null>(null)
+
   const sendLostKeyRequest = async () => {
     const pseudo = lostKeyPseudo.trim()
     const msg = lostKeyMessage.trim()
-    if (!pseudo) { setLostKeyError("Indique ton pseudo pour qu'on te retrouve."); return }
+    if (!pseudo) {
+      setLostKeyError("Indique ton pseudo pour qu'on te retrouve.")
+      return
+    }
     setLostKeySending(true)
     setLostKeyError("")
+    setLostKeyProvisional(null)
     try {
-      await createGeneralInquiryThread({
-        customerName: pseudo,
-        message: `[CLE PERDUE] Pseudo : ${pseudo}\n\n${msg || "Le client a perdu sa clé et demande de l'aide."}`,
+      // Compte provisoire + fil messagerie + alerte admin (KYC ensuite)
+      const res = await submitLostKeyClaim({
+        claimedPseudo: pseudo,
+        message: msg || undefined,
+      })
+      if (!res.ok) {
+        setLostKeyError(res.error)
+        return
+      }
+      // Connexion immédiate avec la clé provisoire → le client voit la messagerie
+      localStorage.removeItem("isAdmin")
+      localStorage.setItem("authToken", res.provisionalToken)
+      localStorage.setItem("userPseudo", res.provisionalPseudo)
+      setLostKeyProvisional({
+        token: res.provisionalToken,
+        pseudo: res.provisionalPseudo,
       })
       setLostKeySent(true)
     } catch {
@@ -794,23 +820,62 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
               {lostKeySent ? (
                 <div className="flex flex-col items-center gap-4 py-4 text-center">
                   <CheckCircle2 className="h-14 w-14 text-accent" aria-hidden="true" />
-                  <p className="font-semibold text-lg">Demande envoyée !</p>
-                  <p className="text-sm text-muted-foreground">
-                    L&apos;admin a reçu ta demande et te répondra dès que possible via la messagerie.
+                  <p className="font-semibold text-lg">Compte provisoire créé</p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Tu es connecté avec une <strong>clé provisoire</strong>. Tu peux déjà écrire
+                    au chimiste dans la messagerie. Pour récupérer ton vrai compte
+                    {lostKeyPseudo ? ` (${lostKeyPseudo})` : ""}, fais ta{" "}
+                    <strong>vérification d&apos;identité (KYC)</strong> — après validation admin,
+                    commandes, messages et fidélité seront rattachés.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowLostKey(false)}
-                    className="mt-2 rounded-2xl bg-accent px-6 py-2.5 text-sm font-semibold text-accent-foreground hover:brightness-110"
-                  >
-                    Fermer
-                  </button>
+                  {lostKeyProvisional && (
+                    <div className="w-full rounded-2xl border border-border bg-background/60 p-3 text-left">
+                      <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+                        Ta clé provisoire (conserve-la) :
+                      </p>
+                      <code className="block break-all font-mono text-xs">
+                        {lostKeyProvisional.token}
+                      </code>
+                      <button
+                        type="button"
+                        className="mt-2 text-xs font-semibold text-accent"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(lostKeyProvisional.token)
+                        }}
+                      >
+                        Copier la clé
+                      </button>
+                    </div>
+                  )}
+                  <div className="mt-2 flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowLostKey(false)
+                        onSuccess({ openMessaging: true })
+                      }}
+                      className="rounded-2xl bg-accent px-6 py-2.5 text-sm font-semibold text-accent-foreground hover:brightness-110"
+                    >
+                      Ouvrir la messagerie
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowLostKey(false)
+                        onSuccess()
+                      }}
+                      className="rounded-2xl border border-border px-6 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary"
+                    >
+                      Aller à la boutique
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>
                   <p className="mb-5 text-sm text-muted-foreground leading-relaxed">
-                    Si tu as perdu ta clé secrète, indique ton pseudo ci-dessous et décris ta situation.
-                    L&apos;admin sera notifié immédiatement et pourra vérifier ton compte.
+                    Indique le pseudo du compte à récupérer. On te crée une{" "}
+                    <strong>clé provisoire</strong> tout de suite pour rester en contact
+                    (messagerie). Ensuite : KYC → validation admin → récupération de tes données.
                   </p>
                   <div className="flex flex-col gap-3">
                     <div>

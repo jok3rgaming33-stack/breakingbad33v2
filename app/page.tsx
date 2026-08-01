@@ -18,6 +18,7 @@ import { HowItWorksModal } from "@/components/how-it-works-modal"
 import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
 import { ShopSections } from "@/components/shop-sections"
+import { RecoveryBanner } from "@/components/recovery-banner"
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -123,13 +124,14 @@ export default function Home() {
     }
   }, [])
 
-  const handleLoginSuccess = (opts?: { openOrders?: boolean }) => {
+  const handleLoginSuccess = (opts?: { openOrders?: boolean; openMessaging?: boolean }) => {
     setIsAuthenticated(true)
     const pseudo = localStorage.getItem("userPseudo") ?? undefined
     const token = localStorage.getItem("authToken") ?? undefined
     setUserData({ pseudo, token })
     setIsAdmin(localStorage.getItem("isAdmin") === "1")
     if (opts?.openOrders) setIsOrdersOpen(true)
+    if (opts?.openMessaging) setIsMessagingOpen(true)
   }
 
   const handleLogout = () => {
@@ -168,6 +170,12 @@ export default function Home() {
           <LoginPage onSuccess={handleLoginSuccess} />
         ) : (
           <div className="bg-background text-foreground">
+            {!isAdmin && (
+              <RecoveryBanner
+                token={userData?.token}
+                onOpenMessaging={() => setIsMessagingOpen(true)}
+              />
+            )}
             <Hero />
             <ShopSections />
           </div>
