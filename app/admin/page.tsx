@@ -5,6 +5,7 @@ import { listVerifications } from "@/app/actions/verification"
 import { listLoginLogs } from "@/app/actions/login-logs"
 import { getProfitData } from "@/app/actions/profit"
 import { listBroadcastNotifications } from "@/app/actions/notifications"
+import { listStaff } from "@/app/actions/staff"
 import { AdminGate } from "@/components/admin-gate"
 import { AdminPanel } from "@/components/admin-panel"
 
@@ -22,7 +23,7 @@ export default async function AdminPage() {
     return <AdminGate />
   }
 
-  const [activeOrders, lockerOrders, discussions, threads, pastOrders, usersList, verifications, loginLogs, profitData, notifHistory] = await Promise.all([
+  const [activeOrders, lockerOrders, discussions, threads, pastOrders, usersList, verifications, loginLogs, profitData, notifHistory, staffList] = await Promise.all([
     getActiveOrders(),
     getLockerOrders(),
     getDiscussions(),
@@ -33,6 +34,7 @@ export default async function AdminPage() {
     listLoginLogs(200),
     getProfitData(),
     listBroadcastNotifications(50),
+    listStaff(),
   ])
 
   return (
@@ -47,6 +49,7 @@ export default async function AdminPage() {
       initialLoginLogs={loginLogs}
       initialProfitData={profitData}
       initialNotificationsHistory={notifHistory}
+      initialStaff={staffList}
     />
   )
 }

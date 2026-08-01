@@ -9,6 +9,8 @@ import { AdminOrdersRecap } from "@/components/admin-orders-recap"
 import { AdminUsers } from "@/components/admin-users"
 import { AdminVerifications } from "@/components/admin-verifications"
 import { AdminAdmins } from "@/components/admin-admins"
+import { AdminStaff } from "@/components/admin-staff"
+import type { StaffRow } from "@/app/actions/staff"
 import { AdminMap } from "@/components/admin-map"
 import { AdminNews } from "@/components/admin-news"
 import { AdminProducts } from "@/components/admin-products"
@@ -26,7 +28,7 @@ import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Constructio
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 
-type TabId = "commandes-en-cours" | "locker" | "cloturees" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits" | "connexions" | "notifications"
+type TabId = "commandes-en-cours" | "locker" | "cloturees" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits" | "connexions" | "notifications" | "staff"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "commandes-en-cours", label: "Commandes en cours", icon: Inbox },
@@ -43,6 +45,7 @@ const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "verifications", label: "Vérifications", icon: ShieldCheck },
   { id: "connexions", label: "Connexions", icon: Activity },
   { id: "news", label: "News", icon: Newspaper },
+  { id: "staff", label: "Staff", icon: Users },
   { id: "admins", label: "Admins", icon: UserCog },
   { id: "profits", label: "Profits", icon: TrendingUp },
 ]
@@ -62,6 +65,7 @@ export function AdminPanel({
   initialProfitData,
   initialNotificationsHistory,
   initialPastOrders,
+  initialStaff,
 }: {
   initialActiveOrders: OrderThread[]
   initialLockerOrders: OrderThread[]
@@ -73,6 +77,7 @@ export function AdminPanel({
   initialLoginLogs: LoginLogRow[]
   initialProfitData: ProfitSummary
   initialNotificationsHistory: BroadcastNotificationRow[]
+  initialStaff: StaffRow[]
 }) {
   const [tab, setTab] = useState<TabId>("commandes-en-cours")
 
@@ -169,6 +174,8 @@ export function AdminPanel({
           <AdminLoginLogs initialLogs={initialLoginLogs} />
         ) : tab === "profits" ? (
           <AdminProfit initialData={initialProfitData} />
+        ) : tab === "staff" ? (
+          <AdminStaff initialStaff={initialStaff} />
         ) : tab === "admins" ? (
           <AdminAdmins />
         ) : null}

@@ -26,6 +26,25 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+// Membres du staff créés par l'admin.
+// can_admin = true  → accès panel vendeur (comme adminAccounts mais via lien d'invitation).
+// can_admin = false → compte client étendu (customerToken lié à un row users).
+// L'invite_token est le lien one-time d'onboarding ; invite_used le marque consommé.
+export const staffMembers = pgTable("staff_members", {
+  id: serial("id").primaryKey(),
+  pseudo: text("pseudo"),
+  passwordHash: text("password_hash"),
+  inviteToken: text("invite_token").notNull().unique(),
+  canAdmin: boolean("can_admin").notNull().default(false),
+  permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
+  inviteUsed: boolean("invite_used").notNull().default(false),
+  active: boolean("active").notNull().default(true),
+  customerToken: text("customer_token"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type StaffMember = typeof staffMembers.$inferSelect
+
 // Variante de prix d'un produit (quantité -> prix).
 export type ProductVariant = { qty: number; price: number }
 
