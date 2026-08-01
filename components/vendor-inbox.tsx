@@ -427,7 +427,19 @@ export function VendorInbox({
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium">{t.customerName}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      {/* Pastille rouge : nouvelle commande / discussion à traiter */}
+                      {(t.status === "en_attente" ||
+                        t.status === "nouveau" ||
+                        t.status === "discussion") && (
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]"
+                          aria-label="À traiter"
+                          title="À traiter"
+                        />
+                      )}
+                      <span className="truncate text-sm font-medium">{t.customerName}</span>
+                    </span>
                     <div className="flex shrink-0 items-center gap-1">
                       {mode === "messages" && (
                         <span className="rounded-full bg-teal-500/15 px-2 py-0.5 text-[10px] font-semibold text-teal-300 border border-teal-500/30">

@@ -19,6 +19,8 @@ import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
 import { ShopSections } from "@/components/shop-sections"
 import { RecoveryBanner } from "@/components/recovery-banner"
+import { AppBadgeSync } from "@/components/app-badge-sync"
+import { setAppBadgeCount } from "@/lib/app-badge"
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -44,14 +46,39 @@ export default function Home() {
     }
   }, [])
 
-  // Poll toutes les 15s quand le client est connecté
+  // Poll toutes les 12s + au retour focus (client connecté non-admin)
   useEffect(() => {
     const token = userData?.token
-    if (!token || isAdmin) return
+    if (!token || isAdmin) {
+      if (isAdmin) void setAppBadgeCount(0) // badge client non applicable ici
+      return
+    }
     refreshUnread(token)
-    const interval = setInterval(() => refreshUnread(token), 15000)
-    return () => clearInterval(interval)
+    const interval = setInterval(() => refreshUnread(token), 12000)
+    const onVis = () => {
+      if (document.visibilityState === "visible") refreshUnread(token)
+    }
+    document.addEventListener("visibilitychange", onVis)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVis)
+    }
   }, [userData?.token, isAdmin, refreshUnread])
+
+  // Service worker → resync badges (clic notif push)
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return
+    const onMsg = (event: MessageEvent) => {
+      if (event.data?.type === "BB33_REFRESH_BADGES") {
+        const token = localStorage.getItem("authToken")
+        if (token && localStorage.getItem("isAdmin") !== "1") {
+          void refreshUnread(token)
+        }
+      }
+    }
+    navigator.serviceWorker.addEventListener("message", onMsg)
+    return () => navigator.serviceWorker.removeEventListener("message", onMsg)
+  }, [refreshUnread])
 
   // Au montage, on restaure la session pour éviter de retomber sur l'écran de
   // connexion lors d'un rechargement de la même session navigateur.
@@ -69,6 +96,7 @@ export default function Home() {
       localStorage.removeItem("authToken")
       localStorage.removeItem("userPseudo")
       localStorage.removeItem("isAdmin")
+      void setAppBadgeCount(0)
     }
     sessionStorage.setItem("bb33_session_alive", "1")
 
@@ -139,6 +167,9 @@ export default function Home() {
     setIsDashboardOpen(false)
     setIsAdmin(false)
     setUserData(null)
+    setUnreadMessaging(0)
+    setUnreadOrders(0)
+    void setAppBadgeCount(0)
     localStorage.removeItem("authToken")
     localStorage.removeItem("userPseudo")
     localStorage.removeItem("isAdmin")
@@ -151,6 +182,10 @@ export default function Home() {
         token={userData?.token}
         enabled={isAuthenticated && !isAdmin}
       >
+      <AppBadgeSync
+        menuUnread={unreadMessaging + unreadOrders}
+        enabled={isAuthenticated && !isAdmin}
+      />
       <Navbar
         isLoggedIn={isAuthenticated}
         onLogout={handleLogout}

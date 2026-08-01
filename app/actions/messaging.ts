@@ -468,37 +468,166 @@ export async function markThreadRead(threadId: number) {
     )
 }
 
-// Retourne le nombre de fils non lus par section :
-// - messaging : fils hors locker (hors trk_token) avec updated_at > clientLastSeen
-// - orders    : fils locker + trk_token avec updated_at > clientLastSeen
-export async function getUnreadCounts(customerToken: string): Promise<{ messaging: number; orders: number }> {
+function tsMs(d: Date | string | null | undefined): number {
+  if (!d) return 0
+  const t = new Date(d).getTime()
+  return Number.isFinite(t) ? t : 0
+}
+
+/**
+ * Non-lus client par section (badges menu + icône app).
+ *
+ * Un fil est non lu UNIQUEMENT s'il y a de l'activité vendeur non vue :
+ * - au moins un message vendeur après clientLastSeen, ou
+ * - jamais ouvert (clientLastSeen null) + au moins un message vendeur, ou
+ * - statut trk_token jamais ouvert (message auto à lire)
+ *
+ * Ne compte plus les réponses du client lui-même (bug qui re-badgeait après envoi).
+ *
+ * - messaging : discussions (status discussion / pris_en_charge / ouvert / ferme)
+ * - orders    : commandes réelles + locker + trk
+ */
+export async function getUnreadCounts(
+  customerToken: string,
+): Promise<{ messaging: number; orders: number; total: number }> {
   const token = customerToken?.trim()
-  if (!token) return { messaging: 0, orders: 0 }
+  if (!token) return { messaging: 0, orders: 0, total: 0 }
 
   const rows = await db
     .select({
+      id: orderThreads.id,
       fulfillment: orderThreads.fulfillment,
       status: orderThreads.status,
-      updatedAt: orderThreads.updatedAt,
+      total: orderThreads.total,
       clientLastSeen: orderThreads.clientLastSeen,
+      lastVendorAt: sql<Date | string | null>`(
+        SELECT MAX(${threadMessages.createdAt})
+        FROM ${threadMessages}
+        WHERE ${threadMessages.threadId} = ${orderThreads.id}
+          AND ${threadMessages.sender} = 'vendeur'
+      )`,
     })
     .from(orderThreads)
-    .where(eq(orderThreads.customerToken, token))
+    .where(
+      and(eq(orderThreads.customerToken, token), ne(orderThreads.status, "notification")),
+    )
 
   let messaging = 0
   let orders = 0
+  const DISCUSSION = new Set(["discussion", "pris_en_charge", "ouvert", "ferme"])
 
   for (const r of rows) {
-    const isUnread = !r.clientLastSeen || r.updatedAt > r.clientLastSeen
+    const seenMs = tsMs(r.clientLastSeen)
+    const vendorMs = tsMs(r.lastVendorAt)
+    const isTrk = r.status === "trk_token"
+    // Non lu = message vendeur plus récent que la dernière ouverture, ou TRK jamais ouvert
+    const isUnread =
+      (vendorMs > 0 && vendorMs > seenMs) || (isTrk && seenMs === 0)
     if (!isUnread) continue
-    if (r.status === "trk_token" || r.fulfillment === "locker") {
-      orders++
-    } else {
+
+    if (DISCUSSION.has(r.status)) {
       messaging++
+    } else {
+      orders++
     }
   }
 
-  return { messaging, orders }
+  return { messaging, orders, total: messaging + orders }
+}
+
+/**
+ * Compteurs admin pour pastilles rouges (panel + icône PWA vendeur).
+ * - orders : nouvelles commandes + commandes en attente de réponse client
+ * - locker : nouvelles commandes locker
+ * - messaging : discussions dont le dernier message est du client
+ * - verifications : KYC en attente
+ * - recovery : dossiers récupération ouverts
+ */
+export async function getAdminBadgeCounts(): Promise<{
+  orders: number
+  locker: number
+  messaging: number
+  verifications: number
+  recovery: number
+  total: number
+}> {
+  const empty = { orders: 0, locker: 0, messaging: 0, verifications: 0, recovery: 0, total: 0 }
+  try {
+    const { isAdminAuthenticated } = await import("@/app/actions/admin-auth")
+    if (!(await isAdminAuthenticated())) return empty
+  } catch {
+    return empty
+  }
+
+  const DISCUSSION = new Set(["discussion", "pris_en_charge", "ouvert", "ferme"])
+
+  const threads = await db
+    .select({
+      id: orderThreads.id,
+      fulfillment: orderThreads.fulfillment,
+      status: orderThreads.status,
+      lastSender: sql<string | null>`(
+        SELECT m.sender
+        FROM ${threadMessages} m
+        WHERE m.thread_id = ${orderThreads.id}
+        ORDER BY m.created_at DESC
+        LIMIT 1
+      )`,
+    })
+    .from(orderThreads)
+    .where(notInArray(orderThreads.status, ["notification", "livree", "annulee", "trk_token"]))
+
+  let orders = 0
+  let locker = 0
+  let messaging = 0
+
+  for (const t of threads) {
+    const isDiscussion = DISCUSSION.has(t.status)
+    const waitingClient = t.lastSender === "client"
+    const isNew = t.status === "en_attente" || t.status === "nouveau"
+
+    if (isDiscussion) {
+      if (waitingClient || t.status === "discussion") messaging++
+      continue
+    }
+
+    if (t.fulfillment === "locker") {
+      if (isNew || waitingClient) locker++
+    } else {
+      if (isNew || waitingClient) orders++
+    }
+  }
+
+  let verifications = 0
+  try {
+    const { userVerifications } = await import("@/lib/db/schema")
+    const [v] = await db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(userVerifications)
+      .where(eq(userVerifications.status, "pending"))
+    verifications = v?.c ?? 0
+  } catch {
+    /* ignore */
+  }
+
+  let recovery = 0
+  try {
+    const rec = await db.execute(sql`
+      SELECT COUNT(*)::int AS c FROM account_recovery_claims
+      WHERE status IN ('pending_kyc', 'kyc_submitted')
+    `)
+    const raw = rec as unknown as { rows?: { c: number }[]; rowCount?: number } | { c: number }[]
+    if (Array.isArray(raw)) {
+      recovery = Number(raw[0]?.c) || 0
+    } else if (raw?.rows) {
+      recovery = Number(raw.rows[0]?.c) || 0
+    }
+  } catch {
+    recovery = 0
+  }
+
+  const total = orders + locker + messaging + verifications + recovery
+  return { orders, locker, messaging, verifications, recovery, total }
 }
 
 // Aperçu léger pour les notifications client : statut + nombre de messages du vendeur.
