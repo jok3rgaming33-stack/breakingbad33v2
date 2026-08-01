@@ -7,6 +7,7 @@ import {
   setStaffActive,
   deleteStaffMember,
   regenerateWhitelistToken,
+  repairWhitelistMember,
 } from "@/app/actions/staff"
 import type { StaffRow } from "@/app/actions/staff"
 import {
@@ -20,6 +21,7 @@ import {
   Check,
   RefreshCw,
   KeyRound,
+  Wrench,
 } from "lucide-react"
 
 /**
@@ -84,7 +86,7 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
   async function handleRegenerate(member: StaffRow) {
     if (
       !confirm(
-        `Régénérer la clé de « ${member.pseudo} » ? L'ancienne clé ne fonctionnera plus.`,
+        `Régénérer la clé de « ${member.pseudo} » ? L'ancienne clé ne fonctionnera plus. Les conversations seront rattachées à la nouvelle clé.`,
       )
     ) {
       return
@@ -101,7 +103,25 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
         pseudo: member.pseudo ?? "membre",
         token: res.customerToken,
       })
-      setOkMsg(`Nouvelle clé générée pour « ${member.pseudo} ».`)
+      setOkMsg(`Nouvelle clé générée pour « ${member.pseudo} » (historique conservé).`)
+      await refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRepair(member: StaffRow) {
+    setBusy(true)
+    setError("")
+    setOkMsg("")
+    try {
+      const res = await repairWhitelistMember(member.id)
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      setLastIssued({ pseudo: res.pseudo, token: res.customerToken })
+      setOkMsg(res.message)
       await refresh()
     } finally {
       setBusy(false)
@@ -252,7 +272,7 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
                         </span>
                       )}
                       <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
-                        Client
+                        Compte standard
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -286,6 +306,16 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleRepair(member)}
+                      className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
+                      title="Rattache le compte, le pseudo et les conversations à la clé"
+                    >
+                      <Wrench className="h-3.5 w-3.5" />
+                      Réparer
+                    </button>
                     <button
                       type="button"
                       disabled={busy}

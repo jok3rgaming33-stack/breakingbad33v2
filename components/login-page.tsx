@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { Plus, CheckCircle2, Copy, AlertTriangle, Loader2, History, HelpCircle, KeyRound, X, Send, MessageCircleWarning, Eye, EyeOff, ShieldCheck } from "lucide-react"
 import { adminLogin } from "@/app/actions/admin-auth"
 import { createAccount, ensureAccount, getAccount, getCustomerStats } from "@/app/actions/account"
+import { resolveClientLogin } from "@/app/actions/staff"
 import { verifyHuman } from "@/app/actions/security"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { HowItWorksModal } from "@/components/how-it-works-modal"
@@ -239,20 +240,20 @@ export function LoginPage({
         return
       }
 
-      // Connexion utilisateur standard : on vérifie que le compte existe en base.
-      const account = await getAccount(token)
+      // Compte classique OU whitelist : un seul user, bon pseudo, fils rattachés
+      const resolved = await resolveClientLogin(token)
 
       // Token inconnu ou compte supprimé — on refuse sans recréer.
-      if (!account) {
+      if (!resolved.ok) {
         setError("Clé secrète invalide ou compte inexistant.")
         setResetLogin((n) => n + 1)
         return
       }
 
-      const pseudo = account.pseudo ?? token.slice(0, 8)
+      const pseudo = resolved.pseudo || token.slice(0, 8)
 
       localStorage.removeItem("isAdmin")
-      localStorage.setItem("authToken", token)
+      localStorage.setItem("authToken", resolved.token)
       localStorage.setItem("userPseudo", pseudo)
       setGeneratedPseudo(pseudo)
       setIsLoggedIn(true)
