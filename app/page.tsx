@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { getUnreadCounts } from "@/app/actions/messaging"
 import { getAccount } from "@/app/actions/account"
+import { resolveClientLogin } from "@/app/actions/staff"
 import { CartProvider } from "@/components/cart-provider"
 import { NotificationsProvider } from "@/components/notifications-provider"
 import { Navbar } from "@/components/navbar"
@@ -106,26 +107,49 @@ export default function Home() {
     if (token) {
       // Les admins n'ont pas de ligne en base — on vérifie uniquement les clients.
       if (!isAdminLocal) {
-        getAccount(token).then((account) => {
-          if (cancelled) return
-          if (!account) {
-            // Token supprimé ou invalide — on force la déconnexion
-            localStorage.removeItem("authToken")
-            localStorage.removeItem("userPseudo")
-            localStorage.removeItem("isAdmin")
-            setIsAuthenticated(false)
-            setUserData(null)
-            return
-          }
-          setIsAuthenticated(true)
-          setIsAdmin(false)
-          setUserData({ pseudo: account.pseudo ?? undefined, token })
-        }).catch(() => {
-          // En cas d'erreur réseau, on autorise quand même (fail-open)
-          setIsAuthenticated(true)
-          setIsAdmin(false)
-          setUserData({ pseudo: localStorage.getItem("userPseudo") ?? undefined, token })
-        })
+        // resolveClientLogin : répare whitelist + pseudo + rattache les conversations
+        resolveClientLogin(token)
+          .then((resolved) => {
+            if (cancelled) return
+            if (!resolved.ok) {
+              localStorage.removeItem("authToken")
+              localStorage.removeItem("userPseudo")
+              localStorage.removeItem("isAdmin")
+              setIsAuthenticated(false)
+              setUserData(null)
+              return
+            }
+            localStorage.setItem("authToken", resolved.token)
+            localStorage.setItem("userPseudo", resolved.pseudo)
+            setIsAuthenticated(true)
+            setIsAdmin(false)
+            setUserData({ pseudo: resolved.pseudo, token: resolved.token })
+          })
+          .catch(() => {
+            // Repli : getAccount simple
+            getAccount(token)
+              .then((account) => {
+                if (cancelled) return
+                if (!account) {
+                  localStorage.removeItem("authToken")
+                  localStorage.removeItem("userPseudo")
+                  setIsAuthenticated(false)
+                  setUserData(null)
+                  return
+                }
+                setIsAuthenticated(true)
+                setIsAdmin(false)
+                setUserData({ pseudo: account.pseudo ?? undefined, token })
+              })
+              .catch(() => {
+                setIsAuthenticated(true)
+                setIsAdmin(false)
+                setUserData({
+                  pseudo: localStorage.getItem("userPseudo") ?? undefined,
+                  token,
+                })
+              })
+          })
         return
       }
       setIsAuthenticated(true)
