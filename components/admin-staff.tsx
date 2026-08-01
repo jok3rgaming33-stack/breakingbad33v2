@@ -1,445 +1,318 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useState } from "react"
 import {
   listStaff,
-  createStaffMember,
+  createWhitelistMember,
   setStaffActive,
   deleteStaffMember,
-  regenerateStaffInvite,
+  setWhitelistPassword,
 } from "@/app/actions/staff"
 import type { StaffRow } from "@/app/actions/staff"
 import {
+  UserPlus,
+  Loader2,
+  Trash2,
+  Ban,
+  CheckCircle2,
+  KeyRound,
   Users,
-  Plus,
+  Eye,
+  EyeOff,
   Copy,
   Check,
-  Trash2,
-  RefreshCw,
-  Loader2,
-  ShieldCheck,
-  ShieldOff,
-  ToggleLeft,
-  ToggleRight,
-  AlertTriangle,
-  Link as LinkIcon,
 } from "lucide-react"
 
-// Toutes les permissions disponibles
-const ALL_PERMISSIONS = [
-  { id: "messagerie",    label: "Messagerie" },
-  { id: "commandes",     label: "Suivi commandes" },
-  { id: "produits",      label: "Gestion produits" },
-  { id: "utilisateurs",  label: "Gestion utilisateurs" },
-  { id: "promos",        label: "Codes promo" },
-  { id: "logistique",    label: "Logistique" },
-  { id: "notifications", label: "Notifications" },
-]
-
-function shortToken(t: string) {
-  return `${t.slice(0, 8)}…${t.slice(-4)}`
-}
-
+/**
+ * Whitelist membres — accès client uniquement.
+ * L'admin définit pseudo + mot de passe libre (pas de règle 30 car. / complexité).
+ */
 export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
   const [staff, setStaff] = useState<StaffRow[]>(initialStaff)
-  const [isPending, startTransition] = useTransition()
+  const [pseudo, setPseudo] = useState("")
+  const [password, setPassword] = useState("")
+  const [showPw, setShowPw] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const [okMsg, setOkMsg] = useState("")
+  const [resetId, setResetId] = useState<number | null>(null)
+  const [resetPw, setResetPw] = useState("")
+  const [copiedId, setCopiedId] = useState<number | null>(null)
 
-  // ── Formulaire de création ──────────────────────────────────────────
-  const [showForm, setShowForm] = useState(false)
-  const [canAdmin, setCanAdmin] = useState(false)
-  const [permissions, setPermissions] = useState<string[]>([])
-  const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState("")
+  async function refresh() {
+    const rows = await listStaff()
+    setStaff(rows)
+  }
 
-  // ── Feedback copie ─────────────────────────────────────────────────
-  const [copiedId, setCopiedId] = useState<number | "new" | null>(null)
-  const [newLink, setNewLink] = useState<string | null>(null)
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault()
+    setError("")
+    setOkMsg("")
+    setBusy(true)
+    try {
+      const res = await createWhitelistMember({
+        pseudo: pseudo.trim(),
+        password,
+      })
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      setOkMsg(`Membre « ${pseudo.trim()} » ajouté. Il peut se connecter avec ce mot de passe.`)
+      setPseudo("")
+      setPassword("")
+      await refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
 
-  // ── Confirmation suppression ───────────────────────────────────────
-  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
-
-  // ── Régénération ───────────────────────────────────────────────────
-  const [regeneratingId, setRegeneratingId] = useState<number | null>(null)
-
-  function togglePermission(id: string) {
-    setPermissions((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
+  async function handleToggle(member: StaffRow) {
+    await setStaffActive(member.id, !member.active)
+    setStaff((prev) =>
+      prev.map((m) => (m.id === member.id ? { ...m, active: !m.active } : m)),
     )
   }
 
-  function buildInviteUrl(token: string) {
-    if (typeof window === "undefined") return ""
-    return `${window.location.origin}/staff/${token}`
+  async function handleDelete(id: number) {
+    if (!confirm("Supprimer ce membre de la whitelist ?")) return
+    await deleteStaffMember(id)
+    setStaff((prev) => prev.filter((m) => m.id !== id))
   }
 
-  function copyToClipboard(text: string, id: number | "new") {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedId(id)
-      setTimeout(() => setCopiedId(null), 2500)
-    })
-  }
-
-  async function handleCreate() {
-    if (creating) return
-    setCreateError("")
-    setCreating(true)
+  async function handleResetPassword(id: number) {
+    if (!resetPw.trim()) {
+      setError("Indique le nouveau mot de passe.")
+      return
+    }
+    setBusy(true)
+    setError("")
     try {
-      const res = await createStaffMember({ canAdmin, permissions })
+      const res = await setWhitelistPassword(id, resetPw)
       if (!res.ok) {
-        setCreateError(res.error)
+        setError(res.error)
         return
       }
-      const url = buildInviteUrl(res.inviteToken)
-      setNewLink(url)
-      setShowForm(false)
-      setCanAdmin(false)
-      setPermissions([])
-      // Refresh list
-      const rows = await listStaff()
-      setStaff(rows)
+      setOkMsg("Mot de passe mis à jour.")
+      setResetId(null)
+      setResetPw("")
     } finally {
-      setCreating(false)
+      setBusy(false)
     }
   }
 
-  async function handleToggleActive(member: StaffRow) {
-    startTransition(async () => {
-      await setStaffActive(member.id, !member.active)
-      setStaff((prev) =>
-        prev.map((m) => (m.id === member.id ? { ...m, active: !m.active } : m)),
-      )
+  function copyHint(member: StaffRow) {
+    const text = `Connexion BreakingBad33\nPseudo : ${member.pseudo}\nMot de passe : (celui que tu as défini)`
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopiedId(member.id)
+      setTimeout(() => setCopiedId(null), 2000)
     })
-  }
-
-  async function handleDelete(id: number) {
-    startTransition(async () => {
-      await deleteStaffMember(id)
-      setStaff((prev) => prev.filter((m) => m.id !== id))
-      setConfirmDeleteId(null)
-    })
-  }
-
-  async function handleRegenerate(id: number) {
-    setRegeneratingId(id)
-    try {
-      const res = await regenerateStaffInvite(id)
-      if (!res.ok) return
-      const url = buildInviteUrl(res.inviteToken)
-      setNewLink(url)
-      const rows = await listStaff()
-      setStaff(rows)
-    } finally {
-      setRegeneratingId(null)
-    }
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-bold">Gestion du staff</h2>
-          <p className="text-sm text-muted-foreground">
-            Invite et gère les membres de ton équipe.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => { setShowForm((v) => !v); setCreateError(""); setNewLink(null) }}
-          className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Nouveau membre
-        </button>
+    <div className="space-y-8">
+      <div>
+        <h2 className="flex items-center gap-2 text-lg font-bold">
+          <Users className="h-5 w-5 text-accent" aria-hidden="true" />
+          Whitelist membres
+        </h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          Ajoute un membre avec un <strong>pseudo</strong> et un{" "}
+          <strong>mot de passe de ton choix</strong> (pas de minimum 30 caractères, pas de
+          règles complexes). Il se connecte comme client —{" "}
+          <strong>sans accès admin</strong>.
+        </p>
       </div>
 
-      {/* ── Lien généré après création / régénération ─────────────────── */}
-      {newLink && (
-        <div className="rounded-2xl border border-accent/30 bg-accent/10 p-5">
-          <div className="mb-2 flex items-center gap-2">
-            <LinkIcon className="h-4 w-4 text-accent" aria-hidden="true" />
-            <p className="text-sm font-semibold text-accent">Lien d&apos;invitation généré</p>
-          </div>
-          <p className="mb-3 text-xs text-muted-foreground">
-            Partage ce lien au membre concerné. Il est à usage unique.
-          </p>
-          <div className="flex items-center gap-2">
+      {/* Formulaire création */}
+      <form
+        onSubmit={handleCreate}
+        className="rounded-2xl border border-border bg-card p-5 sm:p-6"
+      >
+        <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold">
+          <UserPlus className="h-4 w-4" aria-hidden="true" />
+          Ajouter un membre
+        </h3>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+              Pseudo
+            </label>
             <input
-              readOnly
-              value={newLink}
-              className="flex-1 truncate rounded-xl border border-border bg-background px-3 py-2 font-mono text-xs outline-none"
+              value={pseudo}
+              onChange={(e) => setPseudo(e.target.value)}
+              className="input"
+              placeholder="ex. Toto"
+              required
+              autoComplete="off"
             />
-            <button
-              type="button"
-              onClick={() => copyToClipboard(newLink, "new")}
-              className="flex items-center gap-1.5 rounded-xl border border-border bg-background px-3 py-2 text-xs transition-colors hover:bg-secondary"
-            >
-              {copiedId === "new"
-                ? <Check className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-                : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
-              {copiedId === "new" ? "Copié" : "Copier"}
-            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setNewLink(null)}
-            className="mt-3 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-          >
-            Fermer
-          </button>
-        </div>
-      )}
-
-      {/* ── Formulaire de création ─────────────────────────────────────── */}
-      {showForm && (
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <h3 className="mb-4 font-semibold">Configurer l&apos;invitation</h3>
-
-          {/* Accès admin */}
-          <div className="mb-5">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Accès panel admin</p>
-            <div className="flex gap-3">
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+              Mot de passe (libre)
+            </label>
+            <div className="relative">
+              <input
+                type={showPw ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="input pr-11"
+                placeholder="ex. abc12"
+                required
+                autoComplete="new-password"
+              />
               <button
                 type="button"
-                onClick={() => setCanAdmin(false)}
-                className={`flex flex-1 flex-col items-center gap-2 rounded-xl border p-3 text-xs font-medium transition-colors ${
-                  !canAdmin
-                    ? "border-accent bg-accent/10 text-accent"
-                    : "border-border text-muted-foreground hover:border-accent/40"
-                }`}
+                onClick={() => setShowPw((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label={showPw ? "Masquer" : "Afficher"}
               >
-                <ShieldOff className="h-5 w-5" aria-hidden="true" />
-                Non — compte client étendu
-              </button>
-              <button
-                type="button"
-                onClick={() => setCanAdmin(true)}
-                className={`flex flex-1 flex-col items-center gap-2 rounded-xl border p-3 text-xs font-medium transition-colors ${
-                  canAdmin
-                    ? "border-accent bg-accent/10 text-accent"
-                    : "border-border text-muted-foreground hover:border-accent/40"
-                }`}
-              >
-                <ShieldCheck className="h-5 w-5" aria-hidden="true" />
-                Oui — accès panel admin
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-          </div>
-
-          {/* Permissions */}
-          <div className="mb-5">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">
-              Permissions accordées
-              {canAdmin && (
-                <span className="ml-1 text-muted-foreground/60">
-                  (informatives si accès admin complet)
-                </span>
-              )}
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Aucune contrainte de longueur type clé secrète (30 car.).
             </p>
-            <div className="flex flex-wrap gap-2">
-              {ALL_PERMISSIONS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => togglePermission(p.id)}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                    permissions.includes(p.id)
-                      ? "border-accent bg-accent/10 text-accent"
-                      : "border-border text-muted-foreground hover:border-accent/40"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {createError && (
-            <p className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {createError}
-            </p>
-          )}
-
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="flex-1 rounded-xl border border-border py-2.5 text-sm transition-colors hover:bg-secondary"
-            >
-              Annuler
-            </button>
-            <button
-              type="button"
-              onClick={handleCreate}
-              disabled={creating}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              {creating
-                ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                : <LinkIcon className="h-4 w-4" aria-hidden="true" />}
-              Générer le lien
-            </button>
           </div>
         </div>
-      )}
 
-      {/* ── Liste du staff ─────────────────────────────────────────────── */}
-      {staff.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card py-16 text-center">
-          <Users className="h-10 w-10 text-muted-foreground/40" aria-hidden="true" />
-          <p className="text-sm text-muted-foreground">Aucun membre du staff pour l&apos;instant.</p>
+        {error && (
+          <p className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        {okMsg && (
+          <p className="mt-3 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-sm text-accent">
+            {okMsg}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={busy}
+          className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+          Ajouter à la whitelist
+        </button>
+      </form>
+
+      {/* Liste */}
+      <div className="rounded-2xl border border-border bg-card overflow-hidden">
+        <div className="border-b border-border px-4 py-3">
+          <h3 className="text-sm font-semibold">
+            Membres ({staff.length})
+          </h3>
         </div>
-      ) : (
-        <div className="overflow-hidden rounded-2xl border border-border bg-card">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-secondary/30 text-left text-xs font-semibold text-muted-foreground">
-                <th className="px-4 py-3">Pseudo</th>
-                <th className="px-4 py-3">Rôle</th>
-                <th className="px-4 py-3">Permissions</th>
-                <th className="px-4 py-3">Invitation</th>
-                <th className="px-4 py-3">Statut</th>
-                <th className="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {staff.map((member) => (
-                <tr key={member.id} className="transition-colors hover:bg-secondary/20">
-                  {/* Pseudo */}
-                  <td className="px-4 py-3 font-medium">
-                    {member.pseudo ?? (
-                      <span className="italic text-muted-foreground">En attente…</span>
-                    )}
-                  </td>
-
-                  {/* Rôle */}
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
-                      member.canAdmin
-                        ? "border-accent/40 bg-accent/10 text-accent"
-                        : "border-border bg-secondary text-muted-foreground"
-                    }`}>
-                      {member.canAdmin
-                        ? <><ShieldCheck className="h-3 w-3" aria-hidden="true" /> Admin</>
-                        : <><Users className="h-3 w-3" aria-hidden="true" /> Client étendu</>}
-                    </span>
-                  </td>
-
-                  {/* Permissions */}
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {member.permissions.length === 0 ? (
-                        <span className="text-xs text-muted-foreground/60">—</span>
+        {staff.length === 0 ? (
+          <p className="p-8 text-center text-sm text-muted-foreground">
+            Aucun membre whitelist pour l&apos;instant.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {staff.map((member) => (
+              <li key={member.id} className="px-4 py-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold">{member.pseudo ?? "—"}</span>
+                      {member.active ? (
+                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
+                          Actif
+                        </span>
                       ) : (
-                        member.permissions.map((p) => (
-                          <span key={p} className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
-                            {ALL_PERMISSIONS.find((x) => x.id === p)?.label ?? p}
-                          </span>
-                        ))
+                        <span className="rounded-full bg-zinc-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+                          Suspendu
+                        </span>
                       )}
-                    </div>
-                  </td>
-
-                  {/* Lien invitation */}
-                  <td className="px-4 py-3">
-                    {member.inviteUsed ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-accent">
-                        <Check className="h-3 w-3" aria-hidden="true" /> Utilisé
+                      <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
+                        Client (pas admin)
                       </span>
-                    ) : (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => copyToClipboard(buildInviteUrl(member.inviteToken), member.id)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-border bg-background/60 px-2 py-1 font-mono text-xs transition-colors hover:bg-secondary"
-                          title="Copier le lien d'invitation"
-                        >
-                          {shortToken(member.inviteToken)}
-                          {copiedId === member.id
-                            ? <Check className="h-3 w-3 text-accent" aria-hidden="true" />
-                            : <Copy className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
-                        </button>
-                      </div>
-                    )}
-                  </td>
-
-                  {/* Statut */}
-                  <td className="px-4 py-3">
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Créé le {new Date(member.createdAt).toLocaleString("fr-FR")}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => handleToggleActive(member)}
-                      disabled={isPending}
-                      title={member.active ? "Suspendre" : "Réactiver"}
-                      className="flex items-center gap-1.5 text-xs transition-colors"
+                      onClick={() => copyHint(member)}
+                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                    >
+                      {copiedId === member.id ? (
+                        <Check className="h-3.5 w-3.5 text-accent" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                      Copier rappel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetId(resetId === member.id ? null : member.id)
+                        setResetPw("")
+                        setError("")
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                    >
+                      <KeyRound className="h-3.5 w-3.5" />
+                      MDP
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggle(member)}
+                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
                     >
                       {member.active ? (
                         <>
-                          <ToggleRight className="h-5 w-5 text-accent" aria-hidden="true" />
-                          <span className="text-accent">Actif</span>
+                          <Ban className="h-3.5 w-3.5" /> Suspendre
                         </>
                       ) : (
                         <>
-                          <ToggleLeft className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
-                          <span className="text-muted-foreground">Suspendu</span>
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Activer
                         </>
                       )}
                     </button>
-                  </td>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(member.id)}
+                      className="flex items-center gap-1.5 rounded-lg border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Supprimer
+                    </button>
+                  </div>
+                </div>
 
-                  {/* Actions */}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
-                      {/* Régénérer le lien */}
-                      {!member.inviteUsed && (
-                        <button
-                          type="button"
-                          onClick={() => handleRegenerate(member.id)}
-                          disabled={regeneratingId === member.id}
-                          title="Régénérer le lien d'invitation"
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border transition-colors hover:bg-secondary disabled:opacity-50"
-                        >
-                          {regeneratingId === member.id
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                            : <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />}
-                        </button>
-                      )}
-                      {/* Supprimer */}
-                      {confirmDeleteId === member.id ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(member.id)}
-                            className="flex items-center gap-1 rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/20"
-                          >
-                            <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-                            Confirmer
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeleteId(null)}
-                            className="rounded-lg border border-border px-2 py-1 text-xs transition-colors hover:bg-secondary"
-                          >
-                            Annuler
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(member.id)}
-                          title="Supprimer ce membre"
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border transition-colors hover:border-destructive/40 hover:bg-destructive/10"
-                        >
-                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" aria-hidden="true" />
-                        </button>
-                      )}
+                {resetId === member.id && (
+                  <div className="mt-3 flex flex-col gap-2 rounded-xl border border-border bg-background/50 p-3 sm:flex-row sm:items-end">
+                    <div className="flex-1">
+                      <label className="mb-1 block text-xs text-muted-foreground">
+                        Nouveau mot de passe
+                      </label>
+                      <input
+                        type="text"
+                        value={resetPw}
+                        onChange={(e) => setResetPw(e.target.value)}
+                        className="input"
+                        placeholder="Mot de passe libre"
+                      />
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleResetPassword(member.id)}
+                      className="rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground disabled:opacity-50"
+                    >
+                      Enregistrer
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   )
 }

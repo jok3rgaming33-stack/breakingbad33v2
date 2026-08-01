@@ -1,203 +1,231 @@
 "use server"
 
+/**
+ * Whitelist membres (ex-staff simplifié).
+ * - Créés par l'admin : pseudo + mot de passe libre (pas de 30 car., pas de complexité).
+ * - Connexion client uniquement (pas d'accès panel admin).
+ * - Compte users lié en interne (token long généré).
+ */
+
 import { db } from "@/lib/db"
-import { staffMembers, users } from "@/lib/db/schema"
+import { staffMembers, users, reservedPseudos } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { isAdminAuthenticated } from "./admin-auth"
 import { hashPassword, verifyPassword } from "@/lib/admin-password"
 
-// ─── Types ─────────────────────────────────────────────────────────────────
 export type StaffRow = {
   id: number
   pseudo: string | null
-  inviteToken: string
-  canAdmin: boolean
-  permissions: string[]
-  inviteUsed: boolean
   active: boolean
-  customerToken: string | null
   createdAt: string
-}
-
-export type CreateStaffInput = {
-  canAdmin: boolean
+  /** Toujours false — legacy type compat */
+  canAdmin: false
+  inviteUsed: true
+  inviteToken: string
   permissions: string[]
+  customerToken: string | null
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
 function genToken() {
   const bytes = new Uint8Array(32)
   crypto.getRandomValues(bytes)
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
 }
 
-// ─── Admin : lister le staff ───────────────────────────────────────────────
+// ─── Admin : lister les membres whitelist ─────────────────────────────────
 export async function listStaff(): Promise<StaffRow[]> {
   if (!(await isAdminAuthenticated())) return []
   const rows = await db.select().from(staffMembers).orderBy(staffMembers.createdAt)
   return rows.map((r) => ({
     id: r.id,
     pseudo: r.pseudo,
-    inviteToken: r.inviteToken,
-    canAdmin: r.canAdmin,
-    permissions: (r.permissions ?? []) as string[],
-    inviteUsed: r.inviteUsed,
     active: r.active,
-    customerToken: r.customerToken,
     createdAt: r.createdAt.toISOString(),
+    canAdmin: false as const,
+    inviteUsed: true as const,
+    inviteToken: r.inviteToken,
+    permissions: [] as string[],
+    customerToken: r.customerToken,
   }))
 }
 
-// ─── Admin : créer un membre du staff ─────────────────────────────────────
-// Retourne le token d'invitation unique à partager avec le membre.
-export async function createStaffMember(
-  input: CreateStaffInput,
-): Promise<{ ok: true; inviteToken: string } | { ok: false; error: string }> {
-  if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
-  const inviteToken = genToken()
-  await db.insert(staffMembers).values({
-    inviteToken,
-    canAdmin: input.canAdmin,
-    permissions: input.permissions,
-  })
-  revalidatePath("/admin")
-  return { ok: true, inviteToken }
+export async function listWhitelistMembers() {
+  return listStaff()
 }
 
-// ─── Admin : activer / suspendre un membre ────────────────────────────────
-export async function setStaffActive(
+// ─── Admin : créer un membre (pseudo + mdp libre) ─────────────────────────
+export async function createWhitelistMember(input: {
+  pseudo: string
+  password: string
+}): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
+
+  const pseudo = input.pseudo?.trim()
+  const password = input.password ?? ""
+  if (!pseudo) return { ok: false, error: "Pseudo requis." }
+  if (!password || password.length < 1) {
+    return { ok: false, error: "Mot de passe requis (libre, aucun minimum de 30 caractères)." }
+  }
+
+  // Pseudo déjà pris en whitelist
+  const existingMember = await db
+    .select({ id: staffMembers.id })
+    .from(staffMembers)
+    .where(eq(staffMembers.pseudo, pseudo))
+    .limit(1)
+  if (existingMember.length > 0) {
+    return { ok: false, error: "Ce pseudo existe déjà dans la whitelist." }
+  }
+
+  // Pseudo réservé (clients anonymes)
+  const taken = await db
+    .select({ id: reservedPseudos.id })
+    .from(reservedPseudos)
+    .where(eq(reservedPseudos.pseudo, pseudo))
+    .limit(1)
+  if (taken.length > 0) {
+    return { ok: false, error: "Ce pseudo est déjà utilisé. Choisis-en un autre." }
+  }
+
+  const customerToken = `wl_${genToken()}`
+  const inviteToken = genToken() // identifiant interne unique (plus de lien d'invitation)
+  const passwordHash = hashPassword(password)
+
+  await db.insert(reservedPseudos).values({ pseudo }).onConflictDoNothing()
+  await db.insert(users).values({ token: customerToken, pseudo })
+  await db.insert(staffMembers).values({
+    pseudo,
+    passwordHash,
+    inviteToken,
+    canAdmin: false,
+    permissions: [],
+    inviteUsed: true,
+    active: true,
+    customerToken,
+  })
+
+  revalidatePath("/admin")
+  return { ok: true, id: 0 }
+}
+
+/** @deprecated use createWhitelistMember */
+export async function createStaffMember(_input: {
+  canAdmin: boolean
+  permissions: string[]
+}): Promise<{ ok: false; error: string }> {
+  return {
+    ok: false,
+    error: "Ancien système staff désactivé. Utilise la whitelist (pseudo + mot de passe).",
+  }
+}
+
+// ─── Admin : changer le mot de passe ──────────────────────────────────────
+export async function setWhitelistPassword(
   id: number,
-  active: boolean,
-): Promise<{ ok: boolean }> {
+  password: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
+  if (!password || password.length < 1) {
+    return { ok: false, error: "Mot de passe requis." }
+  }
+  await db
+    .update(staffMembers)
+    .set({ passwordHash: hashPassword(password) })
+    .where(eq(staffMembers.id, id))
+  revalidatePath("/admin")
+  return { ok: true }
+}
+
+// ─── Admin : activer / suspendre ──────────────────────────────────────────
+export async function setStaffActive(id: number, active: boolean): Promise<{ ok: boolean }> {
   if (!(await isAdminAuthenticated())) return { ok: false }
   await db.update(staffMembers).set({ active }).where(eq(staffMembers.id, id))
   revalidatePath("/admin")
   return { ok: true }
 }
 
-// ─── Admin : supprimer un membre ──────────────────────────────────────────
+// ─── Admin : supprimer ────────────────────────────────────────────────────
 export async function deleteStaffMember(id: number): Promise<{ ok: boolean }> {
   if (!(await isAdminAuthenticated())) return { ok: false }
+  const rows = await db.select().from(staffMembers).where(eq(staffMembers.id, id)).limit(1)
+  const member = rows[0]
+  if (member?.customerToken) {
+    // On garde le user en base pour l'historique éventuel, ou on le laisse :
+    // pour une whitelist simple on ne supprime pas forcément le users row.
+  }
   await db.delete(staffMembers).where(eq(staffMembers.id, id))
   revalidatePath("/admin")
   return { ok: true }
 }
 
-// ─── Admin : régénérer le lien d'invitation ───────────────────────────────
+// Anciennes APIs invitation — désactivées
 export async function regenerateStaffInvite(
-  id: number,
-): Promise<{ ok: true; inviteToken: string } | { ok: false }> {
-  if (!(await isAdminAuthenticated())) return { ok: false }
-  const inviteToken = genToken()
-  await db
-    .update(staffMembers)
-    .set({ inviteToken, inviteUsed: false, pseudo: null, passwordHash: null, customerToken: null })
-    .where(eq(staffMembers.id, id))
-  revalidatePath("/admin")
-  return { ok: true, inviteToken }
+  _id: number,
+): Promise<{ ok: false }> {
+  return { ok: false }
 }
 
-// ─── Public : lire les infos d'invitation (pour la page onboarding) ───────
 export async function getStaffInvite(
-  token: string,
-): Promise<{ ok: true; id: number; canAdmin: boolean; permissions: string[]; alreadyUsed: boolean } | { ok: false }> {
-  const rows = await db
-    .select()
-    .from(staffMembers)
-    .where(eq(staffMembers.inviteToken, token))
-    .limit(1)
-  const row = rows[0]
-  if (!row) return { ok: false }
-  return {
-    ok: true,
-    id: row.id,
-    canAdmin: row.canAdmin,
-    permissions: (row.permissions ?? []) as string[],
-    alreadyUsed: row.inviteUsed,
-  }
+  _token: string,
+): Promise<{ ok: false }> {
+  return { ok: false }
 }
 
-// ─── Public : valider l'onboarding (pseudo + mot de passe) ────────────────
-export async function completeStaffOnboarding(input: {
+export async function completeStaffOnboarding(_input: {
   token: string
   pseudo: string
   password: string
   confirmPassword: string
-}): Promise<{ ok: true; canAdmin: boolean; customerToken?: string } | { ok: false; error: string }> {
-  const { token, pseudo, password, confirmPassword } = input
-
-  if (!pseudo?.trim()) return { ok: false, error: "Le pseudo est requis." }
-  if (!password) return { ok: false, error: "Le mot de passe est requis." }
-  if (password !== confirmPassword) return { ok: false, error: "Les mots de passe ne correspondent pas." }
-
-  // Règles de complexité (même règles que restore-access)
-  if (password.length < 8) return { ok: false, error: "8 caractères minimum." }
-  if (!/[A-Z]/.test(password)) return { ok: false, error: "Au moins une majuscule requise." }
-  if (!/[0-9]/.test(password)) return { ok: false, error: "Au moins un chiffre requis." }
-  if (!/[-_/*ù]/.test(password)) return { ok: false, error: "Au moins un symbole parmi : - _ / * ù" }
-
-  const rows = await db
-    .select()
-    .from(staffMembers)
-    .where(eq(staffMembers.inviteToken, token))
-    .limit(1)
-  const member = rows[0]
-  if (!member) return { ok: false, error: "Lien invalide." }
-  if (member.inviteUsed) return { ok: false, error: "Ce lien d'invitation a déjà été utilisé." }
-  if (!member.active) return { ok: false, error: "Ce compte staff a été désactivé." }
-
-  const passwordHash = hashPassword(password)
-  const updates: Partial<typeof member> = {
-    pseudo: pseudo.trim(),
-    passwordHash,
-    inviteUsed: true,
-  }
-
-  // Si le membre n'a pas accès admin → on crée aussi un compte client lié
-  let customerToken: string | undefined
-  if (!member.canAdmin) {
-    customerToken = `stf_${genToken().slice(0, 40)}`
-    await db.insert(users).values({
-      token: customerToken,
-      pseudo: pseudo.trim(),
-    })
-    updates.customerToken = customerToken
-  }
-
-  await db.update(staffMembers).set(updates).where(eq(staffMembers.id, member.id))
-  revalidatePath("/admin")
-  return { ok: true, canAdmin: member.canAdmin, customerToken }
+}): Promise<{ ok: false; error: string }> {
+  return { ok: false, error: "Les invitations staff sont désactivées. Demande un accès whitelist à l'admin." }
 }
 
-// ─── Public : connexion staff avec pseudo + mot de passe ─────────────────
-export async function loginStaff(input: {
+// ─── Public : connexion membre (pseudo + mdp libre) ───────────────────────
+export async function loginWhitelistMember(input: {
   pseudo: string
   password: string
 }): Promise<
-  | { ok: true; canAdmin: boolean; customerToken: string | null; permissions: string[] }
+  | { ok: true; pseudo: string; customerToken: string }
   | { ok: false; error: string }
 > {
-  const { pseudo, password } = input
-  if (!pseudo?.trim() || !password) return { ok: false, error: "Pseudo et mot de passe requis." }
+  const pseudo = input.pseudo?.trim()
+  const password = input.password ?? ""
+  if (!pseudo || !password) {
+    return { ok: false, error: "Pseudo et mot de passe requis." }
+  }
 
   const rows = await db
     .select()
     .from(staffMembers)
-    .where(eq(staffMembers.pseudo, pseudo.trim()))
+    .where(eq(staffMembers.pseudo, pseudo))
     .limit(1)
   const member = rows[0]
-  if (!member || !member.inviteUsed || !member.passwordHash) {
+  if (!member || !member.passwordHash || !member.customerToken) {
     return { ok: false, error: "Identifiants incorrects." }
   }
-  if (!member.active) return { ok: false, error: "Ce compte staff est désactivé." }
+  if (!member.active) {
+    return { ok: false, error: "Ce compte est désactivé." }
+  }
+  // Jamais d'accès admin via whitelist
+  if (member.canAdmin) {
+    return { ok: false, error: "Utilise le panel admin pour les comptes administrateurs." }
+  }
   if (!verifyPassword(password, member.passwordHash)) {
     return { ok: false, error: "Identifiants incorrects." }
   }
+
   return {
     ok: true,
-    canAdmin: member.canAdmin,
+    pseudo: member.pseudo ?? pseudo,
     customerToken: member.customerToken,
-    permissions: (member.permissions ?? []) as string[],
   }
+}
+
+/** @deprecated alias */
+export async function loginStaff(input: {
+  pseudo: string
+  password: string
+}) {
+  return loginWhitelistMember(input)
 }

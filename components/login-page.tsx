@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { Plus, CheckCircle2, Copy, AlertTriangle, Loader2, History, HelpCircle, KeyRound, X, Send, MessageCircleWarning, Eye, EyeOff, ShieldCheck } from "lucide-react"
 import { adminLogin } from "@/app/actions/admin-auth"
+import { loginWhitelistMember } from "@/app/actions/staff"
 import { createAccount, ensureAccount, getAccount, getCustomerStats } from "@/app/actions/account"
 import { verifyHuman } from "@/app/actions/security"
 import { TurnstileWidget } from "@/components/turnstile-widget"
@@ -197,6 +198,54 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
       setResetCreate((n) => n + 1)
     } finally {
       setCreating(false)
+    }
+  }
+
+  // Connexion whitelist (pseudo + mot de passe libre, pas de 30 car.)
+  const [memberPseudo, setMemberPseudo] = useState("")
+  const [memberPassword, setMemberPassword] = useState("")
+  const [memberError, setMemberError] = useState("")
+  const [memberLoggingIn, setMemberLoggingIn] = useState(false)
+  const [showMemberPw, setShowMemberPw] = useState(false)
+
+  const loginAsMember = async () => {
+    if (memberLoggingIn) return
+    if (!memberPseudo.trim() || !memberPassword) {
+      setMemberError("Pseudo et mot de passe requis.")
+      return
+    }
+    if (hasTurnstile && !captchaLogin && !captchaLoginError) {
+      setMemberError("Merci de valider le test anti-robot avant de continuer.")
+      return
+    }
+    setMemberError("")
+    setMemberLoggingIn(true)
+    try {
+      const human = await verifyHuman(loginCaptchaValue)
+      if (!human.ok) {
+        setMemberError(human.error ?? "Vérification anti-robot échouée.")
+        setResetLogin((n) => n + 1)
+        return
+      }
+      const res = await loginWhitelistMember({
+        pseudo: memberPseudo.trim(),
+        password: memberPassword,
+      })
+      if (!res.ok) {
+        setMemberError(res.error)
+        setResetLogin((n) => n + 1)
+        return
+      }
+      localStorage.removeItem("isAdmin")
+      localStorage.setItem("authToken", res.customerToken)
+      localStorage.setItem("userPseudo", res.pseudo)
+      setGeneratedPseudo(res.pseudo)
+      setIsLoggedIn(true)
+    } catch {
+      setMemberError("Connexion impossible. Réessaie dans un instant.")
+      setResetLogin((n) => n + 1)
+    } finally {
+      setMemberLoggingIn(false)
     }
   }
 
@@ -697,6 +746,80 @@ export function LoginPage({ onSuccess }: { onSuccess: (opts?: { openOrders?: boo
               </button>
             </div>
           )}
+
+          {/* Connexion membre whitelist (pseudo + mdp libre) */}
+          <div className="mb-4 rounded-3xl border border-accent/30 bg-background/40 p-6 backdrop-blur-xl sm:p-8">
+            <h2 className="mb-1 text-center text-xl font-semibold">Accès membre</h2>
+            <p className="mb-4 text-center text-xs text-muted-foreground">
+              Pseudo + mot de passe fournis par l&apos;admin (pas de clé de 30 caractères).
+            </p>
+            <div className="mb-3 space-y-3">
+              <input
+                type="text"
+                value={memberPseudo}
+                onChange={(e) => {
+                  setMemberPseudo(e.target.value)
+                  if (memberError) setMemberError("")
+                }}
+                className="w-full rounded-2xl border border-input bg-background/60 px-5 py-3.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none"
+                placeholder="Pseudo"
+                autoComplete="username"
+                aria-label="Pseudo membre"
+              />
+              <div className="relative">
+                <input
+                  type={showMemberPw ? "text" : "password"}
+                  value={memberPassword}
+                  onChange={(e) => {
+                    setMemberPassword(e.target.value)
+                    if (memberError) setMemberError("")
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) loginAsMember()
+                  }}
+                  className="w-full rounded-2xl border border-input bg-background/60 px-5 py-3.5 pr-12 text-sm text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none"
+                  placeholder="Mot de passe"
+                  autoComplete="current-password"
+                  aria-label="Mot de passe membre"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowMemberPw((v) => !v)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showMemberPw ? "Masquer" : "Afficher"}
+                >
+                  {showMemberPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            {memberError && (
+              <p className="mb-3 text-sm text-destructive">{memberError}</p>
+            )}
+            <div className="mb-3 flex flex-col items-center justify-center gap-2">
+              <TurnstileWidget
+                onVerify={(t) => {
+                  setCaptchaLogin(t)
+                  if (t) setCaptchaLoginError(false)
+                }}
+                onError={() => setCaptchaLoginError(true)}
+                resetSignal={resetLogin}
+              />
+              {captchaLoginError && (
+                <p className="text-center text-xs text-muted-foreground">
+                  Le test anti-robot n&apos;a pas pu se charger. Tu peux continuer normalement.
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={loginAsMember}
+              disabled={memberLoggingIn || !loginCaptchaReady}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-3.5 text-base font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {memberLoggingIn && <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />}
+              {memberLoggingIn ? "Connexion..." : "Se connecter"}
+            </button>
+          </div>
 
           <div className="rounded-3xl border border-border bg-background/40 p-8 backdrop-blur-xl">
             <h2 className="mb-5 text-center text-2xl font-semibold">{"J'ai déjà une clé"}</h2>
