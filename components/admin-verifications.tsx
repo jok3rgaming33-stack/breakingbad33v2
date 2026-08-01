@@ -96,7 +96,8 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
           <div>
             <h2 className="text-lg font-bold">Vérifications d&apos;identité</h2>
             <p className="text-xs text-muted-foreground">
-              Selfies de 1re commande. Valider la 1re livraison supprime la vidéo&nbsp;; la photo reste consultable.
+              Selfies 1re commande + récupérations de compte. Valider supprime la vidéo&nbsp;; la photo reste consultable.
+              Un KYC « récupération » fusionne le compte si le dossier est lié.
             </p>
           </div>
         </div>
@@ -127,11 +128,24 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
                 <div>
                   <div className="font-semibold">{row.pseudo ?? "Client"}</div>
                   <div className="text-[11px] text-muted-foreground">Soumis le {formatDate(row.createdAt)}</div>
+                  {row.isRecovery && (
+                    <div className="mt-1 text-[11px] font-medium text-amber-300">
+                      Récupération de compte
+                      {row.claimedPseudo ? ` → ${row.claimedPseudo}` : ""}
+                    </div>
+                  )}
                 </div>
-                <span className="flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-[11px] font-semibold text-accent">
-                  <ShieldAlert className="h-3 w-3" aria-hidden="true" />
-                  En attente
-                </span>
+                <div className="flex flex-col items-end gap-1">
+                  {row.isRecovery && (
+                    <span className="rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-semibold text-amber-300">
+                      Clé perdue
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-[11px] font-semibold text-accent">
+                    <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+                    En attente
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-px bg-border">
@@ -343,13 +357,28 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
               <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/15 text-accent">
                 <AlertTriangle className="h-5 w-5" aria-hidden="true" />
               </span>
-              <h3 className="text-lg font-bold">Valider la 1re livraison ?</h3>
+              <h3 className="text-lg font-bold">
+                {confirm.isRecovery ? "Valider le KYC récupération ?" : "Valider la 1re livraison ?"}
+              </h3>
             </div>
             <p className="mb-6 text-sm text-muted-foreground">
-              La vidéo de{" "}
-              <span className="font-semibold text-foreground">{confirm.pseudo ?? "ce client"}</span> sera{" "}
-              <span className="font-semibold text-foreground">définitivement supprimée</span>. La photo sera conservée
-              et restera consultable depuis ce panel. Cette action est irréversible.
+              {confirm.isRecovery ? (
+                <>
+                  La vidéo de{" "}
+                  <span className="font-semibold text-foreground">{confirm.pseudo ?? "ce client"}</span> sera{" "}
+                  <span className="font-semibold text-foreground">supprimée</span>. Si le compte d&apos;origine
+                  {confirm.claimedPseudo ? ` (${confirm.claimedPseudo})` : ""} est lié, les données seront{" "}
+                  <span className="font-semibold text-foreground">fusionnées</span> sur la clé provisoire
+                  (qui devient définitive). Sinon le KYC est validé et tu finalises dans l&apos;onglet Récupérations.
+                </>
+              ) : (
+                <>
+                  La vidéo de{" "}
+                  <span className="font-semibold text-foreground">{confirm.pseudo ?? "ce client"}</span> sera{" "}
+                  <span className="font-semibold text-foreground">définitivement supprimée</span>. La photo sera
+                  conservée et restera consultable depuis ce panel. Cette action est irréversible.
+                </>
+              )}
             </p>
             <div className="flex justify-end gap-3">
               <button
@@ -366,7 +395,7 @@ export function AdminVerifications({ initialVerifications }: { initialVerificati
                 className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {pendingId === confirm.id && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-                Valider la livraison
+                {confirm.isRecovery ? "Valider & fusionner" : "Valider la livraison"}
               </button>
             </div>
           </div>

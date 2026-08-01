@@ -8,19 +8,38 @@ import { revalidatePath } from "next/cache"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { notifyVendor } from "@/lib/push"
 import { createGeneralInquiryThread, addMessage } from "@/app/actions/messaging"
+import {
+  getMyRecoveryStatus,
+  markRecoveryKycSubmitted,
+} from "@/app/actions/lost-key"
 
 // Indique si un client doit encore réaliser sa vérification d'identité.
-// La vérification est exigée une seule fois (à la 1re commande) : tant
-// qu'aucun enregistrement n'existe pour ce token, elle est requise.
+// - 1re commande : tant qu'aucun enregistrement n'existe
+// - récupération de compte (clé perdue) : tant que pas validée
 export async function needsVerification(token: string | undefined | null): Promise<boolean> {
   const t = token?.trim()
   if (!t) return false
+
+  // Dossier récupération ouvert → KYC obligatoire tant que pas validé
+  try {
+    const recovery = await getMyRecoveryStatus(t)
+    if (recovery?.active && recovery.needsKyc) return true
+    if (recovery?.active && recovery.status === "kyc_submitted") {
+      // KYC déjà soumis, pas besoin de resoumettre tant que pending admin
+      return false
+    }
+  } catch {
+    /* ignore */
+  }
+
   const rows = await db
-    .select({ id: userVerifications.id })
+    .select({ id: userVerifications.id, status: userVerifications.status })
     .from(userVerifications)
     .where(eq(userVerifications.userToken, t))
     .limit(1)
-  return rows.length === 0
+  if (rows.length === 0) return true
+  // En attente de validation admin : pas de resoumission
+  return false
 }
 
 // Enregistre la vérification une fois les fichiers uploadés dans le Blob privé.
@@ -62,11 +81,23 @@ export async function submitVerification(input: {
       },
     })
 
+  // Si dossier récupération de compte : passe en kyc_submitted
+  try {
+    await markRecoveryKycSubmitted(t)
+  } catch {
+    /* ignore */
+  }
+
+  const recovery = await getMyRecoveryStatus(t).catch(() => null)
+  const isRecovery = recovery?.active
+
   await notifyVendor({
-    title: "Vérification d'identité",
-    body: `${pseudo ?? "Un client"} a soumis sa vérification (1re commande).`,
+    title: isRecovery ? "KYC récupération de compte" : "Vérification d'identité",
+    body: isRecovery
+      ? `${pseudo ?? "Client"} (récup. ${recovery?.claimedPseudo ?? "?"}) a soumis son KYC.`
+      : `${pseudo ?? "Un client"} a soumis sa vérification (1re commande).`,
     url: "/admin",
-    tag: "verification",
+    tag: isRecovery ? "recovery-kyc" : "verification",
   })
 
   return { ok: true as const }
@@ -82,6 +113,10 @@ export type VerificationRow = {
   recordedAt: string | null
   status: string
   createdAt: Date | string
+  /** true si ce KYC est lié à une récupération de compte (clé perdue) */
+  isRecovery?: boolean
+  claimedPseudo?: string | null
+  recoveryClaimId?: number | null
 }
 
 // Liste des vérifications (réservé admin).
@@ -101,7 +136,25 @@ export async function listVerifications(): Promise<VerificationRow[]> {
     })
     .from(userVerifications)
     .orderBy(userVerifications.createdAt)
-  return rows
+
+  // Enrichir avec dossiers récupération
+  const { listRecoveryClaims } = await import("@/app/actions/lost-key")
+  const claims = await listRecoveryClaims().catch(() => [])
+  const byToken = new Map(
+    claims
+      .filter((c) => c.status === "pending_kyc" || c.status === "kyc_submitted")
+      .map((c) => [c.provisionalToken, c]),
+  )
+
+  return rows.map((r) => {
+    const claim = byToken.get(r.userToken)
+    return {
+      ...r,
+      isRecovery: !!claim,
+      claimedPseudo: claim?.claimedPseudo ?? null,
+      recoveryClaimId: claim?.id ?? null,
+    }
+  })
 }
 
 // Valide la 1re livraison : supprime UNIQUEMENT la vidéo du Blob et marque "validated".
@@ -130,6 +183,26 @@ export async function validateAndPurge(id: number) {
     })
     .where(eq(userVerifications.id, id))
 
+  // Si récupération de compte : tenter la fusion auto
+  try {
+    const { listRecoveryClaims, approveRecoveryClaim } = await import("@/app/actions/lost-key")
+    const claims = await listRecoveryClaims()
+    const claim = claims.find(
+      (c) =>
+        c.provisionalToken === row.userToken &&
+        (c.status === "kyc_submitted" || c.status === "pending_kyc"),
+    )
+    if (claim) {
+      const merge = await approveRecoveryClaim(claim.id, claim.originalUserId)
+      if (!merge.ok) {
+        // KYC validé mais fusion manuelle requise — on laisse le dossier ouvert
+        console.log("[recovery] merge deferred:", merge.error)
+      }
+    }
+  } catch (e) {
+    console.log("[recovery] merge error:", e)
+  }
+
   revalidatePath("/admin")
   return { ok: true as const }
 }
@@ -151,6 +224,24 @@ export async function rejectVerification(id: number, justification: string) {
 
   // Supprime l'enregistrement pour que le client puisse en soumettre un nouveau
   await db.delete(userVerifications).where(eq(userVerifications.id, id))
+
+  // Si récupération : reset claim en pending_kyc (peut resoumettre) sauf refus global
+  try {
+    const { listRecoveryClaims } = await import("@/app/actions/lost-key")
+    const { db: dbi } = await import("@/lib/db")
+    const { accountRecoveryClaims } = await import("@/lib/db/schema")
+    const { eq: eq2 } = await import("drizzle-orm")
+    const claims = await listRecoveryClaims()
+    const claim = claims.find((c) => c.provisionalToken === row.userToken)
+    if (claim && claim.status !== "rejected" && claim.status !== "approved") {
+      await dbi
+        .update(accountRecoveryClaims)
+        .set({ status: "pending_kyc" })
+        .where(eq2(accountRecoveryClaims.id, claim.id))
+    }
+  } catch {
+    /* ignore */
+  }
 
   // Crée un fil de discussion et envoie le message de refus côté vendeur
   const pseudo = row.pseudo ?? "Client"

@@ -336,3 +336,26 @@ export type AdminAccount = typeof adminAccounts.$inferSelect
 export type Category = typeof categories.$inferSelect
 export type RestockAlert = typeof restockAlerts.$inferSelect
 export type AppSetting = typeof appSettings.$inferSelect
+
+/**
+ * Récupération de compte (clé perdue).
+ * 1) Compte provisoire + fil messagerie
+ * 2) KYC obligatoire
+ * 3) Validation admin → fusion des données vers le compte d'origine
+ *    (le token provisoire devient la nouvelle clé permanente)
+ */
+export const accountRecoveryClaims = pgTable("account_recovery_claims", {
+  id: serial("id").primaryKey(),
+  provisionalToken: text("provisional_token").notNull().unique(),
+  claimedPseudo: text("claimed_pseudo").notNull(),
+  originalUserId: integer("original_user_id"),
+  threadId: integer("thread_id"),
+  // pending_kyc | kyc_submitted | approved | rejected
+  status: text("status").notNull().default("pending_kyc"),
+  clientMessage: text("client_message"),
+  adminNote: text("admin_note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+})
+
+export type AccountRecoveryClaim = typeof accountRecoveryClaims.$inferSelect

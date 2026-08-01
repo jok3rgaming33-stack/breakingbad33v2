@@ -11,6 +11,7 @@ import { AdminVerifications } from "@/components/admin-verifications"
 import { AdminAdmins } from "@/components/admin-admins"
 import { AdminStaff } from "@/components/admin-staff"
 import type { StaffRow } from "@/app/actions/staff"
+import { AdminRecovery } from "@/components/admin-recovery"
 import { AdminMap } from "@/components/admin-map"
 import { AdminNews } from "@/components/admin-news"
 import { AdminProducts } from "@/components/admin-products"
@@ -24,11 +25,11 @@ import type { ProfitSummary } from "@/app/actions/profit"
 import { AdminNotifications } from "@/components/admin-notifications"
 import type { BroadcastNotificationRow } from "@/app/actions/notifications"
 import { adminLogout } from "@/app/actions/admin-auth"
-import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox, Activity, Bell, CheckCheck } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox, Activity, Bell, CheckCheck, KeyRound } from "lucide-react"
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 
-type TabId = "commandes-en-cours" | "locker" | "cloturees" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits" | "connexions" | "notifications" | "staff"
+type TabId = "commandes-en-cours" | "locker" | "cloturees" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "recuperations" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits" | "connexions" | "notifications" | "staff"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "commandes-en-cours", label: "Commandes en cours", icon: Inbox },
@@ -43,6 +44,7 @@ const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "commandes", label: "Récap commandes", icon: ListOrdered },
   { id: "utilisateurs", label: "Utilisateurs", icon: Users },
   { id: "verifications", label: "Vérifications", icon: ShieldCheck },
+  { id: "recuperations", label: "Récupérations", icon: KeyRound },
   { id: "connexions", label: "Connexions", icon: Activity },
   { id: "news", label: "News", icon: Newspaper },
   { id: "staff", label: "Whitelist", icon: Users },
@@ -155,6 +157,8 @@ export function AdminPanel({
           <AdminUsers initialUsers={initialUsers} />
         ) : tab === "verifications" ? (
           <AdminVerifications initialVerifications={initialVerifications} />
+        ) : tab === "recuperations" ? (
+          <AdminRecovery />
         ) : tab === "notifications" ? (
           <AdminNotifications initialHistory={initialNotificationsHistory} users={initialUsers} />
         ) : tab === "produits" ? (
