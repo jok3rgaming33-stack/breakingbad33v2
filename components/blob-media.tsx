@@ -1,6 +1,6 @@
 "use client"
 
-import { type VideoHTMLAttributes, type ImgHTMLAttributes } from "react"
+import { type VideoHTMLAttributes, type ImgHTMLAttributes, type AudioHTMLAttributes } from "react"
 
 /**
  * Retourne l'URL originale stockée dans le paramètre ?url= si c'est déjà
@@ -38,7 +38,15 @@ export function toProxyUrl(url: string | null | undefined): string {
  */
 export function isVideoUrl(url: string): boolean {
   const original = resolveOriginalUrl(url)
-  return /\.(mp4|webm|mov|quicktime|m4v|ogg)(\?|$)/i.test(original)
+  // webm peut être audio ou vidéo — on ne force vidéo que pour les extensions clairement vidéo
+  return /\.(mp4|mov|quicktime|m4v)(\?|$)/i.test(original) ||
+    (/\.webm(\?|$)/i.test(original) && !/audio/i.test(original))
+}
+
+export function isAudioUrl(url: string): boolean {
+  const original = resolveOriginalUrl(url)
+  return /\.(webm|ogg|opus|mp3|m4a|aac|wav|mpeg)(\?|$)/i.test(original) &&
+    !/\.(mp4|mov|m4v)(\?|$)/i.test(original)
 }
 
 type BlobImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
@@ -59,6 +67,16 @@ type BlobVideoProps = Omit<VideoHTMLAttributes<HTMLVideoElement>, "src"> & {
 export function BlobVideo({ src, ...props }: BlobVideoProps) {
   if (!src) return null
   return <video src={toProxyUrl(src)} {...props} />
+}
+
+type BlobAudioProps = Omit<AudioHTMLAttributes<HTMLAudioElement>, "src"> & {
+  src: string | null | undefined
+}
+
+/** <audio> avec passage automatique par le proxy pour les fichiers Blob privés */
+export function BlobAudio({ src, ...props }: BlobAudioProps) {
+  if (!src) return null
+  return <audio src={toProxyUrl(src)} {...props} />
 }
 
 /**

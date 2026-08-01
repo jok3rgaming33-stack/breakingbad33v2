@@ -1,52 +1,51 @@
 "use client"
 
-import { BlobImg, BlobVideo, isVideoUrl, toProxyUrl } from "@/components/blob-media"
+import { Mic } from "lucide-react"
+import { BlobImg, BlobVideo, BlobAudio, isVideoUrl } from "@/components/blob-media"
 
 /**
  * Parse le corps d'un message et retourne un tableau de segments :
  * - texte brut
- * - image (balise [image]url[/image] ou URL nue reconnue comme image)
- * - vidéo (balise [video]url[/video] ou URL nue reconnue comme vidéo)
- *
- * Les URLs dans [image] ou [video] passent automatiquement par le proxy Blob.
+ * - image [image]url[/image]
+ * - vidéo [video]url[/video]
+ * - audio [audio]url[/audio]
  */
 type Segment =
   | { type: "text"; value: string }
   | { type: "image"; url: string }
   | { type: "video"; url: string }
+  | { type: "audio"; url: string }
 
 export function parseMessageBody(body: string): Segment[] {
   const segments: Segment[] = []
-  // Regex qui capture [image]...[/image] et [video]...[/video]
-  const RE = /\[image]([\s\S]*?)\[\/image]|\[video]([\s\S]*?)\[\/video]/gi
+  const RE =
+    /\[image]([\s\S]*?)\[\/image]|\[video]([\s\S]*?)\[\/video]|\[audio]([\s\S]*?)\[\/audio]/gi
   let lastIndex = 0
   let match: RegExpExecArray | null
 
   while ((match = RE.exec(body)) !== null) {
-    // Texte avant la balise
     if (match.index > lastIndex) {
       const txt = body.slice(lastIndex, match.index).trim()
       if (txt) segments.push({ type: "text", value: txt })
     }
     if (match[1] !== undefined) {
-      // [image]url[/image]
       const url = match[1].trim()
       if (url) segments.push({ type: isVideoUrl(url) ? "video" : "image", url })
     } else if (match[2] !== undefined) {
-      // [video]url[/video]
       const url = match[2].trim()
       if (url) segments.push({ type: "video", url })
+    } else if (match[3] !== undefined) {
+      const url = match[3].trim()
+      if (url) segments.push({ type: "audio", url })
     }
     lastIndex = RE.lastIndex
   }
 
-  // Texte restant après la dernière balise
   if (lastIndex < body.length) {
     const txt = body.slice(lastIndex).trim()
     if (txt) segments.push({ type: "text", value: txt })
   }
 
-  // Si aucune balise n'a été trouvée, retourne le corps entier comme texte
   if (segments.length === 0 && body.trim()) {
     segments.push({ type: "text", value: body })
   }
@@ -55,14 +54,7 @@ export function parseMessageBody(body: string): Segment[] {
 }
 
 /**
- * Rendu d'un corps de message avec support des pièces jointes image/vidéo.
- *
- * - Le texte respecte les sauts de ligne et les longs tokens se coupent (break-all).
- * - Les images s'affichent en pleine largeur sans dépasser le conteneur parent,
- *   avec object-contain pour ne jamais recadrer le contenu.
- * - Les vidéos s'affichent avec les contrôles natifs, bornées en hauteur.
- *
- * Usage : <MessageBody body={m.body} />
+ * Rendu d'un corps de message (texte + image / vidéo / vocal).
  */
 export function MessageBody({ body }: { body: string }) {
   const segments = parseMessageBody(body)
@@ -83,9 +75,6 @@ export function MessageBody({ body }: { body: string }) {
 
         if (seg.type === "image") {
           return (
-            // max-w-full + w-full garantissent que l'image ne déborde jamais.
-            // object-contain affiche l'image entière sans la recadrer.
-            // max-h-[60dvh] évite qu'une image portrait prenne toute la hauteur d'écran.
             <div key={i} className="w-full overflow-hidden rounded-xl bg-secondary/40">
               <BlobImg
                 src={seg.url}
@@ -105,6 +94,26 @@ export function MessageBody({ body }: { body: string }) {
                 playsInline
                 preload="metadata"
                 className="max-h-[60dvh] w-full object-contain"
+              />
+            </div>
+          )
+        }
+
+        if (seg.type === "audio") {
+          return (
+            <div
+              key={i}
+              className="flex min-w-[12rem] max-w-full flex-col gap-1.5 rounded-xl border border-white/10 bg-black/25 px-3 py-2.5"
+            >
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                <Mic className="h-3 w-3" aria-hidden="true" />
+                Message vocal
+              </div>
+              <BlobAudio
+                src={seg.url}
+                controls
+                preload="metadata"
+                className="h-9 w-full max-w-full accent-current"
               />
             </div>
           )
