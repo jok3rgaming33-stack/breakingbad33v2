@@ -45,7 +45,7 @@ const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "verifications", label: "Vérifications", icon: ShieldCheck },
   { id: "connexions", label: "Connexions", icon: Activity },
   { id: "news", label: "News", icon: Newspaper },
-  { id: "staff", label: "Staff", icon: Users },
+  { id: "staff", label: "Whitelist", icon: Users },
   { id: "admins", label: "Admins", icon: UserCog },
   { id: "profits", label: "Profits", icon: TrendingUp },
 ]
