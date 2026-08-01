@@ -44,10 +44,29 @@ self.addEventListener("push", (event) => {
       }).catch(() => {})
     : Promise.resolve()
 
+  // Badge icône app (PWA) : compte fourni ou nombre de notifs système en attente
+  const badgeUpdate = (async () => {
+    try {
+      if (typeof self.registration.setAppBadge !== "function") return
+      if (typeof data.badgeCount === "number" && data.badgeCount >= 0) {
+        if (data.badgeCount === 0) await self.registration.clearAppBadge?.()
+        else await self.registration.setAppBadge(data.badgeCount)
+        return
+      }
+      const existing = await self.registration.getNotifications()
+      // +1 pour la notif qui va s'afficher
+      const n = existing.length + 1
+      await self.registration.setAppBadge(n)
+    } catch (e) {
+      /* ignore */
+    }
+  })()
+
   event.waitUntil(
     Promise.all([
       self.registration.showNotification(title, options),
       readPing,
+      badgeUpdate,
     ])
   )
 })
@@ -57,23 +76,39 @@ self.addEventListener("notificationclick", (event) => {
   const targetUrl = (event.notification.data && event.notification.data.url) || "/"
 
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
-      // Si un onglet de l'app est déjà ouvert, on le focus et on navigue.
-      for (const client of clientList) {
-        if ("focus" in client) {
-          client.focus()
-          if ("navigate" in client) {
+    Promise.all([
+      // Recalcule le badge après fermeture de cette notif
+      (async () => {
+        try {
+          if (typeof self.registration.setAppBadge !== "function") return
+          const left = await self.registration.getNotifications()
+          const n = Math.max(0, left.length - 1) // celle cliquée va se fermer
+          if (n <= 0) await self.registration.clearAppBadge?.()
+          else await self.registration.setAppBadge(n)
+        } catch (e) {}
+      })(),
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+        // Si un onglet de l'app est déjà ouvert, on le focus et on navigue.
+        for (const client of clientList) {
+          if ("focus" in client) {
+            client.focus()
+            if ("navigate" in client) {
+              try {
+                client.navigate(targetUrl)
+              } catch (e) {}
+            }
+            // Demande à la page de resync les compteurs
             try {
-              client.navigate(targetUrl)
+              client.postMessage({ type: "BB33_REFRESH_BADGES" })
             } catch (e) {}
+            return
           }
-          return
         }
-      }
-      // Sinon on ouvre une nouvelle fenêtre.
-      if (self.clients.openWindow) {
-        return self.clients.openWindow(targetUrl)
-      }
-    }),
+        // Sinon on ouvre une nouvelle fenêtre.
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(targetUrl)
+        }
+      }),
+    ]),
   )
 })
