@@ -1,10 +1,12 @@
 "use server"
 
 /**
- * Whitelist membres (ex-staff simplifié).
- * - Créés par l'admin : pseudo + mot de passe libre (pas de 30 car., pas de complexité).
- * - Connexion client uniquement (pas d'accès panel admin).
- * - Compte users lié en interne (token long généré).
+ * Whitelist membres.
+ * - L'admin saisit uniquement le pseudo.
+ * - Le serveur génère une clé secrète (token) compatible connexion client
+ *   (≥ 30 caractères, même format que les accès anonymes).
+ * - Le membre se connecte avec cette clé sur l'écran de login classique.
+ * - Pas d'accès admin.
  */
 
 import { db } from "@/lib/db"
@@ -12,28 +14,38 @@ import { staffMembers, users, reservedPseudos } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { isAdminAuthenticated } from "./admin-auth"
-import { hashPassword, verifyPassword } from "@/lib/admin-password"
 
 export type StaffRow = {
   id: number
   pseudo: string | null
   active: boolean
   createdAt: string
-  /** Toujours false — legacy type compat */
   canAdmin: false
   inviteUsed: true
   inviteToken: string
   permissions: string[]
+  /** Clé secrète client (token) — à transmettre au membre */
   customerToken: string | null
 }
 
-function genToken() {
-  const bytes = new Uint8Array(32)
+/** Même protocole que login-page generateSecretKey : base64url, ~43 car. (≥ 30). */
+function generateSecretKey(): string {
+  const array = new Uint8Array(32)
+  crypto.getRandomValues(array)
+  return Buffer.from(array)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "")
+}
+
+function genInternalId() {
+  const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
 }
 
-// ─── Admin : lister les membres whitelist ─────────────────────────────────
+// ─── Admin : lister ───────────────────────────────────────────────────────
 export async function listStaff(): Promise<StaffRow[]> {
   if (!(await isAdminAuthenticated())) return []
   const rows = await db.select().from(staffMembers).orderBy(staffMembers.createdAt)
@@ -54,21 +66,18 @@ export async function listWhitelistMembers() {
   return listStaff()
 }
 
-// ─── Admin : créer un membre (pseudo + mdp libre) ─────────────────────────
+// ─── Admin : créer (pseudo seul → token généré) ───────────────────────────
 export async function createWhitelistMember(input: {
   pseudo: string
-  password: string
-}): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; id: number; pseudo: string; customerToken: string }
+  | { ok: false; error: string }
+> {
   if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
 
   const pseudo = input.pseudo?.trim()
-  const password = input.password ?? ""
   if (!pseudo) return { ok: false, error: "Pseudo requis." }
-  if (!password || password.length < 1) {
-    return { ok: false, error: "Mot de passe requis (libre, aucun minimum de 30 caractères)." }
-  }
 
-  // Pseudo déjà pris en whitelist
   const existingMember = await db
     .select({ id: staffMembers.id })
     .from(staffMembers)
@@ -78,7 +87,6 @@ export async function createWhitelistMember(input: {
     return { ok: false, error: "Ce pseudo existe déjà dans la whitelist." }
   }
 
-  // Pseudo réservé (clients anonymes)
   const taken = await db
     .select({ id: reservedPseudos.id })
     .from(reservedPseudos)
@@ -88,56 +96,96 @@ export async function createWhitelistMember(input: {
     return { ok: false, error: "Ce pseudo est déjà utilisé. Choisis-en un autre." }
   }
 
-  const customerToken = `wl_${genToken()}`
-  const inviteToken = genToken() // identifiant interne unique (plus de lien d'invitation)
-  const passwordHash = hashPassword(password)
+  // Token = clé secrète client (connexion page d'accueil)
+  let customerToken = generateSecretKey()
+  // Garantir ≥ 30 car. (exigence loginWithKey)
+  if (customerToken.length < 30) {
+    customerToken = generateSecretKey() + generateSecretKey()
+  }
+
+  const inviteToken = genInternalId()
 
   await db.insert(reservedPseudos).values({ pseudo }).onConflictDoNothing()
   await db.insert(users).values({ token: customerToken, pseudo })
-  await db.insert(staffMembers).values({
-    pseudo,
-    passwordHash,
-    inviteToken,
-    canAdmin: false,
-    permissions: [],
-    inviteUsed: true,
-    active: true,
-    customerToken,
-  })
+  const inserted = await db
+    .insert(staffMembers)
+    .values({
+      pseudo,
+      passwordHash: null,
+      inviteToken,
+      canAdmin: false,
+      permissions: [],
+      inviteUsed: true,
+      active: true,
+      customerToken,
+    })
+    .returning({ id: staffMembers.id })
 
   revalidatePath("/admin")
-  return { ok: true, id: 0 }
+  return {
+    ok: true,
+    id: inserted[0]?.id ?? 0,
+    pseudo,
+    customerToken,
+  }
 }
 
-/** @deprecated use createWhitelistMember */
+/** @deprecated */
 export async function createStaffMember(_input: {
   canAdmin: boolean
   permissions: string[]
 }): Promise<{ ok: false; error: string }> {
   return {
     ok: false,
-    error: "Ancien système staff désactivé. Utilise la whitelist (pseudo + mot de passe).",
+    error: "Utilise la whitelist : pseudo seul, token généré automatiquement.",
   }
 }
 
-// ─── Admin : changer le mot de passe ──────────────────────────────────────
-export async function setWhitelistPassword(
+// ─── Admin : régénérer la clé secrète ─────────────────────────────────────
+export async function regenerateWhitelistToken(
   id: number,
-  password: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; customerToken: string } | { ok: false; error: string }> {
   if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
-  if (!password || password.length < 1) {
-    return { ok: false, error: "Mot de passe requis." }
+
+  const rows = await db.select().from(staffMembers).where(eq(staffMembers.id, id)).limit(1)
+  const member = rows[0]
+  if (!member) return { ok: false, error: "Membre introuvable." }
+
+  let customerToken = generateSecretKey()
+  if (customerToken.length < 30) {
+    customerToken = generateSecretKey() + generateSecretKey()
   }
+
+  // Met à jour le token users si l'ancien existe
+  if (member.customerToken) {
+    await db
+      .update(users)
+      .set({ token: customerToken })
+      .where(eq(users.token, member.customerToken))
+  } else if (member.pseudo) {
+    await db.insert(users).values({ token: customerToken, pseudo: member.pseudo })
+  }
+
   await db
     .update(staffMembers)
-    .set({ passwordHash: hashPassword(password) })
+    .set({ customerToken })
     .where(eq(staffMembers.id, id))
+
   revalidatePath("/admin")
-  return { ok: true }
+  return { ok: true, customerToken }
 }
 
-// ─── Admin : activer / suspendre ──────────────────────────────────────────
+/** @deprecated — plus de mdp libre */
+export async function setWhitelistPassword(
+  _id: number,
+  _password: string,
+): Promise<{ ok: false; error: string }> {
+  return {
+    ok: false,
+    error: "Les membres utilisent une clé secrète générée. Utilise « Régénérer la clé ».",
+  }
+}
+
 export async function setStaffActive(id: number, active: boolean): Promise<{ ok: boolean }> {
   if (!(await isAdminAuthenticated())) return { ok: false }
   await db.update(staffMembers).set({ active }).where(eq(staffMembers.id, id))
@@ -145,30 +193,18 @@ export async function setStaffActive(id: number, active: boolean): Promise<{ ok:
   return { ok: true }
 }
 
-// ─── Admin : supprimer ────────────────────────────────────────────────────
 export async function deleteStaffMember(id: number): Promise<{ ok: boolean }> {
   if (!(await isAdminAuthenticated())) return { ok: false }
-  const rows = await db.select().from(staffMembers).where(eq(staffMembers.id, id)).limit(1)
-  const member = rows[0]
-  if (member?.customerToken) {
-    // On garde le user en base pour l'historique éventuel, ou on le laisse :
-    // pour une whitelist simple on ne supprime pas forcément le users row.
-  }
   await db.delete(staffMembers).where(eq(staffMembers.id, id))
   revalidatePath("/admin")
   return { ok: true }
 }
 
-// Anciennes APIs invitation — désactivées
-export async function regenerateStaffInvite(
-  _id: number,
-): Promise<{ ok: false }> {
+export async function regenerateStaffInvite(_id: number): Promise<{ ok: false }> {
   return { ok: false }
 }
 
-export async function getStaffInvite(
-  _token: string,
-): Promise<{ ok: false }> {
+export async function getStaffInvite(_token: string): Promise<{ ok: false }> {
   return { ok: false }
 }
 
@@ -178,54 +214,22 @@ export async function completeStaffOnboarding(_input: {
   password: string
   confirmPassword: string
 }): Promise<{ ok: false; error: string }> {
-  return { ok: false, error: "Les invitations staff sont désactivées. Demande un accès whitelist à l'admin." }
-}
-
-// ─── Public : connexion membre (pseudo + mdp libre) ───────────────────────
-export async function loginWhitelistMember(input: {
-  pseudo: string
-  password: string
-}): Promise<
-  | { ok: true; pseudo: string; customerToken: string }
-  | { ok: false; error: string }
-> {
-  const pseudo = input.pseudo?.trim()
-  const password = input.password ?? ""
-  if (!pseudo || !password) {
-    return { ok: false, error: "Pseudo et mot de passe requis." }
-  }
-
-  const rows = await db
-    .select()
-    .from(staffMembers)
-    .where(eq(staffMembers.pseudo, pseudo))
-    .limit(1)
-  const member = rows[0]
-  if (!member || !member.passwordHash || !member.customerToken) {
-    return { ok: false, error: "Identifiants incorrects." }
-  }
-  if (!member.active) {
-    return { ok: false, error: "Ce compte est désactivé." }
-  }
-  // Jamais d'accès admin via whitelist
-  if (member.canAdmin) {
-    return { ok: false, error: "Utilise le panel admin pour les comptes administrateurs." }
-  }
-  if (!verifyPassword(password, member.passwordHash)) {
-    return { ok: false, error: "Identifiants incorrects." }
-  }
-
   return {
-    ok: true,
-    pseudo: member.pseudo ?? pseudo,
-    customerToken: member.customerToken,
+    ok: false,
+    error: "Invitations staff désactivées. Connexion via clé secrète whitelist.",
   }
 }
 
-/** @deprecated alias */
-export async function loginStaff(input: {
+export async function loginWhitelistMember(_input: {
   pseudo: string
   password: string
-}) {
+}): Promise<{ ok: false; error: string }> {
+  return {
+    ok: false,
+    error: "Connexion par clé secrète uniquement (écran « J'ai déjà une clé »).",
+  }
+}
+
+export async function loginStaff(input: { pseudo: string; password: string }) {
   return loginWhitelistMember(input)
 }

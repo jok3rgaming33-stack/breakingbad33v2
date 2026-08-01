@@ -6,7 +6,7 @@ import {
   createWhitelistMember,
   setStaffActive,
   deleteStaffMember,
-  setWhitelistPassword,
+  regenerateWhitelistToken,
 } from "@/app/actions/staff"
 import type { StaffRow } from "@/app/actions/staff"
 import {
@@ -15,29 +15,29 @@ import {
   Trash2,
   Ban,
   CheckCircle2,
-  KeyRound,
   Users,
-  Eye,
-  EyeOff,
   Copy,
   Check,
+  RefreshCw,
+  KeyRound,
 } from "lucide-react"
 
 /**
- * Whitelist membres — accès client uniquement.
- * L'admin définit pseudo + mot de passe libre (pas de règle 30 car. / complexité).
+ * Whitelist : l'admin saisit le pseudo, le serveur génère une clé secrète
+ * (≥ 30 car., format accès client) à coller sur l'écran de connexion classique.
  */
 export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
   const [staff, setStaff] = useState<StaffRow[]>(initialStaff)
   const [pseudo, setPseudo] = useState("")
-  const [password, setPassword] = useState("")
-  const [showPw, setShowPw] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [okMsg, setOkMsg] = useState("")
-  const [resetId, setResetId] = useState<number | null>(null)
-  const [resetPw, setResetPw] = useState("")
-  const [copiedId, setCopiedId] = useState<number | null>(null)
+  /** Dernière clé générée (création ou régénération) — affichée pour copie */
+  const [lastIssued, setLastIssued] = useState<{
+    pseudo: string
+    token: string
+  } | null>(null)
+  const [copied, setCopied] = useState<"token" | "full" | number | null>(null)
 
   async function refresh() {
     const rows = await listStaff()
@@ -48,19 +48,19 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
     e.preventDefault()
     setError("")
     setOkMsg("")
+    setLastIssued(null)
     setBusy(true)
     try {
-      const res = await createWhitelistMember({
-        pseudo: pseudo.trim(),
-        password,
-      })
+      const res = await createWhitelistMember({ pseudo: pseudo.trim() })
       if (!res.ok) {
         setError(res.error)
         return
       }
-      setOkMsg(`Membre « ${pseudo.trim()} » ajouté. Il peut se connecter avec ce mot de passe.`)
+      setLastIssued({ pseudo: res.pseudo, token: res.customerToken })
+      setOkMsg(
+        `Membre « ${res.pseudo} » créé. Copie la clé secrète ci-dessous et envoie-la au membre.`,
+      )
       setPseudo("")
-      setPassword("")
       await refresh()
     } finally {
       setBusy(false)
@@ -78,34 +78,40 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
     if (!confirm("Supprimer ce membre de la whitelist ?")) return
     await deleteStaffMember(id)
     setStaff((prev) => prev.filter((m) => m.id !== id))
+    if (lastIssued) setLastIssued(null)
   }
 
-  async function handleResetPassword(id: number) {
-    if (!resetPw.trim()) {
-      setError("Indique le nouveau mot de passe.")
+  async function handleRegenerate(member: StaffRow) {
+    if (
+      !confirm(
+        `Régénérer la clé de « ${member.pseudo} » ? L'ancienne clé ne fonctionnera plus.`,
+      )
+    ) {
       return
     }
     setBusy(true)
     setError("")
     try {
-      const res = await setWhitelistPassword(id, resetPw)
+      const res = await regenerateWhitelistToken(member.id)
       if (!res.ok) {
         setError(res.error)
         return
       }
-      setOkMsg("Mot de passe mis à jour.")
-      setResetId(null)
-      setResetPw("")
+      setLastIssued({
+        pseudo: member.pseudo ?? "membre",
+        token: res.customerToken,
+      })
+      setOkMsg(`Nouvelle clé générée pour « ${member.pseudo} ».`)
+      await refresh()
     } finally {
       setBusy(false)
     }
   }
 
-  function copyHint(member: StaffRow) {
-    const text = `Connexion BreakingBad33\nPseudo : ${member.pseudo}\nMot de passe : (celui que tu as défini)`
+  function copyText(text: string, id: "token" | "full" | number) {
     navigator.clipboard?.writeText(text).then(() => {
-      setCopiedId(member.id)
-      setTimeout(() => setCopiedId(null), 2000)
+      setCopied(id)
+      setTimeout(() => setCopied(null), 2000)
     })
   }
 
@@ -117,14 +123,13 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
           Whitelist membres
         </h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Ajoute un membre avec un <strong>pseudo</strong> et un{" "}
-          <strong>mot de passe de ton choix</strong> (pas de minimum 30 caractères, pas de
-          règles complexes). Il se connecte comme client —{" "}
+          Tu saisis le <strong>pseudo</strong>. Le système génère une{" "}
+          <strong>clé secrète</strong> (token ≥ 30 caractères, même format que les clients
+          anonymes). Le membre se connecte avec cette clé sur « J&apos;ai déjà une clé » —{" "}
           <strong>sans accès admin</strong>.
         </p>
       </div>
 
-      {/* Formulaire création */}
       <form
         onSubmit={handleCreate}
         className="rounded-2xl border border-border bg-card p-5 sm:p-6"
@@ -133,8 +138,8 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
           <UserPlus className="h-4 w-4" aria-hidden="true" />
           Ajouter un membre
         </h3>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1">
             <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
               Pseudo
             </label>
@@ -147,33 +152,18 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
               autoComplete="off"
             />
           </div>
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Mot de passe (libre)
-            </label>
-            <div className="relative">
-              <input
-                type={showPw ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="input pr-11"
-                placeholder="ex. abc12"
-                required
-                autoComplete="new-password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPw((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                aria-label={showPw ? "Masquer" : "Afficher"}
-              >
-                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Aucune contrainte de longueur type clé secrète (30 car.).
-            </p>
-          </div>
+          <button
+            type="submit"
+            disabled={busy || !pseudo.trim()}
+            className="flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <UserPlus className="h-4 w-4" />
+            )}
+            Créer + générer la clé
+          </button>
         </div>
 
         {error && (
@@ -186,23 +176,59 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
             {okMsg}
           </p>
         )}
-
-        <button
-          type="submit"
-          disabled={busy}
-          className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-          Ajouter à la whitelist
-        </button>
       </form>
 
-      {/* Liste */}
-      <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      {/* Clé fraîchement émise — à copier tout de suite */}
+      {lastIssued && (
+        <div className="rounded-2xl border border-accent/40 bg-accent/10 p-5">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-accent">
+            <KeyRound className="h-4 w-4" />
+            Clé secrète pour « {lastIssued.pseudo} »
+          </div>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Envoie cette clé au membre. Il la colle dans « J&apos;ai déjà une clé » sur
+            l&apos;accueil ({lastIssued.token.length} caractères).
+          </p>
+          <code className="mb-3 block break-all rounded-xl border border-border bg-background/80 px-3 py-3 font-mono text-xs sm:text-sm">
+            {lastIssued.token}
+          </code>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => copyText(lastIssued.token, "token")}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-secondary"
+            >
+              {copied === "token" ? (
+                <Check className="h-3.5 w-3.5 text-accent" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+              Copier la clé
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                copyText(
+                  `BreakingBad33 — accès membre\nPseudo : ${lastIssued.pseudo}\nClé secrète : ${lastIssued.token}\n\nConnexion : page d'accueil → « J'ai déjà une clé »`,
+                  "full",
+                )
+              }
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-secondary"
+            >
+              {copied === "full" ? (
+                <Check className="h-3.5 w-3.5 text-accent" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+              Copier message complet
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
         <div className="border-b border-border px-4 py-3">
-          <h3 className="text-sm font-semibold">
-            Membres ({staff.length})
-          </h3>
+          <h3 className="text-sm font-semibold">Membres ({staff.length})</h3>
         </div>
         {staff.length === 0 ? (
           <p className="p-8 text-center text-sm text-muted-foreground">
@@ -212,8 +238,8 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
           <ul className="divide-y divide-border">
             {staff.map((member) => (
               <li key={member.id} className="px-4 py-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">{member.pseudo ?? "—"}</span>
                       {member.active ? (
@@ -226,37 +252,48 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
                         </span>
                       )}
                       <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
-                        Client (pas admin)
+                        Client
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Créé le {new Date(member.createdAt).toLocaleString("fr-FR")}
                     </p>
+                    {member.customerToken && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <code className="max-w-full truncate rounded-lg border border-border bg-background/60 px-2 py-1 font-mono text-[11px]">
+                          {member.customerToken.length > 24
+                            ? `${member.customerToken.slice(0, 12)}…${member.customerToken.slice(-8)}`
+                            : member.customerToken}
+                          <span className="ml-1 text-muted-foreground">
+                            ({member.customerToken.length} car.)
+                          </span>
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            copyText(member.customerToken!, member.id)
+                          }
+                          className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium hover:bg-secondary"
+                        >
+                          {copied === member.id ? (
+                            <Check className="h-3 w-3 text-accent" />
+                          ) : (
+                            <Copy className="h-3 w-3" />
+                          )}
+                          Copier clé
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => copyHint(member)}
-                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                      disabled={busy}
+                      onClick={() => handleRegenerate(member)}
+                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-50"
                     >
-                      {copiedId === member.id ? (
-                        <Check className="h-3.5 w-3.5 text-accent" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
-                      )}
-                      Copier rappel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setResetId(resetId === member.id ? null : member.id)
-                        setResetPw("")
-                        setError("")
-                      }}
-                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
-                    >
-                      <KeyRound className="h-3.5 w-3.5" />
-                      MDP
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Régénérer clé
                     </button>
                     <button
                       type="button"
@@ -283,31 +320,6 @@ export function AdminStaff({ initialStaff }: { initialStaff: StaffRow[] }) {
                     </button>
                   </div>
                 </div>
-
-                {resetId === member.id && (
-                  <div className="mt-3 flex flex-col gap-2 rounded-xl border border-border bg-background/50 p-3 sm:flex-row sm:items-end">
-                    <div className="flex-1">
-                      <label className="mb-1 block text-xs text-muted-foreground">
-                        Nouveau mot de passe
-                      </label>
-                      <input
-                        type="text"
-                        value={resetPw}
-                        onChange={(e) => setResetPw(e.target.value)}
-                        className="input"
-                        placeholder="Mot de passe libre"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => handleResetPassword(member.id)}
-                      className="rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground disabled:opacity-50"
-                    >
-                      Enregistrer
-                    </button>
-                  </div>
-                )}
               </li>
             ))}
           </ul>
