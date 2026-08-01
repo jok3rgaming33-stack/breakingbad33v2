@@ -11,6 +11,12 @@ import {
 } from "@/app/actions/messaging"
 import { statusMeta, isDiscussionStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
+import {
+  formatMessageTime,
+  formatThreadActivity,
+  threadActivityAt,
+  sortByActivityDesc,
+} from "@/lib/format-time"
 
 async function uploadMessageMedia(file: File): Promise<{ url: string; type: "image" | "video" }> {
   const fd = new FormData()
@@ -50,10 +56,6 @@ type Message = {
   createdAt: Date | string
 }
 
-function formatDate(d: Date | string) {
-  return new Date(d).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
-}
-
 export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalProps) {
   const token = userData?.token ?? ""
   const name = userData?.pseudo ?? "Client"
@@ -80,7 +82,7 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
     if (!isOpen || !token) return
     setLoadingList(true)
     getThreadsForToken(token)
-      .then((data) => setThreads(data as Thread[]))
+      .then((data) => setThreads(sortByActivityDesc(data as Thread[])))
       .catch(() => setThreads([]))
       .finally(() => setLoadingList(false))
   }, [isOpen, token])
@@ -91,10 +93,24 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
     const interval = setInterval(async () => {
       try {
         const list = await getThreadsForToken(token)
-        setThreads(list as Thread[])
+        setThreads(sortByActivityDesc(list as Thread[]))
         if (selectedRef.current != null) {
           const data = await getThread(selectedRef.current)
-          if (data) setMessages(data.messages as Message[])
+          if (data) {
+            setMessages(data.messages as Message[])
+            // Sync heure d'activité du fil ouvert
+            if (data.thread) {
+              setThreads((prev) =>
+                sortByActivityDesc(
+                  prev.map((t) =>
+                    t.id === data.thread.id
+                      ? { ...t, updatedAt: data.thread.updatedAt, createdAt: data.thread.createdAt }
+                      : t,
+                  ),
+                ),
+              )
+            }
+          }
         }
       } catch {
         // silencieux
@@ -125,7 +141,16 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
     try {
       await addMessage(selected.id, "client", reply)
       const data = await getThread(selected.id)
-      if (data) setMessages(data.messages as Message[])
+      if (data) {
+        setMessages(data.messages as Message[])
+        const now = data.thread?.updatedAt ?? new Date().toISOString()
+        setSelected((s) => (s ? { ...s, updatedAt: now } : s))
+        setThreads((prev) =>
+          sortByActivityDesc(
+            prev.map((t) => (t.id === selected.id ? { ...t, updatedAt: now } : t)),
+          ),
+        )
+      }
       setReply("")
     } finally {
       setSending(false)
@@ -165,7 +190,14 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
         await addMessage(selected.id, "client", tag)
       }
       const data = await getThread(selected.id)
-      if (data) setMessages(data.messages as Message[])
+      if (data) {
+        setMessages(data.messages as Message[])
+        const now = data.thread?.updatedAt ?? new Date().toISOString()
+        setSelected((s) => (s ? { ...s, updatedAt: now } : s))
+        setThreads((prev) =>
+          sortByActivityDesc(prev.map((t) => (t.id === selected.id ? { ...t, updatedAt: now } : t))),
+        )
+      }
     } catch (e) {
       setUploadErr(e instanceof Error ? e.message : "Echec de l'envoi.")
     } finally {
@@ -310,7 +342,9 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
                                 </span>
                                 <div>
                                   <div className="font-semibold">{`Commande #${t.id}`}</div>
-                                  <div className="text-xs text-muted-foreground">{formatDate(t.createdAt)}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {formatThreadActivity(threadActivityAt(t))}
+                                  </div>
                                 </div>
                               </div>
                               <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${meta.badge}`}>
@@ -345,7 +379,9 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
                                 </span>
                                 <div>
                                   <div className="font-semibold">Discussion #{t.id}</div>
-                                  <div className="text-xs text-muted-foreground">{formatDate(t.createdAt)}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {formatThreadActivity(threadActivityAt(t))}
+                                  </div>
                                 </div>
                               </div>
                               <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${meta.badge}`}>
@@ -426,7 +462,7 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
                         }`}
                       >
                         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                          {isClient ? "Vous" : "Le chimiste"} · {formatDate(m.createdAt)}
+                          {isClient ? "Vous" : "Le chimiste"} · {formatMessageTime(m.createdAt)}
                         </div>
                         <MessageBody body={m.body} />
                       </div>

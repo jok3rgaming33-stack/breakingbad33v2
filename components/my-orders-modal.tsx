@@ -14,6 +14,12 @@ import {
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
 import { BlobMedia } from "@/components/blob-media"
+import {
+  formatMessageTime,
+  formatThreadActivity,
+  threadActivityAt,
+  sortByActivityDesc,
+} from "@/lib/format-time"
 
 async function uploadMessageMedia(file: File): Promise<{ url: string; type: "image" | "video" }> {
   const fd = new FormData()
@@ -57,10 +63,6 @@ type Message = {
   sender: string
   body: string
   createdAt: Date | string
-}
-
-function formatDate(d: Date | string) {
-  return new Date(d).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
 }
 
 // Vérifie si un fil est un message TRK à auto-supprimer après lecture
@@ -116,8 +118,8 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
       getThreadsForToken(token),
       getLockerOrdersForToken(token),
     ])
-    setThreads(list as Thread[])
-    setLockerThreads(lockerList as Thread[])
+    setThreads(sortByActivityDesc(list as Thread[]))
+    setLockerThreads(sortByActivityDesc(lockerList as Thread[]))
   }
 
   useEffect(() => {
@@ -173,7 +175,17 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
     try {
       await addMessage(selected.id, "client", reply)
       const data = await getThread(selected.id)
-      if (data) setMessages(data.messages as Message[])
+      if (data) {
+        setMessages(data.messages as Message[])
+        const now = data.thread?.updatedAt ?? new Date().toISOString()
+        setSelected((s) => (s ? { ...s, updatedAt: now } : s))
+        setThreads((prev) =>
+          sortByActivityDesc(prev.map((t) => (t.id === selected.id ? { ...t, updatedAt: now } : t))),
+        )
+        setLockerThreads((prev) =>
+          sortByActivityDesc(prev.map((t) => (t.id === selected.id ? { ...t, updatedAt: now } : t))),
+        )
+      }
       setReply("")
     } finally {
       setSending(false)
@@ -191,7 +203,17 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
         await addMessage(selected.id, "client", tag)
       }
       const data = await getThread(selected.id)
-      if (data) setMessages(data.messages as Message[])
+      if (data) {
+        setMessages(data.messages as Message[])
+        const now = data.thread?.updatedAt ?? new Date().toISOString()
+        setSelected((s) => (s ? { ...s, updatedAt: now } : s))
+        setThreads((prev) =>
+          sortByActivityDesc(prev.map((t) => (t.id === selected.id ? { ...t, updatedAt: now } : t))),
+        )
+        setLockerThreads((prev) =>
+          sortByActivityDesc(prev.map((t) => (t.id === selected.id ? { ...t, updatedAt: now } : t))),
+        )
+      }
     } catch (e) {
       setUploadErr(e instanceof Error ? e.message : "Echec de l'envoi.")
     } finally {
@@ -432,7 +454,9 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
                                   ) : (
                                     <>
                                       <div className="font-semibold text-sm">Commande #{t.id}</div>
-                                      <div className="text-xs text-muted-foreground">{formatDate(t.createdAt)} · {t.total}€</div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {formatThreadActivity(threadActivityAt(t))} · {t.total}€
+                                      </div>
                                     </>
                                   )}
                                 </div>
@@ -489,7 +513,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
                         className={`max-w-[85%] rounded-2xl p-3 text-sm ${isClient ? "self-end bg-accent text-accent-foreground" : "self-start border border-border bg-background/60 text-foreground"}`}
                       >
                         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                          {isClient ? "Vous" : "Le Chimiste"} · {formatDate(m.createdAt)}
+                          {isClient ? "Vous" : "Le Chimiste"} · {formatMessageTime(m.createdAt)}
                         </div>
                         <MessageBody body={m.body} />
                       </div>
