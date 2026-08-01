@@ -6,6 +6,7 @@ import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThr
 import type { OrderProductItem } from "@/app/actions/messaging"
 import { listProducts } from "@/app/actions/products"
 import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock } from "lucide-react"
+import { VoiceNoteButton } from "@/components/voice-note-button"
 import { grantRestoreAccess, getRestoreStatus } from "@/app/actions/restore-access"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
@@ -233,6 +234,25 @@ export function VendorInbox({
     }
   }, [refresh])
 
+  const refreshAfterSend = async (threadId: number) => {
+    const data = await getThread(threadId)
+    setMessages(data?.messages ?? [])
+    const now = data?.thread?.updatedAt ?? new Date().toISOString()
+    setThreads((prev) =>
+      sortByActivityDesc(
+        prev.map((t) =>
+          t.id === threadId
+            ? {
+                ...t,
+                status: t.status === "nouveau" ? "en cours" : t.status,
+                updatedAt: now as typeof t.updatedAt,
+              }
+            : t,
+        ),
+      ),
+    )
+  }
+
   const sendReply = () => {
     if (!reply.trim() || selectedId == null) return
     const body = reply.trim()
@@ -240,22 +260,7 @@ export function VendorInbox({
     setReply("")
     startTransition(async () => {
       await addMessage(selectedId, "vendeur", body)
-      const data = await getThread(selectedId)
-      setMessages(data?.messages ?? [])
-      const now = data?.thread?.updatedAt ?? new Date().toISOString()
-      setThreads((prev) =>
-        sortByActivityDesc(
-          prev.map((t) =>
-            t.id === selectedId
-              ? {
-                  ...t,
-                  status: t.status === "nouveau" ? "en cours" : t.status,
-                  updatedAt: now as typeof t.updatedAt,
-                }
-              : t,
-          ),
-        ),
-      )
+      await refreshAfterSend(selectedId)
     })
   }
 
@@ -268,26 +273,28 @@ export function VendorInbox({
         fd.append("file", file)
         const res = await fetch("/api/messages/upload", { method: "POST", body: fd })
         if (!res.ok) throw new Error("Echec de l'envoi.")
-        const { url, type } = await res.json()
-        const tag = type === "video" ? `[video]${url}[/video]` : `[image]${url}[/image]`
+        const { url, type } = (await res.json()) as { url: string; type: string }
+        const tag =
+          type === "video"
+            ? `[video]${url}[/video]`
+            : type === "audio"
+              ? `[audio]${url}[/audio]`
+              : `[image]${url}[/image]`
         await addMessage(selectedId, "vendeur", tag)
       }
-      const data = await getThread(selectedId)
-      setMessages(data?.messages ?? [])
-      const now = data?.thread?.updatedAt ?? new Date().toISOString()
-      setThreads((prev) =>
-        sortByActivityDesc(
-          prev.map((t) =>
-            t.id === selectedId ? { ...t, updatedAt: now as typeof t.updatedAt } : t,
-          ),
-        ),
-      )
+      await refreshAfterSend(selectedId)
     } catch {
       // erreur silencieuse — on peut ajouter un toast plus tard
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ""
     }
+  }
+
+  const handleVoiceSent = async (body: string) => {
+    if (selectedId == null) return
+    await addMessage(selectedId, "vendeur", body)
+    await refreshAfterSend(selectedId)
   }
 
   // Charge le statut de rétablissement dès qu'un fil de discussion est ouvert,
@@ -739,7 +746,7 @@ export function VendorInbox({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*,video/*,audio/*"
                 multiple
                 className="hidden"
                 onChange={(e) => handleMediaUpload(e.target.files)}
@@ -748,16 +755,21 @@ export function VendorInbox({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
+                  disabled={uploading || isPending}
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
-                  aria-label="Joindre une photo ou video"
-                  title="Joindre une photo ou video"
+                  aria-label="Joindre une photo, video ou audio"
+                  title="Joindre une photo, video ou audio"
                 >
                   {uploading
                     ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                     : <Paperclip className="h-4 w-4" aria-hidden="true" />
                   }
                 </button>
+                <VoiceNoteButton
+                  size="sm"
+                  disabled={uploading || isPending}
+                  onSent={handleVoiceSent}
+                />
                 <textarea
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}

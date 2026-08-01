@@ -276,6 +276,7 @@ export async function addMessage(threadId: number, sender: "client" | "vendeur",
     const cleanPreview = text
       .replace(/\[image\][^\]]*\[\/image\]/gi, "📷 Photo jointe")
       .replace(/\[video\][^\]]*\[\/video\]/gi, "🎥 Video jointe")
+      .replace(/\[audio\][^\]]*\[\/audio\]/gi, "🎤 Message vocal")
       .trim()
     const preview = cleanPreview.length > 80 ? `${cleanPreview.slice(0, 77)}…` : cleanPreview
     if (sender === "vendeur") {

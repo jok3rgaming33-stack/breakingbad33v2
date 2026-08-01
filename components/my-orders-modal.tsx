@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { X, ArrowLeft, Package, Send, Loader2, Lock, Bell, BellOff, ShieldAlert, Paperclip, FlaskConical } from "lucide-react"
+import { VoiceNoteButton } from "@/components/voice-note-button"
 import {
   getThreadsForToken,
   getLockerOrdersForToken,
@@ -21,7 +22,9 @@ import {
   sortByActivityDesc,
 } from "@/lib/format-time"
 
-async function uploadMessageMedia(file: File): Promise<{ url: string; type: "image" | "video" }> {
+async function uploadMessageMedia(
+  file: File,
+): Promise<{ url: string; type: "image" | "video" | "audio" }> {
   const fd = new FormData()
   fd.append("file", file)
   const res = await fetch("/api/messages/upload", { method: "POST", body: fd })
@@ -30,6 +33,12 @@ async function uploadMessageMedia(file: File): Promise<{ url: string; type: "ima
     throw new Error(d?.error ?? "Echec de l'envoi.")
   }
   return res.json()
+}
+
+function mediaTag(type: string, url: string) {
+  if (type === "video") return `[video]${url}[/video]`
+  if (type === "audio") return `[audio]${url}[/audio]`
+  return `[image]${url}[/image]`
 }
 
 type UserData = { pseudo?: string; token?: string } | null
@@ -169,27 +178,36 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
     }
   }
 
+  const refreshThreadAfterSend = async (threadId: number) => {
+    const data = await getThread(threadId)
+    if (!data) return
+    setMessages(data.messages as Message[])
+    const now = data.thread?.updatedAt ?? new Date().toISOString()
+    setSelected((s) => (s && s.id === threadId ? { ...s, updatedAt: now } : s))
+    setThreads((prev) =>
+      sortByActivityDesc(prev.map((t) => (t.id === threadId ? { ...t, updatedAt: now } : t))),
+    )
+    setLockerThreads((prev) =>
+      sortByActivityDesc(prev.map((t) => (t.id === threadId ? { ...t, updatedAt: now } : t))),
+    )
+  }
+
   const handleSend = async () => {
     if (!selected || !reply.trim() || sending) return
     setSending(true)
     try {
       await addMessage(selected.id, "client", reply)
-      const data = await getThread(selected.id)
-      if (data) {
-        setMessages(data.messages as Message[])
-        const now = data.thread?.updatedAt ?? new Date().toISOString()
-        setSelected((s) => (s ? { ...s, updatedAt: now } : s))
-        setThreads((prev) =>
-          sortByActivityDesc(prev.map((t) => (t.id === selected.id ? { ...t, updatedAt: now } : t))),
-        )
-        setLockerThreads((prev) =>
-          sortByActivityDesc(prev.map((t) => (t.id === selected.id ? { ...t, updatedAt: now } : t))),
-        )
-      }
+      await refreshThreadAfterSend(selected.id)
       setReply("")
     } finally {
       setSending(false)
     }
+  }
+
+  const handleVoiceSent = async (body: string) => {
+    if (!selected) return
+    await addMessage(selected.id, "client", body)
+    await refreshThreadAfterSend(selected.id)
   }
 
   const handleMediaUpload = async (files: FileList | null) => {
@@ -199,21 +217,9 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
     try {
       for (const file of Array.from(files)) {
         const { url, type } = await uploadMessageMedia(file)
-        const tag = type === "video" ? `[video]${url}[/video]` : `[image]${url}[/image]`
-        await addMessage(selected.id, "client", tag)
+        await addMessage(selected.id, "client", mediaTag(type, url))
       }
-      const data = await getThread(selected.id)
-      if (data) {
-        setMessages(data.messages as Message[])
-        const now = data.thread?.updatedAt ?? new Date().toISOString()
-        setSelected((s) => (s ? { ...s, updatedAt: now } : s))
-        setThreads((prev) =>
-          sortByActivityDesc(prev.map((t) => (t.id === selected.id ? { ...t, updatedAt: now } : t))),
-        )
-        setLockerThreads((prev) =>
-          sortByActivityDesc(prev.map((t) => (t.id === selected.id ? { ...t, updatedAt: now } : t))),
-        )
-      }
+      await refreshThreadAfterSend(selected.id)
     } catch (e) {
       setUploadErr(e instanceof Error ? e.message : "Echec de l'envoi.")
     } finally {
@@ -576,7 +582,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="image/*,video/*"
+                      accept="image/*,video/*,audio/*"
                       multiple
                       className="hidden"
                       onChange={(e) => handleMediaUpload(e.target.files)}
@@ -585,16 +591,20 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        disabled={uploading}
+                        disabled={uploading || sending}
                         className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border bg-background/60 text-muted-foreground transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
-                        aria-label="Joindre une photo ou video"
-                        title="Joindre une photo ou video"
+                        aria-label="Joindre une photo, video ou audio"
+                        title="Joindre une photo, video ou audio"
                       >
                         {uploading
                           ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
                           : <Paperclip className="h-5 w-5" aria-hidden="true" />
                         }
                       </button>
+                      <VoiceNoteButton
+                        disabled={uploading || sending}
+                        onSent={handleVoiceSent}
+                      />
                       <textarea
                         value={reply}
                         onChange={(e) => setReply(e.target.value)}
