@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Plus, CheckCircle2, Copy, AlertTriangle, Loader2, History, HelpCircle, KeyRound, X, Send, MessageCircleWarning, Eye, EyeOff, ShieldCheck } from "lucide-react"
+import { Plus, CheckCircle2, Copy, AlertTriangle, Loader2, History, HelpCircle, KeyRound, X, Send, MessageCircleWarning, Eye, EyeOff, ShieldCheck, Fingerprint, ScanFace } from "lucide-react"
 import { adminLogin } from "@/app/actions/admin-auth"
 import { createAccount, ensureAccount, getAccount, getCustomerStats } from "@/app/actions/account"
 import { resolveClientLogin } from "@/app/actions/staff"
@@ -11,6 +11,21 @@ import { HowItWorksModal } from "@/components/how-it-works-modal"
 import { loginWithRestoreToken, setPasswordAfterRestore } from "@/app/actions/restore-access"
 import { submitLostKeyClaim } from "@/app/actions/lost-key"
 import { PASSWORD_RULES } from "@/lib/password-rules"
+import {
+  startWebAuthnRegistration,
+  finishWebAuthnRegistration,
+  startWebAuthnAuthentication,
+  finishWebAuthnAuthentication,
+} from "@/app/actions/webauthn"
+import { loadWebAuthnBrowser } from "@/lib/webauthn-browser"
+import {
+  biometryLabel,
+  clearLocalWebAuthn,
+  getLocalCredentialIds,
+  hasLocalWebAuthn,
+  platformAuthenticatorAvailable,
+  rememberLocalCredential,
+} from "@/lib/webauthn-client"
 
 const CRYSTAL_COUNT = 4
 
@@ -29,12 +44,33 @@ export function LoginPage({
   const [creating, setCreating] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [stats, setStats] = useState<{ points: number; active: number; past: number } | null>(null)
+  // Biométrie (WebAuthn) — déverrouillage rapide sur cet appareil
+  const [bioAvailable, setBioAvailable] = useState(false)
+  const [bioReady, setBioReady] = useState(false) // credential déjà enregistré en local
+  const [bioBusy, setBioBusy] = useState(false)
+  const [bioError, setBioError] = useState("")
+  const [bioEnrolling, setBioEnrolling] = useState(false)
+  const [bioEnrollMsg, setBioEnrollMsg] = useState<string | null>(null)
   // Forcer la lecture du guide avant de créer un accès
   const [hasReadGuide, setHasReadGuide] = useState(false)
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setHasReadGuide(localStorage.getItem("bb33_guide_read") === "1")
-    }
+    if (typeof window === "undefined") return
+    setHasReadGuide(localStorage.getItem("bb33_guide_read") === "1")
+    setBioReady(hasLocalWebAuthn())
+    // Détection biométrie 100 % isolée : un échec ne bloque jamais la page de login.
+    ;(async () => {
+      try {
+        const api = await loadWebAuthnBrowser()
+        if (!api?.browserSupportsWebAuthn()) {
+          setBioAvailable(false)
+          return
+        }
+        const ok = await platformAuthenticatorAvailable()
+        setBioAvailable(ok)
+      } catch {
+        setBioAvailable(false)
+      }
+    })()
   }, [])
   // Tokens Turnstile (un par formulaire) + signaux de réinitialisation.
   const [captchaCreate, setCaptchaCreate] = useState("")
@@ -218,6 +254,7 @@ export function LoginPage({
       return
     }
     setError("")
+    setBioError("")
     setLoggingIn(true)
 
     try {
@@ -262,6 +299,116 @@ export function LoginPage({
       setResetLogin((n) => n + 1)
     } finally {
       setLoggingIn(false)
+    }
+  }
+
+  /** Déverrouillage rapide — échec toujours soft : la clé reste utilisable. */
+  const loginWithBiometrics = async () => {
+    if (bioBusy || loggingIn) return
+    setBioError("")
+    setError("")
+    setBioBusy(true)
+    try {
+      const api = await loadWebAuthnBrowser()
+      if (!api) {
+        setBioError("Biométrie indisponible sur cet appareil. Utilise ta clé secrète.")
+        setBioAvailable(false)
+        return
+      }
+      const ids = getLocalCredentialIds()
+      const start = await startWebAuthnAuthentication(ids.length ? ids : undefined)
+      if (!start.ok) {
+        if ("clearLocal" in start && start.clearLocal) {
+          clearLocalWebAuthn()
+          setBioReady(false)
+        }
+        setBioError(start.error)
+        return
+      }
+      const assertion = (await api.startAuthentication({
+        optionsJSON: start.options,
+      })) as { id: string }
+      const done = await finishWebAuthnAuthentication({
+        challengeId: start.challengeId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        response: assertion as any,
+      })
+      if (!done.ok) {
+        if ("clearLocal" in done && done.clearLocal) {
+          clearLocalWebAuthn()
+          setBioReady(false)
+        }
+        setBioError(done.error)
+        return
+      }
+      localStorage.removeItem("isAdmin")
+      localStorage.setItem("authToken", done.token)
+      localStorage.setItem("userPseudo", done.pseudo)
+      if (assertion?.id) rememberLocalCredential(assertion.id)
+      setGeneratedPseudo(done.pseudo)
+      setIsLoggedIn(true)
+      setBioReady(true)
+    } catch (e) {
+      const name = e && typeof e === "object" && "name" in e ? String((e as { name: string }).name) : ""
+      if (name === "NotAllowedError") {
+        setBioError("Annulé. Tu peux te connecter avec ta clé ci-dessous.")
+      } else {
+        setBioError("Déverrouillage impossible. Utilise ta clé secrète ci-dessous.")
+      }
+    } finally {
+      setBioBusy(false)
+    }
+  }
+
+  /** Active la biométrie (optionnel). Échec soft — le compte reste connecté. */
+  const enrollBiometrics = async () => {
+    if (bioEnrolling) return
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null
+    if (!token) {
+      setBioEnrollMsg("Session introuvable. Reconnecte-toi avec ta clé.")
+      return
+    }
+    setBioEnrolling(true)
+    setBioEnrollMsg(null)
+    try {
+      const api = await loadWebAuthnBrowser()
+      if (!api) {
+        setBioEnrollMsg("Biométrie indisponible ici. Ta clé reste valable.")
+        setBioAvailable(false)
+        return
+      }
+      const start = await startWebAuthnRegistration(token)
+      if (!start.ok) {
+        setBioEnrollMsg(start.error)
+        return
+      }
+      const attestation = await api.startRegistration({ optionsJSON: start.options })
+      const done = await finishWebAuthnRegistration({
+        userToken: token,
+        challengeId: start.challengeId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        response: attestation as any,
+        deviceLabel: biometryLabel(),
+      })
+      if (!done.ok) {
+        setBioEnrollMsg(done.error)
+        return
+      }
+      rememberLocalCredential(done.credentialId)
+      setBioReady(true)
+      setBioEnrollMsg(`Déverrouillage ${biometryLabel()} activé. Ta clé reste ton secours.`)
+    } catch (e) {
+      const name = e && typeof e === "object" && "name" in e ? String((e as { name: string }).name) : ""
+      if (name === "NotAllowedError") {
+        setBioEnrollMsg("Activation annulée — aucun souci, ta clé fonctionne toujours.")
+      } else if (name === "InvalidStateError") {
+        setBioEnrollMsg("Déjà enregistré sur cet appareil.")
+        setBioReady(true)
+      } else {
+        setBioEnrollMsg("Activation impossible ici. Continue avec ta clé, sans impact.")
+      }
+    } finally {
+      setBioEnrolling(false)
     }
   }
 
@@ -598,6 +745,49 @@ export function LoginPage({
             </div>
           </div>
 
+          {/* Proposition biométrie — purement optionnelle, jamais bloquante */}
+          {bioAvailable && (
+            <div className="mb-8 rounded-3xl border border-border bg-card/80 p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-accent/15 text-accent">
+                    <Fingerprint className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  <div>
+                    <p className="font-semibold">
+                      {bioReady
+                        ? `${biometryLabel()} déjà actif sur cet appareil`
+                        : `Déverrouillage rapide — ${biometryLabel()}`}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
+                      {bioReady
+                        ? "À la prochaine ouverture, tu pourras te connecter sans retaper ta clé. Ta clé reste toujours le secours."
+                        : "Optionnel : active Face ID / empreinte pour te reconnecter plus vite. Si ça échoue un jour, ta clé secrète fonctionne toujours."}
+                    </p>
+                    {bioEnrollMsg && (
+                      <p className="mt-2 text-xs text-accent">{bioEnrollMsg}</p>
+                    )}
+                  </div>
+                </div>
+                {!bioReady && (
+                  <button
+                    type="button"
+                    onClick={() => void enrollBiometrics()}
+                    disabled={bioEnrolling}
+                    className="flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-foreground px-5 py-3 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    {bioEnrolling ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <ScanFace className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {bioEnrolling ? "Activation..." : "Activer (optionnel)"}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="mt-6 flex flex-col justify-center gap-4 sm:flex-row">
             <button
               onClick={() => onSuccess({ openOrders: true })}
@@ -727,6 +917,39 @@ export function LoginPage({
 
           <div className="rounded-3xl border border-border bg-background/40 p-8 backdrop-blur-xl">
             <h2 className="mb-5 text-center text-2xl font-semibold">{"J'ai déjà une clé"}</h2>
+
+            {/* Biométrie en plus — la zone clé ci-dessous reste TOUJOURS visible */}
+            {bioAvailable && bioReady && (
+              <div className="mb-5">
+                <button
+                  type="button"
+                  onClick={() => void loginWithBiometrics()}
+                  disabled={bioBusy || loggingIn}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl border border-accent/40 bg-accent/15 py-4 text-base font-semibold text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {bioBusy ? (
+                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Fingerprint className="h-5 w-5" aria-hidden="true" />
+                  )}
+                  {bioBusy ? "Vérification..." : `Déverrouiller avec ${biometryLabel()}`}
+                </button>
+                {bioError && (
+                  <div className="mt-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-sm text-destructive">
+                    {bioError}
+                    <p className="mt-1 text-xs opacity-90">
+                      Pas de panique : colle ta clé secrète juste en dessous.
+                    </p>
+                  </div>
+                )}
+                <div className="my-4 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-xs text-muted-foreground">ou avec ta clé (toujours possible)</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+              </div>
+            )}
+
             <input
               type="text"
               value={loginInput}
@@ -739,6 +962,9 @@ export function LoginPage({
               aria-label="Clé secrète"
             />
             {error && !showResultModal && <p className="mb-3 text-sm text-destructive">{error}</p>}
+            {!bioReady && bioError && (
+              <p className="mb-3 text-sm text-destructive">{bioError}</p>
+            )}
             <div className="mb-3 flex flex-col items-center justify-center gap-2">
               <TurnstileWidget
                 onVerify={(t) => {

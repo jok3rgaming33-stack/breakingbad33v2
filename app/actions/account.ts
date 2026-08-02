@@ -249,6 +249,14 @@ export async function purgeUserData(token: string) {
   await db.delete(pushSubscriptions).where(eq(pushSubscriptions.customerToken, t))
   await db.delete(restockAlerts).where(eq(restockAlerts.userToken, t))
 
+  // 3b. Identifiants biométriques (WebAuthn)
+  try {
+    const { purgeWebAuthnForToken } = await import("@/app/actions/webauthn")
+    await purgeWebAuthnForToken(t)
+  } catch {
+    /* best-effort */
+  }
+
   // 4. Logs de connexion
   await deleteLoginLogsByToken(t)
 

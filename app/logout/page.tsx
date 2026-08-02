@@ -12,7 +12,7 @@ export default function LogoutPage() {
   const router = useRouter()
 
   useEffect(() => {
-    // Nettoyage complet de la session client
+    // Nettoyage session client — on garde bb33_webauthn* pour le déverrouillage rapide
     localStorage.removeItem("authToken")
     localStorage.removeItem("userPseudo")
     localStorage.removeItem("isAdmin")

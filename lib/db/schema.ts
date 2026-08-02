@@ -45,6 +45,31 @@ export const staffMembers = pgTable("staff_members", {
 
 export type StaffMember = typeof staffMembers.$inferSelect
 
+// Identifiants WebAuthn (Face ID / empreinte / Windows Hello) pour déverrouillage rapide.
+// La clé secrète reste le login principal ; la biométrie déverrouille le même compte sur cet appareil.
+export const webauthnCredentials = pgTable("webauthn_credentials", {
+  id: serial("id").primaryKey(),
+  userToken: text("user_token").notNull(),
+  credentialId: text("credential_id").notNull().unique(),
+  publicKey: text("public_key").notNull(), // base64url
+  counter: integer("counter").notNull().default(0),
+  transports: text("transports"), // CSV optionnel
+  deviceLabel: text("device_label"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Challenges WebAuthn éphémères (registration / authentication), TTL court.
+export const webauthnChallenges = pgTable("webauthn_challenges", {
+  id: text("id").primaryKey(),
+  challenge: text("challenge").notNull(),
+  userToken: text("user_token"),
+  purpose: text("purpose").notNull(), // 'registration' | 'authentication'
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type WebauthnCredential = typeof webauthnCredentials.$inferSelect
+
 // Variante de prix d'un produit (quantité -> prix).
 export type ProductVariant = { qty: number; price: number }
 

@@ -94,6 +94,8 @@ export default function Home() {
     // même session.
     const sessionAlive = sessionStorage.getItem("bb33_session_alive")
     if (!sessionAlive) {
+      // Session fermée : on force la reconnexion (clé ou biométrie).
+      // On conserve volontairement bb33_webauthn / bb33_webauthn_ids pour le déverrouillage rapide.
       localStorage.removeItem("authToken")
       localStorage.removeItem("userPseudo")
       localStorage.removeItem("isAdmin")
