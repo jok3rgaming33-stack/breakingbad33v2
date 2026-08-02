@@ -352,6 +352,9 @@ export async function updateThreadStatus(
       case "pret_meetup":
         body = "Ton colis est prêt. Tu peux venir le récupérer lors de notre rendez-vous."
         break
+      case "bientot_livraison":
+        body = "🚚 Ton colis sera bientôt pris en charge par le livreur. Reste joignable, la livraison approche !"
+        break
       case "livraison": {
         // Inclure le numéro de suivi Colissimo s'il existe
         const colNum = current.colissimoNumber || colissimoNumber
