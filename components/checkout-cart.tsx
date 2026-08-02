@@ -17,9 +17,14 @@ type CheckoutCartProps = {
   onOrderPlaced?: (message: string) => void
 }
 
-const FEE_NEAR = 10 // <= 10 km
-const FEE_FAR = 20 // > 10 km
 const FEE_LOCKER = 10 // Locker Mondial Relay
+
+// 0–10 km : 10€ | 10–20 km : 20€ | >20 km : 20€ + 1€ par km supplémentaire
+function calcDeliveryFee(km: number): number {
+  if (km <= 10) return 10
+  if (km <= 20) return 20
+  return 20 + Math.ceil(km - 20)
+}
 
 // Config par défaut utilisée le temps du chargement (évite un panier vide).
 const FALLBACK_CONFIG: CartConfig = {
@@ -200,7 +205,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     if (isMeetup) return 0
     if (isLocker) return FEE_LOCKER
     if (distanceKm == null) return 0
-    return distanceKm <= 10 ? FEE_NEAR : FEE_FAR
+    return calcDeliveryFee(distanceKm)
   }, [isMeetup, isLocker, distanceKm])
 
   const total = Math.max(0, subtotal + deliveryFee - promoDiscount)

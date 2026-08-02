@@ -11,9 +11,14 @@ import {
   X, Plus, Minus, Loader2, Truck, Store, Package, Search, ShoppingBag, Check,
 } from "lucide-react"
 
-const FEE_NEAR = 10
-const FEE_FAR = 20
 const FEE_LOCKER = 10
+
+// 0–10 km : 10€ | 10–20 km : 20€ | >20 km : 20€ + 1€ par km supplémentaire
+function calcDeliveryFee(km: number): number {
+  if (km <= 10) return 10
+  if (km <= 20) return 20
+  return 20 + Math.ceil(km - 20)
+}
 
 type Props = {
   customerName: string
@@ -53,7 +58,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   const subtotal = items.reduce((s, i) => s + i.qty * i.price, 0)
   const deliveryFee = fulfillment === "meetup" ? 0
     : fulfillment === "locker" ? FEE_LOCKER
-    : distanceKm != null ? (distanceKm <= 10 ? FEE_NEAR : FEE_FAR) : 0
+    : distanceKm != null ? calcDeliveryFee(distanceKm) : 0
   const total = subtotal + deliveryFee
 
   const meetupSlots = config?.meetupSlots ?? []
@@ -291,7 +296,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
               {(["meetup", "livraison", "locker"] as const).map((m) => {
                 const Icon = m === "meetup" ? Store : m === "locker" ? Package : Truck
                 const label = m === "meetup" ? "Meet-up" : m === "locker" ? "Locker" : "Livraison"
-                const fee = m === "meetup" ? "Gratuit" : m === "locker" ? "10€" : "10–20€"
+                const fee = m === "meetup" ? "Gratuit" : m === "locker" ? "10€" : "10–20€+"
                 return (
                   <button
                     key={m}
@@ -379,8 +384,10 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                     />
                     {distanceKm != null && (
                       <span className="text-sm text-muted-foreground">
-                        Frais : <strong className="text-foreground">{distanceKm <= 10 ? FEE_NEAR : FEE_FAR}€</strong>
-                        {" "}<span className="text-xs">({distanceKm <= 10 ? "≤ 10 km" : "> 10 km"})</span>
+                        Frais : <strong className="text-foreground">{calcDeliveryFee(distanceKm)}€</strong>
+                        {" "}<span className="text-xs">
+                          ({distanceKm <= 10 ? "≤ 10 km" : distanceKm <= 20 ? "10–20 km" : `> 20 km (+${Math.ceil(distanceKm - 20)}€)`})
+                        </span>
                       </span>
                     )}
                   </div>
