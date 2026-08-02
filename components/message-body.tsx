@@ -103,7 +103,7 @@ export function MessageBody({ body }: { body: string }) {
           return (
             <div
               key={i}
-              className="flex min-w-[12rem] max-w-full flex-col gap-1.5 rounded-xl border border-white/10 bg-black/25 px-3 py-2.5"
+              className="flex w-full min-w-[14rem] max-w-full flex-col gap-1.5 rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
             >
               <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide opacity-70">
                 <Mic className="h-3 w-3" aria-hidden="true" />
@@ -111,9 +111,8 @@ export function MessageBody({ body }: { body: string }) {
               </div>
               <BlobAudio
                 src={seg.url}
-                controls
-                preload="metadata"
-                className="h-9 w-full max-w-full accent-current"
+                className="w-full max-w-full"
+                style={{ minHeight: 40 }}
               />
             </div>
           )

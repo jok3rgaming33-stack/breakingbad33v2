@@ -9,10 +9,14 @@ function pickMimeType(): { mime: string; ext: string } {
   if (typeof MediaRecorder === "undefined") {
     return { mime: "", ext: "webm" }
   }
+  // Prefere mp4/m4a en premier : lecture fiable sur iOS Safari + Chrome/Desktop.
+  // webm/opus ensuite (Chrome/Android/Firefox).
   const candidates: { mime: string; ext: string }[] = [
+    { mime: "audio/mp4", ext: "m4a" },
+    { mime: "audio/mp4;codecs=mp4a.40.2", ext: "m4a" },
+    { mime: "audio/aac", ext: "aac" },
     { mime: "audio/webm;codecs=opus", ext: "webm" },
     { mime: "audio/webm", ext: "webm" },
-    { mime: "audio/mp4", ext: "m4a" },
     { mime: "audio/ogg;codecs=opus", ext: "ogg" },
     { mime: "audio/ogg", ext: "ogg" },
   ]
@@ -24,6 +28,21 @@ function pickMimeType(): { mime: string; ext: string } {
     }
   }
   return { mime: "", ext: "webm" }
+}
+
+/** Aligne extension + MIME basés sur le type réellement produit par MediaRecorder. */
+function resolveFromRecorderMime(recorderMime: string, fallback: { mime: string; ext: string }) {
+  const raw = (recorderMime || fallback.mime || "audio/webm").trim()
+  const base = raw.split(";")[0].toLowerCase() || "audio/webm"
+  let ext = fallback.ext || "webm"
+  if (base.includes("mp4") || base.includes("m4a") || base.includes("aac")) ext = "m4a"
+  else if (base.includes("webm")) ext = "webm"
+  else if (base.includes("ogg") || base.includes("opus")) ext = "ogg"
+  else if (base.includes("mpeg") || base.includes("mp3")) ext = "mp3"
+  else if (base.includes("wav")) ext = "wav"
+  // Content-Type stocké sans codecs pour maximiser la compat lecture
+  const type = base.startsWith("audio/") ? base : "audio/webm"
+  return { type, ext }
 }
 
 type Props = {
@@ -83,12 +102,11 @@ export function VoiceNoteButton({ disabled, onSent, className = "", size = "md" 
   }
 
   const uploadAndSend = useCallback(
-    async (blob: Blob) => {
+    async (blob: Blob, recorderMime: string) => {
       setUploading(true)
       setError(null)
       try {
-        const { ext, mime } = mimeRef.current
-        const type = blob.type || mime || "audio/webm"
+        const { type, ext } = resolveFromRecorderMime(recorderMime || blob.type, mimeRef.current)
         const file = new File([blob], `vocal-${Date.now()}.${ext}`, { type })
         const fd = new FormData()
         fd.append("file", file)
@@ -98,6 +116,7 @@ export function VoiceNoteButton({ disabled, onSent, className = "", size = "md" 
           throw new Error(d?.error ?? "Échec de l'envoi du vocal.")
         }
         const data = (await res.json()) as { url: string; type: string }
+        if (!data?.url) throw new Error("URL audio manquante après upload.")
         await onSent(`[audio]${data.url}[/audio]`)
       } catch (e) {
         setError(e instanceof Error ? e.message : "Envoi impossible.")
@@ -117,6 +136,14 @@ export function VoiceNoteButton({ disabled, onSent, className = "", size = "md" 
         return
       }
       try {
+        // Force un dernier chunk avant stop (certains mobiles iOS/Android)
+        if (typeof rec.requestData === "function" && rec.state === "recording") {
+          try {
+            rec.requestData()
+          } catch {
+            /* ignore */
+          }
+        }
         rec.stop()
       } catch {
         cleanupRecorder()
@@ -154,23 +181,34 @@ export function VoiceNoteButton({ disabled, onSent, className = "", size = "md" 
         stopStream()
         const wasCancelled = cancelledRef.current
         const chunks = [...chunksRef.current]
+        const recorderMime = rec.mimeType || mimeRef.current.mime || ""
         mediaRecorderRef.current = null
         chunksRef.current = []
         setRecording(false)
         setSeconds(0)
 
-        if (wasCancelled || chunks.length === 0) return
+        if (wasCancelled || chunks.length === 0) {
+          if (!wasCancelled && chunks.length === 0) {
+            setError("Aucun audio capturé. Réessaie en autorisant le micro.")
+          }
+          return
+        }
 
-        const blob = new Blob(chunks, {
-          type: rec.mimeType || mimeRef.current.mime || "audio/webm",
-        })
+        const { type } = resolveFromRecorderMime(recorderMime, mimeRef.current)
+        const blob = new Blob(chunks, { type })
         if (blob.size < 200) {
           setError("Enregistrement trop court.")
           return
         }
-        await uploadAndSend(blob)
+        await uploadAndSend(blob, recorderMime)
       }
 
+      rec.onerror = () => {
+        setError("Erreur d'enregistrement. Réessaie.")
+        cleanupRecorder()
+      }
+
+      // timeslice : chunks réguliers (évite blob vide au stop sur certains mobiles)
       rec.start(250)
       setRecording(true)
       setSeconds(0)
@@ -178,7 +216,6 @@ export function VoiceNoteButton({ disabled, onSent, className = "", size = "md" 
         setSeconds((s) => {
           const next = s + 1
           if (next >= MAX_SECONDS) {
-            // Stop auto à la limite
             try {
               mediaRecorderRef.current?.stop()
             } catch {
