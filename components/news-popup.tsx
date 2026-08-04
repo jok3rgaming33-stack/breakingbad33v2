@@ -6,6 +6,8 @@ import { getActiveNewsForUser, markNewsRead, redeemPromo } from "@/app/actions/n
 import { BlobMedia } from "@/components/blob-media"
 import { useCart } from "@/components/cart-provider"
 
+type MediaItem = { type: "image" | "video"; url: string }
+
 type Slide = {
   id: number
   newsId: number
@@ -13,6 +15,7 @@ type Slide = {
   title: string | null
   content: string | null
   imageUrl: string | null
+  media?: MediaItem[]
   buttonText: string | null
   buttonLink: string | null
   promoCode: string | null
@@ -29,33 +32,70 @@ type ActiveNews = {
   slides: Slide[]
 }
 
+const DISMISSED_LS_KEY = "bb33:dismissedNews"
+
+function readLocalDismissed(): number[] {
+  if (typeof window === "undefined") return []
+  try {
+    const raw = localStorage.getItem(DISMISSED_LS_KEY)
+    const arr = raw ? (JSON.parse(raw) as unknown) : []
+    return Array.isArray(arr) ? arr.filter((n) => typeof n === "number") : []
+  } catch {
+    return []
+  }
+}
+
+function addLocalDismissed(newsId: number) {
+  if (typeof window === "undefined") return
+  const set = new Set(readLocalDismissed())
+  set.add(newsId)
+  localStorage.setItem(DISMISSED_LS_KEY, JSON.stringify([...set]))
+}
+
+function slideMedia(slide: Slide | undefined): MediaItem[] {
+  if (!slide) return []
+  if (Array.isArray(slide.media) && slide.media.length > 0) return slide.media
+  if (slide.imageUrl) {
+    const isVideo = /\.(mp4|mov|m4v|webm|quicktime)(\?|$)/i.test(slide.imageUrl)
+    return [{ type: isVideo ? "video" : "image", url: slide.imageUrl }]
+  }
+  return []
+}
+
 export function NewsPopup({ token }: { token?: string }) {
   const { applyPromo } = useCart()
   // File de toutes les news actives ; on les affiche une par une.
   const [queue, setQueue] = useState<ActiveNews[]>([])
   const [queueTotal, setQueueTotal] = useState(0) // total initial pour afficher "X/N"
-  const [queuePos, setQueuePos] = useState(1)     // position courante dans la file (1-indexed)
+  const [queuePos, setQueuePos] = useState(1) // position courante dans la file (1-indexed)
   const [index, setIndex] = useState(0)
+  const [mediaIndex, setMediaIndex] = useState(0)
   const [open, setOpen] = useState(false)
   const [redeeming, setRedeeming] = useState<number | null>(null)
   const [claimed, setClaimed] = useState<Record<number, boolean>>({})
+  const [dismissing, setDismissing] = useState(false)
   const touchStartX = useRef<number | null>(null)
 
-  // Charge toutes les news actives à l'entrée.
+  // Charge toutes les news actives à l'entrée (hors déjà dismissées).
   useEffect(() => {
     let cancelled = false
     getActiveNewsForUser(token)
       .then((res) => {
         if (cancelled || !res) return
-        const arr = Array.isArray(res) ? res : [res]
+        const localDismissed = new Set(readLocalDismissed())
+        const arr = (Array.isArray(res) ? res : [res]).filter(
+          (n) => !localDismissed.has((n as ActiveNews).news.id),
+        ) as ActiveNews[]
         if (arr.length === 0) return
-        setQueue(arr as ActiveNews[])
+        setQueue(arr)
         setQueueTotal(arr.length)
         setQueuePos(1)
         setOpen(true)
       })
       .catch(() => {})
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [token])
 
   // News courante dans la file
@@ -66,22 +106,42 @@ export function NewsPopup({ token }: { token?: string }) {
   const slides = data.slides
   const slide = slides[index]
   const total = slides.length
+  const media = slideMedia(slide)
+  const safeMediaIndex = media.length ? Math.min(mediaIndex, media.length - 1) : 0
+  const currentMedia = media[safeMediaIndex]
 
-  // Ferme le popup courant et passe à la news suivante s'il en reste.
-  const close = () => {
-    markNewsRead(token, data.news.id).catch(() => {})
+  // Passe à la news suivante sans marquer comme lue (session seulement).
+  const skip = () => {
     const next = queue.slice(1)
     if (next.length > 0) {
       setQueue(next)
-      setQueuePos(p => p + 1)
+      setQueuePos((p) => p + 1)
       setIndex(0)
+      setMediaIndex(0)
       setClaimed({})
     } else {
       setOpen(false)
     }
   }
 
-  const goTo = (i: number) => setIndex((i + total) % total)
+  // « J'ai compris, ne plus afficher » — permanent (DB + localStorage).
+  const dismissForever = async () => {
+    setDismissing(true)
+    try {
+      addLocalDismissed(data.news.id)
+      if (token) {
+        await markNewsRead(token, data.news.id).catch(() => {})
+      }
+      skip()
+    } finally {
+      setDismissing(false)
+    }
+  }
+
+  const goTo = (i: number) => {
+    setIndex((i + total) % total)
+    setMediaIndex(0)
+  }
   const next = () => goTo(index + 1)
   const prev = () => goTo(index - 1)
 
@@ -91,8 +151,13 @@ export function NewsPopup({ token }: { token?: string }) {
   const onTouchEnd = (e: React.TouchEvent) => {
     if (touchStartX.current == null) return
     const dx = e.changedTouches[0].clientX - touchStartX.current
-    if (dx > 50) prev()
-    else if (dx < -50) next()
+    if (dx > 50) {
+      if (media.length > 1 && safeMediaIndex > 0) setMediaIndex(safeMediaIndex - 1)
+      else prev()
+    } else if (dx < -50) {
+      if (media.length > 1 && safeMediaIndex < media.length - 1) setMediaIndex(safeMediaIndex + 1)
+      else next()
+    }
     touchStartX.current = null
   }
 
@@ -143,25 +208,67 @@ export function NewsPopup({ token }: { token?: string }) {
           )}
           <button
             type="button"
-            onClick={close}
+            onClick={skip}
             className="flex h-9 w-9 items-center justify-center rounded-full bg-background/70 text-foreground backdrop-blur transition-colors hover:bg-background"
-            aria-label="Fermer"
+            aria-label="Fermer pour cette session"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
-        {/* Image ou vidéo — hauteur bornée pour ne pas déborder sur mobile */}
-        {slide?.imageUrl && (
-          // object-contain : affiche l'image/vidéo en entier sans la recadrer.
-          // max-h-[45dvh] la borne en hauteur pour ne pas envahir l'écran.
-          <div className="w-full shrink-0 overflow-hidden bg-secondary/40 flex items-center justify-center" style={{ maxHeight: "45dvh" }}>
+        {/* Médias (images / vidéos) — carousel si plusieurs */}
+        {currentMedia && (
+          <div
+            className="relative w-full shrink-0 overflow-hidden bg-secondary/40 flex items-center justify-center"
+            style={{ maxHeight: "45dvh" }}
+          >
             <BlobMedia
-              src={slide.imageUrl}
-              alt={slide.title ?? ""}
+              src={currentMedia.url}
+              alt={slide?.title ?? ""}
+              mediaType={currentMedia.type}
               className="max-h-[45dvh] w-full object-contain"
-              videoProps={{ muted: true, playsInline: true, autoPlay: false, controls: true, preload: "metadata", style: { maxHeight: "45dvh", width: "100%", objectFit: "contain" } }}
+              videoProps={{
+                muted: true,
+                playsInline: true,
+                autoPlay: false,
+                controls: true,
+                preload: "metadata",
+                style: { maxHeight: "45dvh", width: "100%", objectFit: "contain" },
+              }}
             />
+            {media.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setMediaIndex((i) => (i - 1 + media.length) % media.length)}
+                  className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-background/70 text-foreground backdrop-blur"
+                  aria-label="Média précédent"
+                >
+                  <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMediaIndex((i) => (i + 1) % media.length)}
+                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-background/70 text-foreground backdrop-blur"
+                  aria-label="Média suivant"
+                >
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1.5">
+                  {media.map((m, i) => (
+                    <button
+                      key={`${m.url}-${i}`}
+                      type="button"
+                      onClick={() => setMediaIndex(i)}
+                      className={`h-1.5 rounded-full transition-all ${
+                        i === safeMediaIndex ? "w-5 bg-accent" : "w-1.5 bg-white/40"
+                      }`}
+                      aria-label={`Média ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -186,13 +293,12 @@ export function NewsPopup({ token }: { token?: string }) {
               </div>
               {slide?.promoType === "produit" && slide?.productName && (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  {slide.promoValue}× {slide.productName} offert{(slide.promoValue ?? 0) > 1 ? "s" : ""} (présent dans le panier).
+                  {slide.promoValue}× {slide.productName} offert{(slide.promoValue ?? 0) > 1 ? "s" : ""} (présent
+                  dans le panier).
                 </p>
               )}
               {!!slide?.minAmount && slide.minAmount > 0 && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Valable dès {slide.minAmount}€ d&apos;achat.
-                </p>
+                <p className="mt-2 text-xs text-muted-foreground">Valable dès {slide.minAmount}€ d&apos;achat.</p>
               )}
               <button
                 type="button"
@@ -223,9 +329,24 @@ export function NewsPopup({ token }: { token?: string }) {
               {slide.buttonText}
             </a>
           )}
+
+          {/* Ne plus afficher cette annonce */}
+          <button
+            type="button"
+            onClick={dismissForever}
+            disabled={dismissing}
+            className="mt-1 flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-secondary/40 py-3 text-sm font-semibold text-muted-foreground transition-colors hover:border-accent hover:text-foreground disabled:opacity-50"
+          >
+            {dismissing ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Check className="h-4 w-4" aria-hidden="true" />
+            )}
+            J&apos;ai compris, ne plus afficher
+          </button>
         </div>
 
-        {/* Navigation carousel */}
+        {/* Navigation carousel slides */}
         {total > 1 && (
           <div className="flex items-center justify-between border-t border-border px-6 py-4">
             <button
