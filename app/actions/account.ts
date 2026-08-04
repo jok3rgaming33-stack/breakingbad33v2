@@ -88,7 +88,8 @@ export async function createAccount(token: string, pseudo: string) {
 // Récupère le compte associé à une clé secrète (connexion d'un client existant).
 // Enregistre la connexion dans login_logs (fire-and-forget).
 export async function getAccount(token: string) {
-  const t = token?.trim()
+  const { normalizeSecretKey } = await import("@/lib/normalize-token")
+  const t = normalizeSecretKey(token)
   if (!t) return null
   const rows = await db.select().from(users).where(eq(users.token, t)).limit(1)
   const account = rows[0] ?? null

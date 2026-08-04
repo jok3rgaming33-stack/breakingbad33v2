@@ -486,6 +486,14 @@ export async function resolveClientLogin(token: string): Promise<
       )
   }
 
+  // Journalise la connexion (même chemin que getAccount)
+  try {
+    const { recordLogin } = await import("@/app/actions/login-logs")
+    recordLogin(t).catch(() => {})
+  } catch {
+    /* ignore */
+  }
+
   return { ok: true, pseudo: user.pseudo, token: t }
 }
 
