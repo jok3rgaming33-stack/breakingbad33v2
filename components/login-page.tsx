@@ -10,6 +10,7 @@ import { TurnstileWidget } from "@/components/turnstile-widget"
 import { HowItWorksModal } from "@/components/how-it-works-modal"
 import { loginWithRestoreToken, setPasswordAfterRestore } from "@/app/actions/restore-access"
 import { submitLostKeyClaim } from "@/app/actions/lost-key"
+import { normalizeSecretKey } from "@/lib/normalize-token"
 import { PASSWORD_RULES } from "@/lib/password-rules"
 import {
   startWebAuthnRegistration,
@@ -32,7 +33,7 @@ const CRYSTAL_COUNT = 4
 export function LoginPage({
   onSuccess,
 }: {
-  onSuccess: (opts?: { openOrders?: boolean; openMessaging?: boolean }) => void
+  onSuccess: (opts?: { openOrders?: boolean; openMessaging?: boolean; openKyc?: boolean }) => void
 }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [showResultModal, setShowResultModal] = useState(false)
@@ -242,9 +243,9 @@ export function LoginPage({
   }
 
   const loginWithKey = async () => {
-    const token = loginInput.trim()
-    if (token.length < 30) {
-      setError("Veuillez entrer votre clé secrète complète.")
+    const token = normalizeSecretKey(loginInput)
+    if (token.length < 20) {
+      setError("Colle ta clé secrète complète (sans espace ni retour à la ligne).")
       return
     }
     if (loggingIn) return
@@ -261,7 +262,7 @@ export function LoginPage({
       // Vérification serveur du token Turnstile AVANT toute action.
       const human = await verifyHuman(loginCaptchaValue)
       if (!human.ok) {
-        setError(human.error ?? "Vérification anti-robot échouée.")
+        setError(human.error ?? "Vérification anti-robot échouée. Réessaie le captcha.")
         setResetLogin((n) => n + 1)
         return
       }
@@ -282,7 +283,10 @@ export function LoginPage({
 
       // Token inconnu ou compte supprimé — on refuse sans recréer.
       if (!resolved.ok) {
-        setError("Clé secrète invalide ou compte inexistant.")
+        setError(
+          ("error" in resolved && resolved.error) ||
+            "Clé secrète invalide ou compte inexistant. Si tu n'as pas changé de clé, utilise « Clé perdue ».",
+        )
         setResetLogin((n) => n + 1)
         return
       }
@@ -295,7 +299,7 @@ export function LoginPage({
       setGeneratedPseudo(pseudo)
       setIsLoggedIn(true)
     } catch {
-      setError("Connexion impossible. Réessaie dans un instant.")
+      setError("Connexion impossible (réseau). Réessaie dans un instant.")
       setResetLogin((n) => n + 1)
     } finally {
       setLoggingIn(false)
@@ -1047,13 +1051,13 @@ export function LoginPage({
               {lostKeySent ? (
                 <div className="flex flex-col items-center gap-4 py-4 text-center">
                   <CheckCircle2 className="h-14 w-14 text-accent" aria-hidden="true" />
-                  <p className="font-semibold text-lg">Compte provisoire créé</p>
+                  <p className="font-semibold text-lg">Dossier ouvert — une étape : identité</p>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    Tu es connecté avec une <strong>clé provisoire</strong>. Tu peux déjà écrire
-                    au chimiste dans la messagerie. Pour récupérer ton vrai compte
-                    {lostKeyPseudo ? ` (${lostKeyPseudo})` : ""}, fais ta{" "}
-                    <strong>vérification d&apos;identité (KYC)</strong> — après validation admin,
-                    commandes, messages et fidélité seront rattachés.
+                    Tu es connecté avec une <strong>clé provisoire</strong>.{" "}
+                    <strong>Fais le KYC maintenant</strong> pour que l&apos;admin valide en direct
+                    le rattachement de {lostKeyPseudo ? `« ${lostKeyPseudo} »` : "ton compte"}.
+                    Tu peux aussi <strong>écrire et recevoir des réponses</strong> dans la messagerie
+                    pendant ce temps.
                   </p>
                   {lostKeyProvisional && (
                     <div className="w-full rounded-2xl border border-border bg-background/60 p-3 text-left">
@@ -1074,35 +1078,38 @@ export function LoginPage({
                       </button>
                     </div>
                   )}
-                  <div className="mt-2 flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
+                  <div className="mt-2 flex w-full flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowLostKey(false)
+                        // KYC immédiat + messagerie dispo via bannière
+                        window.location.href = "/verification?from=recovery"
+                      }}
+                      className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-6 py-3 text-sm font-semibold text-accent-foreground hover:brightness-110"
+                    >
+                      <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                      Faire le KYC maintenant
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
                         setShowLostKey(false)
                         onSuccess({ openMessaging: true })
                       }}
-                      className="rounded-2xl bg-accent px-6 py-2.5 text-sm font-semibold text-accent-foreground hover:brightness-110"
+                      className="w-full rounded-2xl border border-border px-6 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary"
                     >
-                      Ouvrir la messagerie
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowLostKey(false)
-                        onSuccess()
-                      }}
-                      className="rounded-2xl border border-border px-6 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary"
-                    >
-                      Aller à la boutique
+                      Écrire dans la messagerie
                     </button>
                   </div>
                 </div>
               ) : (
                 <>
                   <p className="mb-5 text-sm text-muted-foreground leading-relaxed">
-                    Indique le pseudo du compte à récupérer. On te crée une{" "}
-                    <strong>clé provisoire</strong> tout de suite pour rester en contact
-                    (messagerie). Ensuite : KYC → validation admin → récupération de tes données.
+                    Indique le pseudo du compte à récupérer. On te connecte tout de suite avec une{" "}
+                    <strong>clé provisoire</strong>, tu fais le <strong>KYC</strong> (selfie), et
+                    l&apos;admin valide en direct. Messagerie ouverte dans les deux sens pendant
+                    tout le dossier.
                   </p>
                   <div className="flex flex-col gap-3">
                     <div>

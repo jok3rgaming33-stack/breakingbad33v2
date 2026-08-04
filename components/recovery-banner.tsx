@@ -12,7 +12,7 @@ type Props = {
 
 /**
  * Bannière pour les clients en récupération de compte (clé perdue).
- * Guide vers messagerie + KYC tant que le dossier n'est pas clos.
+ * KYC + messagerie en premier plan (validation admin en direct).
  */
 export function RecoveryBanner({ token, onOpenMessaging }: Props) {
   const [status, setStatus] = useState<{
@@ -46,6 +46,22 @@ export function RecoveryBanner({ token, onOpenMessaging }: Props) {
     }
   }, [token])
 
+  // Auto-renvoi KYC une fois si le client arrive en boutique sans avoir fait le KYC
+  useEffect(() => {
+    if (!status?.active || !status.needsKyc) return
+    if (typeof window === "undefined") return
+    const key = "bb33_recovery_kyc_nudge"
+    if (sessionStorage.getItem(key) === "1") return
+    // Ne pas boucler si déjà sur /verification
+    if (window.location.pathname.startsWith("/verification")) return
+    sessionStorage.setItem(key, "1")
+    // léger délai pour laisser l'UI s'afficher
+    const t = setTimeout(() => {
+      window.location.href = "/verification?from=recovery"
+    }, 900)
+    return () => clearTimeout(t)
+  }, [status])
+
   if (loading || !status?.active) return null
 
   const waitingAdmin = status.status === "kyc_submitted"
@@ -64,10 +80,10 @@ export function RecoveryBanner({ token, onOpenMessaging }: Props) {
             </p>
             <p className="text-xs text-amber-100/80 leading-relaxed">
               {status.needsKyc
-                ? "Tu es sur une clé provisoire. Fais ta vérification d'identité (KYC) pour que l'admin rattache tes commandes, messages et fidélité."
+                ? "Clé provisoire active. Fais le KYC pour validation admin en direct. Tu peux déjà écrire et recevoir des réponses en messagerie."
                 : waitingAdmin
-                  ? "KYC envoyé — en attente de validation admin. Tu peux déjà écrire dans la messagerie."
-                  : "Dossier de récupération en cours. Tu peux écrire dans la messagerie."}
+                  ? "KYC envoyé — l'admin peut valider maintenant. Messagerie ouverte dans les deux sens."
+                  : "Dossier en cours. Messagerie ouverte."}
             </p>
           </div>
         </div>
@@ -84,7 +100,7 @@ export function RecoveryBanner({ token, onOpenMessaging }: Props) {
           )}
           {status.needsKyc && (
             <Link
-              href="/verification"
+              href="/verification?from=recovery"
               className="inline-flex items-center gap-1.5 rounded-xl bg-amber-400 px-3 py-2 text-xs font-semibold text-black hover:brightness-110"
             >
               <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />

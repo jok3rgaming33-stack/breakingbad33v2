@@ -394,13 +394,15 @@ export async function repairWhitelistMember(
  * Connexion client : résout le compte à partir de la clé (users OU whitelist)
  * et rattache les conversations au bon pseudo.
  */
-export async function resolveClientLogin(token: string): Promise<{
-  ok: true
-  pseudo: string
-  token: string
-} | { ok: false }> {
-  const t = token?.trim()
-  if (!t || t.length < 20) return { ok: false }
+export async function resolveClientLogin(token: string): Promise<
+  | { ok: true; pseudo: string; token: string }
+  | { ok: false; error?: string; code?: "invalid" | "banned" | "short" }
+> {
+  const { normalizeSecretKey } = await import("@/lib/normalize-token")
+  const t = normalizeSecretKey(token)
+  if (!t || t.length < 20) {
+    return { ok: false, code: "short", error: "Clé trop courte. Colle la clé secrète complète." }
+  }
 
   // 1) Compte users classique
   let userRows = await db.select().from(users).where(eq(users.token, t)).limit(1)
@@ -436,11 +438,27 @@ export async function resolveClientLogin(token: string): Promise<{
     }
   }
 
-  if (!user) return { ok: false }
+  if (!user) {
+    return {
+      ok: false,
+      code: "invalid",
+      error:
+        "Clé introuvable. Vérifie qu'elle est complète (copier-coller sans espace). Si tu as perdu ta clé, utilise « Clé perdue ».",
+    }
+  }
+
+  const flags = Array.isArray(user.flags) ? user.flags : []
+  if (flags.includes("banni") || flags.includes("lost_key_rejected")) {
+    return {
+      ok: false,
+      code: "banned",
+      error: "Ce compte est suspendu. Contacte le support via « Clé perdue » si besoin.",
+    }
+  }
 
   // Whitelist : imposer le pseudo staff et réparer les fils
   if (staff?.pseudo) {
-    if (user.pseudo !== staff.pseudo || (Array.isArray(user.flags) && user.flags.length > 0)) {
+    if (user.pseudo !== staff.pseudo || flags.length > 0) {
       await db
         .update(users)
         .set({ pseudo: staff.pseudo, flags: [] })

@@ -161,14 +161,15 @@ export async function submitLostKeyClaim(input: {
     body: msgBody,
   })
 
-  // Message auto vendeur pour guider le client
+  // Message auto vendeur : KYC immédiat + messagerie 2 sens
   await db.insert(threadMessages).values({
     threadId: thread.id,
     sender: "vendeur",
     body:
-      `Bien reçu. Tu es connecté avec une clé provisoire — tu peux me répondre ici.\n\n` +
-      `Pour récupérer ton vrai compte (${claimedPseudo}), fais ta vérification d'identité (KYC) depuis le site.\n` +
-      `Dès validation, tes commandes, messages et fidélité seront rattachés et cette clé provisoire deviendra ta clé définitive.`,
+      `Bien reçu pour « ${claimedPseudo} ».\n\n` +
+      `1) Fais ton KYC maintenant (selfie + courte vidéo) — le vendeur valide en direct.\n` +
+      `2) Écris-moi ici pour toute question : je peux te répondre tout de suite.\n\n` +
+      `Après validation, commandes, messages et fidélité sont rattachés ; cette clé provisoire devient ta clé définitive.`,
   })
 
   const [claim] = await db
