@@ -130,7 +130,7 @@ export function AdminRecovery() {
         <div>
           <h2 className="text-lg font-bold">Récupérations de compte</h2>
           <p className="text-xs text-muted-foreground">
-            Clé perdue → compte provisoire + messagerie → KYC → validation = fusion des données.
+            Flux court : clé provisoire + messagerie 2 sens + KYC immédiat → tu valides / fusionnes en direct.
           </p>
         </div>
       </div>
@@ -235,6 +235,21 @@ export function AdminRecovery() {
               )}
 
               <div className="flex flex-wrap gap-2">
+                {claim.threadId != null && (
+                  <a
+                    href="/admin"
+                    onClick={(e) => {
+                      // bascule vers messagerie admin : stocke le thread à ouvrir
+                      try {
+                        sessionStorage.setItem("bb33_admin_open_thread", String(claim.threadId))
+                        sessionStorage.setItem("bb33_admin_tab", "messagerie")
+                      } catch { /* ignore */ }
+                    }}
+                    className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold hover:bg-secondary"
+                  >
+                    Répondre au client
+                  </a>
+                )}
                 <button
                   type="button"
                   disabled={busyId === claim.id}
@@ -246,7 +261,7 @@ export function AdminRecovery() {
                   ) : (
                     <Check className="h-4 w-4" />
                   )}
-                  Valider & fusionner le compte
+                  Valider & fusionner
                 </button>
                 <button
                   type="button"

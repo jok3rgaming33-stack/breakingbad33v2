@@ -66,6 +66,20 @@ export function VendorInbox({
 
   const selected = threads.find((t) => t.id === selectedId) ?? null
 
+  // Ouvre un fil ciblé (ex. depuis onglet Récupérations)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("bb33_admin_open_thread")
+      if (!raw) return
+      const id = Number(raw)
+      sessionStorage.removeItem("bb33_admin_open_thread")
+      if (!Number.isFinite(id) || id <= 0) return
+      setSelectedId(id)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
   // Ouvre le panneau et pré-charge les articles existants de la commande
   const openProductsPanel = useCallback(async () => {
     if (!selected) return

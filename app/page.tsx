@@ -178,7 +178,7 @@ export default function Home() {
     }
   }, [])
 
-  const handleLoginSuccess = (opts?: { openOrders?: boolean; openMessaging?: boolean }) => {
+  const handleLoginSuccess = (opts?: { openOrders?: boolean; openMessaging?: boolean; openKyc?: boolean }) => {
     setIsAuthenticated(true)
     const pseudo = localStorage.getItem("userPseudo") ?? undefined
     const token = localStorage.getItem("authToken") ?? undefined
@@ -186,7 +186,24 @@ export default function Home() {
     setIsAdmin(localStorage.getItem("isAdmin") === "1")
     if (opts?.openOrders) setIsOrdersOpen(true)
     if (opts?.openMessaging) setIsMessagingOpen(true)
+    if (opts?.openKyc) {
+      window.location.href = "/verification?from=recovery"
+    }
   }
+
+  // Deep-link messagerie après KYC récupération (?open=messaging)
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("open") !== "messaging") return
+    window.history.replaceState({}, "", window.location.pathname)
+    const token = localStorage.getItem("authToken")
+    const pseudo = localStorage.getItem("userPseudo")
+    if (!token || !pseudo) return
+    setIsAuthenticated(true)
+    setUserData({ token, pseudo })
+    setIsMessagingOpen(true)
+  }, [])
 
   const handleLogout = () => {
     setIsAuthenticated(false)

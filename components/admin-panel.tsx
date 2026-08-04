@@ -115,6 +115,19 @@ export function AdminPanel({
     }
   }, [refreshBadges])
 
+  // Deep-link depuis Récupérations → onglet messagerie
+  useEffect(() => {
+    try {
+      const t = sessionStorage.getItem("bb33_admin_tab") as TabId | null
+      if (t && TABS.some((x) => x.id === t)) {
+        setTab(t)
+        sessionStorage.removeItem("bb33_admin_tab")
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
   // Pastille rouge par onglet
   const tabBadge = (id: TabId): number => {
     switch (id) {
