@@ -26,7 +26,7 @@ export function AdminNotifications({ initialHistory, users }: Props) {
   // --- Formulaire ---
   const [title, setTitle] = useState("")
   const [body, setBody] = useState("")
-  const [imageUrl, setImageUrl] = useState("")
+  const [media, setMedia] = useState<{ type: "image" | "video"; url: string }[]>([])
   const [recipientMode, setRecipientMode] = useState<RecipientMode>("all")
   const [selectedTokens, setSelectedTokens] = useState<Set<string>>(new Set())
   const [searchUser, setSearchUser] = useState("")
@@ -62,13 +62,23 @@ export function AdminNotifications({ initialHistory, users }: Props) {
   }, [expandedId, reads])
 
   const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = e.target.files
+    if (!files?.length) return
     setUploading(true)
     setUploadErr("")
+    const added: { type: "image" | "video"; url: string }[] = []
     try {
-      const media = await uploadMedia(file)
-      setImageUrl(media.url)
+      for (const file of Array.from(files)) {
+        const isImage = file.type.startsWith("image/")
+        const isVideo = file.type.startsWith("video/")
+        if (!isImage && !isVideo) {
+          setUploadErr("Formats acceptés : images et vidéos.")
+          continue
+        }
+        const item = await uploadMedia(file)
+        added.push({ url: item.url, type: item.type })
+      }
+      if (added.length) setMedia((prev) => [...prev, ...added])
     } catch (err: unknown) {
       setUploadErr(err instanceof Error ? err.message : "Erreur upload.")
     } finally {
@@ -105,8 +115,10 @@ export function AdminNotifications({ initialHistory, users }: Props) {
       const recipients: "all" | string[] =
         recipientMode === "all" ? "all" : Array.from(selectedTokens)
       const res = await sendBroadcastNotification({
-        title: t, body: b,
-        imageUrl: imageUrl || undefined,
+        title: t,
+        body: b,
+        media,
+        imageUrl: media.find((m) => m.type === "image")?.url,
         recipients,
         // Permet à l'action serveur de construire une URL proxy absolue pour le payload push
         appOrigin: window.location.origin,
@@ -115,8 +127,10 @@ export function AdminNotifications({ initialHistory, users }: Props) {
       setSent(res.sentCount)
       const newEntry = {
         id: Date.now(),
-        title: t, body: b,
-        imageUrl: imageUrl || null,
+        title: t,
+        body: b,
+        imageUrl: media.find((m) => m.type === "image")?.url ?? null,
+        media,
         recipients: recipientMode === "all" ? "all" : JSON.stringify(Array.from(selectedTokens)),
         sentCount: res.sentCount,
         createdAt: new Date(),
@@ -124,7 +138,7 @@ export function AdminNotifications({ initialHistory, users }: Props) {
       setHistory(prev => [newEntry, ...prev])
       setTitle("")
       setBody("")
-      setImageUrl("")
+      setMedia([])
       setSelectedTokens(new Set())
       setRecipientMode("all")
     } finally {
@@ -230,44 +244,66 @@ export function AdminNotifications({ initialHistory, users }: Props) {
               />
             </div>
 
-            {/* Image */}
+            {/* Pièces jointes multi images/vidéos */}
             <div>
               <p className="mb-1.5 text-sm font-medium text-foreground">
-                Image <span className="text-muted-foreground text-xs">(optionnel)</span>
+                Pièces jointes{" "}
+                <span className="text-muted-foreground text-xs">(images et/ou vidéos, plusieurs possibles)</span>
               </p>
-              {imageUrl ? (
-                <div className="relative w-full overflow-hidden rounded-xl border border-border bg-secondary/40">
-                  <BlobMedia
-                    src={imageUrl}
-                    alt="Apercu de la piece jointe"
-                    className="max-h-64 w-full object-contain"
-                    videoProps={{
-                      controls: true,
-                      muted: true,
-                      playsInline: true,
-                      preload: "metadata",
-                      style: { maxHeight: "256px", width: "100%", objectFit: "contain" },
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setImageUrl("")}
-                    className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-foreground shadow backdrop-blur transition-colors hover:bg-background"
-                    aria-label="Supprimer l'image"
-                  >
-                    <X className="h-4 w-4" aria-hidden="true" />
-                  </button>
+              {media.length > 0 && (
+                <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {media.map((m) => (
+                    <div
+                      key={m.url}
+                      className="relative overflow-hidden rounded-xl border border-border bg-secondary/40"
+                    >
+                      <BlobMedia
+                        src={m.url}
+                        alt="Apercu piece jointe"
+                        mediaType={m.type}
+                        className="max-h-40 w-full object-contain"
+                        videoProps={{
+                          controls: true,
+                          muted: true,
+                          playsInline: true,
+                          preload: "metadata",
+                          style: { maxHeight: "160px", width: "100%", objectFit: "contain" },
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setMedia((prev) => prev.filter((x) => x.url !== m.url))}
+                        className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-foreground shadow backdrop-blur transition-colors hover:bg-background"
+                        aria-label="Supprimer cette piece jointe"
+                      >
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <span className="absolute bottom-1 left-1 rounded bg-background/80 px-1.5 py-0.5 text-[9px] font-bold uppercase text-muted-foreground">
+                        {m.type === "video" ? "Vidéo" : "Image"}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ) : (
-                <label className={`flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-border bg-background px-4 py-3 text-sm text-muted-foreground transition-colors hover:border-accent hover:text-accent ${uploading ? "pointer-events-none opacity-50" : ""}`}>
-                  {uploading
-                    ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                    : <Upload className="h-4 w-4" aria-hidden="true" />
-                  }
-                  {uploading ? "Upload en cours..." : "Uploader une image"}
-                  <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
-                </label>
               )}
+              <label
+                className={`flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-border bg-background px-4 py-3 text-sm text-muted-foreground transition-colors hover:border-accent hover:text-accent ${
+                  uploading ? "pointer-events-none opacity-50" : ""
+                }`}
+              >
+                {uploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Upload className="h-4 w-4" aria-hidden="true" />
+                )}
+                {uploading ? "Upload en cours..." : "Ajouter image(s) / vidéo(s)"}
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleUpload}
+                />
+              </label>
               {uploadErr && <p className="mt-1.5 text-xs text-destructive">{uploadErr}</p>}
             </div>
 
@@ -465,14 +501,34 @@ export function AdminNotifications({ initialHistory, users }: Props) {
                           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Message</p>
                           <p className="text-sm text-foreground whitespace-pre-wrap">{n.body}</p>
                         </div>
-                        {n.imageUrl && (
+                        {((n.media && n.media.length > 0) || n.imageUrl) && (
                           <div className="space-y-1">
-                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Image</p>
-                            <BlobMedia
-                              src={n.imageUrl}
-                              alt="Image notification"
-                              className="max-h-48 w-full rounded-lg border border-border object-contain bg-secondary/40"
-                            />
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                              Pièces jointes
+                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                              {(n.media && n.media.length > 0
+                                ? n.media
+                                : n.imageUrl
+                                  ? [{ type: "image" as const, url: n.imageUrl }]
+                                  : []
+                              ).map((m) => (
+                                <BlobMedia
+                                  key={m.url}
+                                  src={m.url}
+                                  alt="Piece jointe notification"
+                                  mediaType={m.type}
+                                  className="max-h-40 w-full rounded-lg border border-border object-contain bg-secondary/40"
+                                  videoProps={{
+                                    controls: true,
+                                    muted: true,
+                                    playsInline: true,
+                                    preload: "metadata",
+                                    style: { maxHeight: "160px", width: "100%", objectFit: "contain" },
+                                  }}
+                                />
+                              ))}
+                            </div>
                           </div>
                         )}
                         {/* Tableau lu / non-lu par membre */}

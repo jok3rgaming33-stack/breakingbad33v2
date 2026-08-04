@@ -3,7 +3,7 @@
 import { useState, useEffect, type MouseEvent } from "react"
 import useSWR from "swr"
 import { useCart } from "@/components/cart-provider"
-import { FlaskConical, Sparkles, X as CloseIcon, BellRing, BellPlus } from "lucide-react"
+import { FlaskConical, Sparkles, X as CloseIcon, BellRing, BellPlus, ChevronLeft, ChevronRight } from "lucide-react"
 import { ProductBadges } from "@/components/product-badge"
 import {
   resolveBadges,
@@ -72,6 +72,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
 
   const [selected, setSelected] = useState<Product | null>(null)
   const [variantIdx, setVariantIdx] = useState(0)
+  const [mediaIdx, setMediaIdx] = useState(0)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
   const [alerted, setAlerted] = useState<Record<number, boolean>>({})
@@ -92,6 +93,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
   const openModal = (product: Product, startVariant = 0) => {
     setSelected(product)
     setVariantIdx(startVariant)
+    setMediaIdx(0)
     setIsModalOpen(true)
     setIsAnimating(true)
   }
@@ -326,17 +328,93 @@ export function ProductSection({ config }: { config: SectionConfig }) {
               <CloseIcon className="h-6 w-6" />
             </button>
 
-            <div className="relative z-20 flex w-full items-center justify-center bg-[#050505]/50 p-6 md:w-1/2 md:p-12">
-              <div className="relative h-40 w-40 md:h-64 md:w-64">
-                {selected.image && (
-                  <BlobMedia
-                    src={selected.image}
-                    alt={selected.title}
-                    mediaType={getMediaType(selected.image, selected.media)}
-                    className="h-full w-full object-contain"
-                  />
-                )}
-              </div>
+            <div className="relative z-20 flex w-full flex-col items-center justify-center gap-3 bg-[#050505]/50 p-6 md:w-1/2 md:p-12">
+              {(() => {
+                // Galerie : tous les médias + image principale si absente de media.
+                const gallery: { url: string; type?: "image" | "video" }[] = []
+                const seen = new Set<string>()
+                const pushUrl = (url: string | null | undefined, type?: "image" | "video") => {
+                  if (!url || seen.has(url)) return
+                  seen.add(url)
+                  gallery.push({ url, type: type ?? getMediaType(url, selected.media) })
+                }
+                for (const m of selected.media ?? []) pushUrl(m.url, m.type)
+                pushUrl(selected.image)
+                if (gallery.length === 0) return (
+                  <div className="flex h-40 w-40 items-center justify-center text-zinc-700 md:h-64 md:w-64">
+                    <FlaskConical className="h-12 w-12" />
+                  </div>
+                )
+                const idx = Math.min(mediaIdx, gallery.length - 1)
+                const current = gallery[idx]
+                return (
+                  <>
+                    <div className="relative flex h-40 w-full max-w-xs items-center justify-center md:h-64">
+                      <BlobMedia
+                        src={current.url}
+                        alt={selected.title}
+                        mediaType={current.type}
+                        className="max-h-full max-w-full object-contain"
+                        videoProps={{
+                          controls: true,
+                          muted: true,
+                          playsInline: true,
+                          preload: "metadata",
+                          style: { maxHeight: "100%", maxWidth: "100%", objectFit: "contain" },
+                        }}
+                      />
+                      {gallery.length > 1 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setMediaIdx((i) => (i - 1 + gallery.length) % gallery.length)}
+                            className="absolute left-0 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white"
+                            aria-label="Média précédent"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMediaIdx((i) => (i + 1) % gallery.length)}
+                            className="absolute right-0 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white"
+                            aria-label="Média suivant"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {gallery.length > 1 && (
+                      <div className="flex max-w-xs flex-wrap justify-center gap-1.5">
+                        {gallery.map((g, i) => (
+                          <button
+                            key={g.url}
+                            type="button"
+                            onClick={() => setMediaIdx(i)}
+                            className={`h-10 w-10 overflow-hidden rounded-lg border transition-colors ${
+                              i === idx ? "border-accent" : "border-white/10 opacity-70 hover:opacity-100"
+                            }`}
+                            aria-label={`Voir média ${i + 1}`}
+                          >
+                            <BlobMedia
+                              src={g.url}
+                              alt=""
+                              mediaType={g.type}
+                              className="h-full w-full object-cover"
+                              videoProps={{
+                                muted: true,
+                                playsInline: true,
+                                preload: "metadata",
+                                style: { height: "100%", width: "100%", objectFit: "cover" },
+                              }}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </div>
 
             <div className="relative z-20 flex w-full flex-col justify-center overflow-y-auto p-8 pb-safe md:w-1/2 md:p-12">

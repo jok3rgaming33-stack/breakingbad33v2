@@ -44,6 +44,8 @@ type NewsRow = {
   slideCount: number
 }
 
+type MediaItem = { type: "image" | "video"; url: string }
+
 type Slide = {
   id: number
   newsId: number
@@ -51,6 +53,7 @@ type Slide = {
   title: string | null
   content: string | null
   imageUrl: string | null
+  media: MediaItem[]
   buttonText: string | null
   buttonLink: string | null
   promoCode: string | null
@@ -59,6 +62,32 @@ type Slide = {
   productName: string | null
   minAmount: number | null
   isSingleUse: boolean
+}
+
+function normalizeSlide(s: Partial<Slide> & { id: number; newsId: number }): Slide {
+  const media =
+    Array.isArray(s.media) && s.media.length > 0
+      ? s.media
+      : s.imageUrl
+        ? [{ type: (/\.(mp4|mov|m4v|webm)(\?|$)/i.test(s.imageUrl) ? "video" : "image") as "image" | "video", url: s.imageUrl }]
+        : []
+  return {
+    id: s.id,
+    newsId: s.newsId,
+    order: s.order ?? 0,
+    title: s.title ?? null,
+    content: s.content ?? null,
+    imageUrl: media[0]?.url ?? s.imageUrl ?? null,
+    media,
+    buttonText: s.buttonText ?? null,
+    buttonLink: s.buttonLink ?? null,
+    promoCode: s.promoCode ?? null,
+    promoType: s.promoType ?? null,
+    promoValue: s.promoValue ?? null,
+    productName: s.productName ?? null,
+    minAmount: s.minAmount ?? null,
+    isSingleUse: s.isSingleUse ?? true,
+  }
 }
 
 export function AdminNews() {
@@ -95,7 +124,7 @@ export function AdminNews() {
       const data = await getNewsWithSlides(id)
       if (data) {
         setTitle(data.news.title)
-        setSlides(data.slides as Slide[])
+        setSlides(data.slides.map((s) => normalizeSlide(s as Slide)))
       }
     } finally {
       setLoadingDetail(false)
@@ -162,7 +191,8 @@ export function AdminNews() {
         order: i,
         title: s.title,
         content: s.content,
-        imageUrl: s.imageUrl,
+        imageUrl: s.media[0]?.url ?? s.imageUrl,
+        media: s.media,
         buttonText: s.buttonText,
         buttonLink: s.buttonLink,
         promoCode: s.promoCode,
@@ -175,7 +205,7 @@ export function AdminNews() {
       await upsertSlide(selectedId, input)
     }
     const data = await getNewsWithSlides(selectedId)
-    if (data) setSlides(data.slides as Slide[])
+    if (data) setSlides(data.slides.map((s) => normalizeSlide(s as Slide)))
   }
 
   const handlePublish = async () => {
@@ -204,6 +234,7 @@ export function AdminNews() {
         title: "",
         content: "",
         imageUrl: "",
+        media: [],
         buttonText: "",
         buttonLink: "",
         promoCode: "",
@@ -220,23 +251,47 @@ export function AdminNews() {
     setSlides(prev => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)))
   }
 
-  const handleImageUpload = async (idx: number, file: File) => {
-    const isImage = file.type.startsWith("image/")
-    const isVideo = file.type.startsWith("video/")
-    if (!isImage && !isVideo) {
-      setUploadError("Veuillez sélectionner une image ou une vidéo.")
-      return
-    }
+  const handleMediaUpload = async (idx: number, files: FileList | File[]) => {
+    const list = Array.from(files)
+    if (!list.length) return
     setUploadError(null)
     setUploadingIdx(idx)
+    const added: MediaItem[] = []
     try {
-      const { url } = await uploadMedia(file)
-      updateSlideField(idx, { imageUrl: url })
+      for (const file of list) {
+        const isImage = file.type.startsWith("image/")
+        const isVideo = file.type.startsWith("video/")
+        if (!isImage && !isVideo) {
+          setUploadError("Formats acceptés : images et vidéos.")
+          continue
+        }
+        const { url, type } = await uploadMedia(file)
+        added.push({ url, type })
+      }
+      if (added.length) {
+        setSlides((prev) =>
+          prev.map((s, i) => {
+            if (i !== idx) return s
+            const media = [...s.media, ...added]
+            return { ...s, media, imageUrl: media[0]?.url ?? s.imageUrl }
+          }),
+        )
+      }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Echec de l'envoi.")
     } finally {
       setUploadingIdx(null)
     }
+  }
+
+  const removeSlideMedia = (idx: number, url: string) => {
+    setSlides((prev) =>
+      prev.map((s, i) => {
+        if (i !== idx) return s
+        const media = s.media.filter((m) => m.url !== url)
+        return { ...s, media, imageUrl: media[0]?.url ?? "" }
+      }),
+    )
   }
 
   const saveSlide = async (idx: number) => {
@@ -249,7 +304,8 @@ export function AdminNews() {
         order: idx,
         title: s.title,
         content: s.content,
-        imageUrl: s.imageUrl,
+        imageUrl: s.media[0]?.url ?? s.imageUrl,
+        media: s.media,
         buttonText: s.buttonText,
         buttonLink: s.buttonLink,
         promoCode: s.promoCode,
@@ -261,7 +317,7 @@ export function AdminNews() {
       }
       await upsertSlide(selectedId, input)
       const data = await getNewsWithSlides(selectedId)
-      if (data) setSlides(data.slides as Slide[])
+      if (data) setSlides(data.slides.map((sl) => normalizeSlide(sl as Slide)))
       await refreshList()
     } finally {
       setBusy(false)
@@ -276,7 +332,7 @@ export function AdminNews() {
         await deleteSlide(s.id)
         if (selectedId) {
           const data = await getNewsWithSlides(selectedId)
-          if (data) setSlides(data.slides as Slide[])
+          if (data) setSlides(data.slides.map((sl) => normalizeSlide(sl as Slide)))
         }
         await refreshList()
       } finally {
@@ -511,27 +567,47 @@ export function AdminNews() {
                   className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                 />
 
-                {/* Upload image/video */}
+                {/* Upload multi images/videos */}
                 <div className="flex flex-col gap-2">
-                  {s.imageUrl ? (
-                    <div className="relative overflow-hidden rounded-xl border border-border bg-secondary/40 flex items-center justify-center">
-                      <BlobMedia
-                        src={s.imageUrl}
-                        alt="Apercu du slide"
-                        className="max-h-40 w-full object-contain"
-                        videoProps={{ muted: true, playsInline: true, preload: "metadata", controls: true, style: { maxHeight: "160px", width: "100%", objectFit: "contain" } }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => updateSlideField(idx, { imageUrl: "" })}
-                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
-                        aria-label="Retirer le media"
-                      >
-                        <X className="h-4 w-4" aria-hidden="true" />
-                      </button>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Pièces jointes (images / vidéos, plusieurs possibles)
+                  </p>
+                  {s.media.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {s.media.map((m) => (
+                        <div
+                          key={m.url}
+                          className="relative overflow-hidden rounded-xl border border-border bg-secondary/40"
+                        >
+                          <BlobMedia
+                            src={m.url}
+                            alt="Apercu piece jointe"
+                            mediaType={m.type}
+                            className="max-h-28 w-full object-contain"
+                            videoProps={{
+                              muted: true,
+                              playsInline: true,
+                              preload: "metadata",
+                              controls: true,
+                              style: { maxHeight: "112px", width: "100%", objectFit: "contain" },
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeSlideMedia(idx, m.url)}
+                            className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+                            aria-label="Retirer ce media"
+                          >
+                            <X className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                          <span className="absolute bottom-1 left-1 rounded bg-background/80 px-1.5 py-0.5 text-[9px] font-bold uppercase text-muted-foreground">
+                            {m.type === "video" ? "Vidéo" : "Image"}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ) : null}
-                  <div className="flex items-center gap-2">
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
                     <label
                       className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2.5 text-sm font-medium transition-colors hover:border-accent ${
                         uploadingIdx === idx ? "pointer-events-none opacity-60" : ""
@@ -542,25 +618,40 @@ export function AdminNews() {
                       ) : (
                         <Upload className="h-4 w-4" aria-hidden="true" />
                       )}
-                      {uploadingIdx === idx ? "Upload..." : "Image / Video"}
+                      {uploadingIdx === idx ? "Upload..." : "Ajouter image(s) / vidéo(s)"}
                       <input
                         type="file"
                         accept="image/*,video/*"
+                        multiple
                         className="hidden"
                         onChange={e => {
-                          const f = e.target.files?.[0]
-                          if (f) handleImageUpload(idx, f)
+                          if (e.target.files?.length) handleMediaUpload(idx, e.target.files)
                           e.target.value = ""
                         }}
                       />
                     </label>
-                    <div className="flex w-full items-center gap-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
                       <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                       <input
-                        value={s.imageUrl ?? ""}
-                        onChange={e => updateSlideField(idx, { imageUrl: e.target.value })}
-                        placeholder="ou colle une URL"
+                        placeholder="ou colle une URL puis Entrée"
                         className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") return
+                          e.preventDefault()
+                          const input = e.currentTarget
+                          const url = input.value.trim()
+                          if (!url) return
+                          const type = (/\.(mp4|mov|m4v|webm)(\?|$)/i.test(url) ? "video" : "image") as "image" | "video"
+                          setSlides((prev) =>
+                            prev.map((sl, i) => {
+                              if (i !== idx) return sl
+                              if (sl.media.some((m) => m.url === url)) return sl
+                              const media = [...sl.media, { type, url }]
+                              return { ...sl, media, imageUrl: media[0]?.url ?? sl.imageUrl }
+                            }),
+                          )
+                          input.value = ""
+                        }}
                       />
                     </div>
                   </div>

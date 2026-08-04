@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, doublePrecision, timestamp, boolean, jsonb } from "drizzle-orm/pg-core"
+import { pgTable, serial, text, integer, doublePrecision, timestamp, boolean, jsonb, uniqueIndex } from "drizzle-orm/pg-core"
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -73,8 +73,10 @@ export type WebauthnCredential = typeof webauthnCredentials.$inferSelect
 // Variante de prix d'un produit (quantité -> prix).
 export type ProductVariant = { qty: number; price: number }
 
-// Média additionnel d'un produit (image ou vidéo importée).
-export type ProductMedia = { type: "image" | "video"; url: string }
+// Média (image ou vidéo) réutilisé pour produits, news et notifications.
+export type MediaAttachment = { type: "image" | "video"; url: string }
+// Alias historique — les produits stockent le même format.
+export type ProductMedia = MediaAttachment
 
 // Produits de la boutique, éditables depuis le panel admin.
 // section = clé de catégorie (voir table categories).
@@ -227,6 +229,7 @@ export const news = pgTable("news", {
 
 // Slides d'une news. promoType = 'percent' | 'fixed' (€) | 'produit' (nb d'unités offertes).
 // promoValue = valeur ; productName = produit offert (type 'produit').
+// media = pièces jointes multiples (images/vidéos) ; imageUrl conservé pour rétrocompat (1er média).
 export const newsSlides = pgTable("news_slides", {
   id: serial("id").primaryKey(),
   newsId: integer("news_id").notNull(),
@@ -234,6 +237,7 @@ export const newsSlides = pgTable("news_slides", {
   title: text("title"),
   content: text("content"),
   imageUrl: text("image_url"),
+  media: jsonb("media").$type<MediaAttachment[]>().notNull().default([]),
   buttonText: text("button_text"),
   buttonLink: text("button_link"),
   promoCode: text("promo_code"),
@@ -254,12 +258,17 @@ export const promoUsages = pgTable("promo_usages", {
 })
 
 // Trace les news déjà vues par un client (pour ne pas réafficher le popup).
-export const userNewsReads = pgTable("user_news_reads", {
-  id: serial("id").primaryKey(),
-  userToken: text("user_token").notNull(),
-  newsId: integer("news_id").notNull(),
-  readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
-})
+// Unique (userToken, newsId) pour onConflictDoNothing et filtre « ne plus afficher ».
+export const userNewsReads = pgTable(
+  "user_news_reads",
+  {
+    id: serial("id").primaryKey(),
+    userToken: text("user_token").notNull(),
+    newsId: integer("news_id").notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("user_news_reads_user_token_news_id_idx").on(t.userToken, t.newsId)],
+)
 
 export type News = typeof news.$inferSelect
 export type NewsSlide = typeof newsSlides.$inferSelect
@@ -334,11 +343,13 @@ export const loginLogs = pgTable("login_logs", {
 export type LoginLog = typeof loginLogs.$inferSelect
 
 // Notifications broadcast envoyées par l'admin dans la messagerie de chaque destinataire.
+// media = pièces jointes multiples ; imageUrl = 1er média image (payload push OS).
 export const broadcastNotifications = pgTable("broadcast_notifications", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   body: text("body").notNull(),
   imageUrl: text("image_url"),
+  media: jsonb("media").$type<MediaAttachment[]>().notNull().default([]),
   // 'all' | JSON array of customer tokens
   recipients: text("recipients").notNull().default("all"),
   sentCount: integer("sent_count").notNull().default(0),
