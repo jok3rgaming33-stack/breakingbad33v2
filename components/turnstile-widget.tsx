@@ -75,11 +75,13 @@ export function TurnstileWidget({
           onVerifyRef.current(token)
         },
         "expired-callback": () => onVerifyRef.current(""),
-        "error-callback": () => fail(),
-        // Déclenché nativement par Cloudflare quand le widget dépasse son propre délai
-        // (domaine non autorisé, réseau coupé, etc.) — évite d'attendre les 5s de notre timeout.
-        "timeout-callback": () => fail(),
-        "unsupported-callback": () => fail(),
+        // Retourner `true` depuis error-callback STOP les retentatives automatiques
+        // de Cloudflare (comportement par défaut sans return = retry infini).
+        // Sans ça, l'erreur 110200 (sitekey invalide/domaine non autorisé) boucle
+        // indéfiniment et settled reste false — le bouton ne se déverrouille jamais.
+        "error-callback": (_code?: string) => { fail(); return true },
+        "timeout-callback": () => { fail(); return true },
+        "unsupported-callback": () => { fail(); return true },
       })
     }
 
@@ -98,8 +100,8 @@ export function TurnstileWidget({
       }
     }
 
-    // Filet de sécurité : 5 s sans résultat = widget indisponible.
-    const timeout = window.setTimeout(fail, 5000)
+    // Filet de sécurité : 2 s sans résultat = widget indisponible.
+    const timeout = window.setTimeout(fail, 2000)
 
     return () => {
       window.clearTimeout(timeout)
