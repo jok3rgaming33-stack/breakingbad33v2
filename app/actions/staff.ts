@@ -536,7 +536,10 @@ export async function completeStaffOnboarding(_input: {
   pseudo: string
   password: string
   confirmPassword: string
-}): Promise<{ ok: false; error: string }> {
+}): Promise<
+  | { ok: false; error: string }
+  | { ok: true; canAdmin: boolean; customerToken: string | null }
+> {
   return {
     ok: false,
     error: "Invitations staff désactivées. Connexion via clé secrète whitelist.",
