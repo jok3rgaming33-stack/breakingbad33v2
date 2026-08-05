@@ -76,6 +76,10 @@ export function TurnstileWidget({
         },
         "expired-callback": () => onVerifyRef.current(""),
         "error-callback": () => fail(),
+        // Déclenché nativement par Cloudflare quand le widget dépasse son propre délai
+        // (domaine non autorisé, réseau coupé, etc.) — évite d'attendre les 5s de notre timeout.
+        "timeout-callback": () => fail(),
+        "unsupported-callback": () => fail(),
       })
     }
 
@@ -94,8 +98,8 @@ export function TurnstileWidget({
       }
     }
 
-    // Filet de sécurité : 8 s sans résultat = widget indisponible.
-    const timeout = window.setTimeout(fail, 8000)
+    // Filet de sécurité : 5 s sans résultat = widget indisponible.
+    const timeout = window.setTimeout(fail, 5000)
 
     return () => {
       window.clearTimeout(timeout)
