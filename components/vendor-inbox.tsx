@@ -2,7 +2,8 @@
 
 import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import type { OrderThread, ThreadMessage, Product } from "@/lib/db/schema"
-import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, confirmDeposit, updateOrderProducts, deleteMessage } from "@/app/actions/messaging"
+import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, sendWiroPayment, confirmDeposit, updateOrderProducts, deleteMessage } from "@/app/actions/messaging"
+import { getWiroConfig } from "@/app/actions/settings"
 import type { OrderProductItem } from "@/app/actions/messaging"
 import { listProducts } from "@/app/actions/products"
 import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock } from "lucide-react"
@@ -46,6 +47,10 @@ export function VendorInbox({
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
   const [xmrWalletInput, setXmrWalletInput] = useState("")
   const [xmrSending, setXmrSending] = useState(false)
+  const [wiroModalOpen, setWiroModalOpen] = useState(false)
+  const [wiroIdInput, setWiroIdInput] = useState("")
+  const [wiroSending, setWiroSending] = useState(false)
+  const [wiroError, setWiroError] = useState<string | null>(null)
   // Suppression d'un message
   const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<number | null>(null)
   const [deletingMsgId, setDeletingMsgId] = useState<number | null>(null)
@@ -356,11 +361,21 @@ export function VendorInbox({
       setColissimoOpen(true)
       return
     }
-    // Le passage en "validee" pour une commande locker ouvre la modale wallet XMR.
+    // Locker validée → modal paiement selon méthode (XMR wallet ou Wero)
     const currentThread = threads.find((t) => t.id === selectedId)
     if (status === "validee" && currentThread?.fulfillment === "locker") {
-      setXmrWalletInput("")
-      setXmrModalOpen(true)
+      const method = (currentThread as { paymentMethod?: string | null }).paymentMethod
+      if (method === "wiro") {
+        setWiroError(null)
+        setWiroIdInput("")
+        getWiroConfig()
+          .then((c) => setWiroIdInput(c.identifier || ""))
+          .catch(() => {})
+        setWiroModalOpen(true)
+      } else {
+        setXmrWalletInput("")
+        setXmrModalOpen(true)
+      }
       return
     }
     startTransition(async () => {
@@ -388,7 +403,13 @@ export function VendorInbox({
     setXmrSending(true)
     try {
       await sendXmrWallet(selectedId, xmrWalletInput.trim())
-      setThreads((prev) => prev.map((t) => t.id === selectedId ? { ...t, status: "validee", xmrWallet: xmrWalletInput.trim() } : t))
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === selectedId
+            ? ({ ...t, status: "validee", xmrWallet: xmrWalletInput.trim(), paymentMethod: "xmr" } as typeof t)
+            : t,
+        ),
+      )
       const data = await getThread(selectedId)
       setMessages(data?.messages ?? [])
     } finally {
@@ -397,11 +418,45 @@ export function VendorInbox({
     }
   }
 
+  const confirmWiroPayment = async () => {
+    if (selectedId == null) return
+    setWiroSending(true)
+    setWiroError(null)
+    try {
+      const res = await sendWiroPayment(selectedId, wiroIdInput.trim() || undefined)
+      if (!res.ok) {
+        setWiroError(res.error ?? "Échec envoi Wero.")
+        return
+      }
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === selectedId
+            ? ({
+                ...t,
+                status: "validee",
+                paymentMethod: "wiro",
+                wiroIdentifier: wiroIdInput.trim() || null,
+              } as typeof t)
+            : t,
+        ),
+      )
+      const data = await getThread(selectedId)
+      setMessages(data?.messages ?? [])
+      setWiroModalOpen(false)
+    } finally {
+      setWiroSending(false)
+    }
+  }
+
   const handleConfirmDeposit = () => {
     if (selectedId == null) return
     startTransition(async () => {
       await confirmDeposit(selectedId)
-      setThreads((prev) => prev.map((t) => t.id === selectedId ? { ...t, depositConfirmed: true, status: "preparation" } : t))
+      setThreads((prev) =>
+        prev.map((t) =>
+          t.id === selectedId ? { ...t, depositConfirmed: true, status: "preparation" } : t,
+        ),
+      )
       const data = await getThread(selectedId)
       setMessages(data?.messages ?? [])
     })
@@ -736,14 +791,22 @@ export function VendorInbox({
               )}
             </div>
 
-            {/* Bandeau dépôt XMR notifié — bouton confirmer */}
+            {/* Bandeau dépôt (XMR / Wero) notifié — bouton confirmer → envoie token TRK */}
             {selected.fulfillment === "locker" && (selected as any).depositNotified && !(selected as any).depositConfirmed && (
               <div className="border-t border-amber-500/30 bg-amber-500/10 px-4 py-3">
                 <div className="mb-2 flex items-center gap-2">
                   <Wallet className="h-4 w-4 text-amber-400" aria-hidden="true" />
-                  <p className="text-sm font-semibold text-amber-400">Dépôt XMR signalé par le client</p>
+                  <p className="text-sm font-semibold text-amber-400">
+                    {(selected as any).paymentMethod === "wiro"
+                      ? "Virement Wero signalé par le client"
+                      : "Dépôt XMR signalé par le client"}
+                  </p>
                 </div>
-                <p className="mb-3 text-xs text-muted-foreground">Vérifie la reception sur ton wallet Monero avant de confirmer.</p>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  {(selected as any).paymentMethod === "wiro"
+                    ? "Vérifie la réception Wero avant de confirmer. Le token TRK_ sera envoyé en messagerie au client."
+                    : "Vérifie la réception sur ton wallet Monero avant de confirmer. Le token TRK_ sera envoyé en messagerie au client."}
+                </p>
                 <button
                   type="button"
                   onClick={handleConfirmDeposit}
@@ -832,7 +895,7 @@ export function VendorInbox({
               </div>
             </div>
             <p className="mb-4 text-sm text-muted-foreground leading-relaxed">
-              Saisis l&apos;adresse du wallet Monero sur lequel le client devra effectuer son dépôt. Elle lui sera transmise dans son suivi locker avec une mise en garde pour qu&apos;il la recopie soigneusement.
+              Saisis l&apos;adresse du wallet Monero sur lequel le client devra effectuer son dépôt. Elle lui sera transmise dans son suivi locker. Le token TRK_ partira après ta confirmation de réception.
             </p>
             <label htmlFor="xmr-wallet" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Adresse wallet XMR
@@ -865,6 +928,67 @@ export function VendorInbox({
                 className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {xmrSending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Wallet className="h-4 w-4" aria-hidden="true" />}
+                Valider et envoyer au client
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale : Wero pour commande locker validée */}
+      {wiroModalOpen && selected && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setWiroModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/15">
+                <Wallet className="h-5 w-5 text-accent" aria-hidden="true" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold">Paiement Wero — Commande #{selected.id}</h3>
+                <p className="text-xs text-muted-foreground">{selected.customerName} · Locker · {selected.total}€</p>
+              </div>
+            </div>
+            <p className="mb-4 text-sm text-muted-foreground leading-relaxed">
+              Identifiant Wero (téléphone ou email) où le client enverra le virement. Pré-rempli depuis tes réglages admin si configuré.
+            </p>
+            <label htmlFor="wiro-id" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Identifiant Wero
+            </label>
+            <input
+              id="wiro-id"
+              type="text"
+              value={wiroIdInput}
+              onChange={(e) => setWiroIdInput(e.target.value)}
+              autoFocus
+              placeholder="06… ou email@…"
+              className="w-full rounded-xl border border-input bg-background px-3 py-2.5 font-mono text-sm outline-none focus:border-accent"
+            />
+            {wiroError && <p className="mt-2 text-xs text-destructive">{wiroError}</p>}
+            <p className="mt-2 text-xs text-muted-foreground">
+              Après confirmation du virement, le client recevra le token TRK_ en messagerie.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setWiroModalOpen(false)}
+                disabled={wiroSending}
+                className="rounded-lg border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={confirmWiroPayment}
+                disabled={wiroSending || !wiroIdInput.trim()}
+                className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {wiroSending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Wallet className="h-4 w-4" aria-hidden="true" />}
                 Valider et envoyer au client
               </button>
             </div>

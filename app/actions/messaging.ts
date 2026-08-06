@@ -9,6 +9,9 @@ import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { notifyCustomer, notifyVendor } from "@/lib/push"
 import { adjustStock } from "@/app/actions/products"
 import { createXmrPaymentForOrder } from "@/app/actions/crypto-payment"
+import { getWiroConfig } from "@/app/actions/settings"
+
+export type LockerPaymentMethod = "xmr" | "wiro"
 
 export type NewOrderInput = {
   customerName: string
@@ -27,146 +30,288 @@ export type NewOrderInput = {
   lng?: number | null
   scheduledDate?: string
   scheduledSlot?: string
+  /** Locker uniquement : xmr | wiro */
+  paymentMethod?: LockerPaymentMethod | null
 }
 
-// Crée un fil de commande + génère le token de suivi + envoie le message initial au client
-export async function createOrderThread(input: NewOrderInput) {
-  const name = input.customerName?.trim() || "Client"
-  // Génère un token de suivi unique : "TRK_" + 16 caractères aléatoires
-  const trackingToken = `TRK_${crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`
-  
-  const [thread] = await db
+/** Colonnes order_threads potentiellement absentes sur anciennes bases. */
+async function ensureOrderSchema() {
+  try {
+    await db.execute(sql`
+      ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS product_ids JSONB NOT NULL DEFAULT '[]'::jsonb
+    `)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_method TEXT`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS wiro_identifier TEXT`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS xmr_wallet TEXT`)
+    await db.execute(sql`
+      ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS deposit_notified BOOLEAN NOT NULL DEFAULT false
+    `)
+    await db.execute(sql`
+      ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS deposit_confirmed BOOLEAN NOT NULL DEFAULT false
+    `)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_provider TEXT`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_provider_id TEXT`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_status TEXT`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_crypto TEXT`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_amount_crypto TEXT`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_amount_eur INTEGER`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_pay_url TEXT`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_pay_address TEXT`)
+  } catch (e) {
+    console.error("[messaging] ensureOrderSchema:", e)
+  }
+}
+
+/** Envoie le token TRK en fil messagerie (discussion) — après confirmation paiement. */
+async function sendTrkTokenMessage(opts: {
+  orderId: number
+  trackingToken: string
+  customerName: string
+  customerToken: string | null
+}) {
+  const trkBody = [
+    `⚠️ ATTENTION — LIS CE MESSAGE ATTENTIVEMENT ⚠️`,
+    ``,
+    `Ton paiement a été confirmé. Voici ton token de suivi Locker pour la commande #${opts.orderId} :`,
+    ``,
+    `${opts.trackingToken}`,
+    ``,
+    `SAUVEGARDE CE TOKEN MAINTENANT.`,
+    `Ce message sera automatiquement supprimé une fois que tu l'auras ouvert, pour des raisons de sécurité.`,
+    `Sans ce token tu ne pourras plus accéder au suivi de ta commande (onglet « En locker »).`,
+  ].join("\n")
+
+  const [trkThread] = await db
     .insert(orderThreads)
     .values({
-      customerName: name,
-      customerToken: input.customerToken?.trim() || null,
-      trackingToken,
-      summary: input.summary,
-      products: input.products?.trim() || null,
-      productIds: input.productIds ?? [],
-      total: input.total,
-      fulfillment: input.fulfillment,
-      address: input.address?.trim() || null,
-      lat: input.lat ?? null,
-      lng: input.lng ?? null,
-      scheduledDate: input.scheduledDate ?? null,
-      scheduledSlot: input.scheduledSlot ?? null,
-      status: "en_attente",
+      customerName: opts.customerName,
+      customerToken: opts.customerToken,
+      trackingToken: `TRK_MSG_${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
+      summary: `Token de suivi — Commande #${opts.orderId}`,
+      total: 0,
+      fulfillment: "locker",
+      status: "trk_token",
     })
     .returning()
 
-  // Message initial du client (résumé de la commande)
   await db.insert(threadMessages).values({
-    threadId: thread.id,
-    sender: "client",
-    body: input.summary,
+    threadId: trkThread.id,
+    sender: "vendeur",
+    body: trkBody,
   })
 
-  if (input.fulfillment === "locker") {
-    // Pour les commandes locker : on crée un fil séparé dans la messagerie normale
-    // contenant UNIQUEMENT le token TRK — visible une seule fois puis supprimé.
-    const trkBody = [
-      `⚠️ ATTENTION — LIS CE MESSAGE ATTENTIVEMENT ⚠️`,
-      ``,
-      `Ton token de suivi Locker est :`,
-      ``,
-      `${trackingToken}`,
-      ``,
-      `SAUVEGARDE CE TOKEN MAINTENANT.`,
-      `Ce message sera automatiquement supprimé une fois que tu l'auras ouvert, pour des raisons de sécurité.`,
-      `Sans ce token tu ne pourras plus accéder au suivi de ta commande.`,
-    ].join("\n")
+  await notifyCustomer(opts.customerToken, {
+    title: "Token de suivi Locker — À SAUVEGARDER",
+    body: "Paiement confirmé. Ouvre ta messagerie pour récupérer ton token TRK_ (supprimé après lecture).",
+    url: "/",
+    tag: `trk-${opts.orderId}`,
+  }).catch(() => {})
 
-    const [trkThread] = await db
+  return trkThread.id
+}
+
+// Crée un fil de commande + génère le token de suivi + envoie le message initial au client.
+// Ne lève plus d'exception vers le client : retourne { ok: false, error } en cas d'échec.
+export async function createOrderThread(input: NewOrderInput) {
+  try {
+    await ensureOrderSchema()
+
+    const name = input.customerName?.trim() || "Client"
+    const trackingToken = `TRK_${crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`
+    const isLocker = input.fulfillment === "locker"
+    const paymentMethod: LockerPaymentMethod | null = isLocker
+      ? input.paymentMethod === "wiro"
+        ? "wiro"
+        : "xmr"
+      : null
+
+    const [thread] = await db
       .insert(orderThreads)
       .values({
         customerName: name,
         customerToken: input.customerToken?.trim() || null,
-        trackingToken: `TRK_MSG_${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
-        summary: `Token de suivi — Commande #${thread.id}`,
-        total: 0,
-        fulfillment: "locker",
-        status: "trk_token", // statut spécial : message TRK à lire une fois
+        trackingToken,
+        summary: input.summary,
+        products: input.products?.trim() || null,
+        productIds: input.productIds ?? [],
+        total: input.total,
+        fulfillment: input.fulfillment,
+        address: input.address?.trim() || null,
+        lat: input.lat ?? null,
+        lng: input.lng ?? null,
+        scheduledDate: input.scheduledDate ?? null,
+        scheduledSlot: input.scheduledSlot ?? null,
+        status: "en_attente",
+        paymentMethod,
       })
       .returning()
 
-    await db.insert(threadMessages).values({
-      threadId: trkThread.id,
-      sender: "vendeur",
-      body: trkBody,
-    })
-
-    // Notifie le client : il doit ouvrir la messagerie pour sauvegarder son token
-    await notifyCustomer(input.customerToken?.trim() || null, {
-      title: "Token de suivi Locker — A SAUVEGARDER",
-      body: "Ouvre la messagerie maintenant pour récupérer ton token de suivi. Il sera supprimé après lecture.",
-      url: "/",
-      tag: `trk-${thread.id}`,
-    })
-  } else {
-    // Commandes non-locker : message de confirmation classique dans le fil de commande
+    // Message initial du client (résumé de la commande)
     await db.insert(threadMessages).values({
       threadId: thread.id,
-      sender: "vendeur",
-      body: `Merci pour ta commande ! Elle a bien été prise en compte. Tu recevras une mise à jour dès qu'elle sera traitée.`,
+      sender: "client",
+      body: input.summary,
     })
-  }
 
-  // Notifie le vendeur de l'arrivée d'une nouvelle commande.
-  await notifyVendor({
-    title: "Nouvelle commande",
-    body: `${name} vient de passer une commande (#${thread.id})${input.fulfillment === "locker" ? " — LOCKER" : ""}.`,
-    url: "/admin",
-    tag: `order-${thread.id}`,
-  })
-
-  // Paiement XMR (NOWPayments) — optionnel, ne bloque jamais la commande
-  let cryptoPayment: {
-    enabled: boolean
-    payUrl?: string | null
-    payAddress?: string | null
-    payAmount?: string | null
-    paymentStatus?: string
-    error?: string
-  } = { enabled: false }
-
-  try {
-    const inv = await createXmrPaymentForOrder({
-      threadId: thread.id,
-      totalEur: input.total,
-      customerToken: input.customerToken,
-      customerName: name,
-    })
-    if (inv.ok) {
-      cryptoPayment = {
-        enabled: true,
-        payUrl: inv.payUrl,
-        payAddress: inv.payAddress,
-        payAmount: inv.payAmount,
-        paymentStatus: inv.paymentStatus,
-      }
-      // Compat locker : renseigner xmr_wallet si adresse fournie
-      if (inv.payAddress) {
+    if (isLocker) {
+      // Locker : pas de token TRK tout de suite — envoyé après confirmation du paiement.
+      // Message d'accueil + instructions paiement.
+      if (paymentMethod === "wiro") {
+        let wiroId = ""
+        let wiroInstructions = ""
         try {
-          await db
-            .update(orderThreads)
-            .set({ xmrWallet: inv.payAddress })
-            .where(eq(orderThreads.id, thread.id))
+          const wiro = await getWiroConfig()
+          wiroId = wiro.identifier?.trim() || ""
+          wiroInstructions = wiro.instructions?.trim() || ""
         } catch {
-          /* non bloquant */
+          /* ignore */
         }
+
+        const lines = [
+          `Merci pour ta commande Locker #${thread.id} !`,
+          ``,
+          `Mode de paiement : Wero (virement instantané).`,
+          `Total à envoyer : ${input.total}€`,
+          ``,
+        ]
+        if (wiroId) {
+          lines.push(
+            `Identifiant Wero :`,
+            wiroId,
+            ``,
+            wiroInstructions ||
+              `Envoie exactement ${input.total}€ via Wero, puis clique sur « J'ai effectué mon virement » une fois le suivi débloqué.`,
+            ``,
+            `Après validation de ta commande par le vendeur, tu pourras signaler ton virement.`,
+            `Dès confirmation du paiement, tu recevras ton token TRK_ en messagerie pour débloquer le suivi Locker.`,
+          )
+          try {
+            await db
+              .update(orderThreads)
+              .set({ wiroIdentifier: wiroId, updatedAt: sql`now()` })
+              .where(eq(orderThreads.id, thread.id))
+          } catch {
+            /* non bloquant */
+          }
+        } else {
+          lines.push(
+            `Le vendeur t'enverra bientôt son identifiant Wero pour le virement.`,
+            `Après confirmation du paiement, tu recevras ton token TRK_ en messagerie pour débloquer le suivi Locker.`,
+          )
+        }
+
+        await db.insert(threadMessages).values({
+          threadId: thread.id,
+          sender: "vendeur",
+          body: lines.join("\n"),
+        })
+      } else {
+        // XMR locker
+        await db.insert(threadMessages).values({
+          threadId: thread.id,
+          sender: "vendeur",
+          body: [
+            `Merci pour ta commande Locker #${thread.id} !`,
+            ``,
+            `Mode de paiement : Monero (XMR).`,
+            `Total à régler : ${input.total}€`,
+            ``,
+            `Après validation par le vendeur, tu recevras l'adresse de dépôt XMR (ou un lien de paiement).`,
+            `Une fois le dépôt effectué, signale-le dans ton suivi.`,
+            `Dès confirmation du paiement, tu recevras ton token TRK_ en messagerie pour débloquer le suivi Locker.`,
+          ].join("\n"),
+        })
       }
-    } else if (!inv.skipped) {
-      cryptoPayment = { enabled: false, error: inv.error }
-      console.error("[createOrderThread] XMR payment skipped:", inv.error)
+    } else {
+      await db.insert(threadMessages).values({
+        threadId: thread.id,
+        sender: "vendeur",
+        body: `Merci pour ta commande ! Elle a bien été prise en compte. Tu recevras une mise à jour dès qu'elle sera traitée.`,
+      })
+    }
+
+    // Notifie le vendeur (best-effort)
+    await notifyVendor({
+      title: "Nouvelle commande",
+      body: `${name} vient de passer une commande (#${thread.id})${
+        isLocker ? ` — LOCKER (${paymentMethod === "wiro" ? "Wero" : "XMR"})` : ""
+      }.`,
+      url: "/admin",
+      tag: `order-${thread.id}`,
+    }).catch(() => {})
+
+    // Paiement XMR NOWPayments — uniquement si XMR, optionnel, timeout court, jamais bloquant
+    let cryptoPayment: {
+      enabled: boolean
+      payUrl?: string | null
+      payAddress?: string | null
+      payAmount?: string | null
+      paymentStatus?: string
+      error?: string
+    } = { enabled: false }
+
+    if (paymentMethod !== "wiro") {
+      try {
+        const invPromise = createXmrPaymentForOrder({
+          threadId: thread.id,
+          totalEur: input.total,
+          customerToken: input.customerToken,
+          customerName: name,
+        })
+        const inv = await Promise.race([
+          invPromise,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 12000)),
+        ])
+        if (inv && inv.ok) {
+          cryptoPayment = {
+            enabled: true,
+            payUrl: inv.payUrl,
+            payAddress: inv.payAddress,
+            payAmount: inv.payAmount,
+            paymentStatus: inv.paymentStatus,
+          }
+          if (inv.payAddress) {
+            try {
+              await db
+                .update(orderThreads)
+                .set({ xmrWallet: inv.payAddress })
+                .where(eq(orderThreads.id, thread.id))
+            } catch {
+              /* non bloquant */
+            }
+          }
+        } else if (inv && !inv.ok && !inv.skipped) {
+          cryptoPayment = { enabled: false, error: inv.error }
+          console.error("[createOrderThread] XMR payment skipped:", inv.error)
+        } else if (inv === null) {
+          console.error("[createOrderThread] XMR payment timed out (12s) — commande OK sans gateway")
+        }
+      } catch (e) {
+        console.error("[createOrderThread] crypto error:", e)
+      }
+    }
+
+    try {
+      revalidatePath("/messagerie")
+      revalidatePath("/admin")
+    } catch {
+      /* ignore */
+    }
+
+    return {
+      ok: true as const,
+      id: thread.id,
+      trackingToken,
+      cryptoPayment,
+      paymentMethod,
     }
   } catch (e) {
-    console.error("[createOrderThread] crypto error:", e)
+    console.error("[createOrderThread] FATAL:", e)
+    return {
+      ok: false as const,
+      error: "Impossible d'enregistrer la commande. Réessaie dans un instant.",
+    }
   }
-
-  revalidatePath("/messagerie")
-  revalidatePath("/admin")
-  return { id: thread.id, trackingToken, cryptoPayment }
 }
 
 // Crée une discussion générale (sans commande) : le client contacte directement le chimiste.
@@ -845,69 +990,140 @@ export async function sendXmrWallet(threadId: number, wallet: string) {
   const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
   if (!thread) return { ok: false as const }
 
-  await db.update(orderThreads).set({ xmrWallet: w, updatedAt: sql`now()` }).where(eq(orderThreads.id, threadId))
+  await db
+    .update(orderThreads)
+    .set({ xmrWallet: w, paymentMethod: "xmr", status: "validee", updatedAt: sql`now()` })
+    .where(eq(orderThreads.id, threadId))
 
   // Récupérer le taux XMR/EUR en temps réel pour indiquer le montant exact au client
   let xmrAmount: string | null = null
   try {
-    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=monero&vs_currencies=eur", { next: { revalidate: 60 } })
+    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=monero&vs_currencies=eur", {
+      next: { revalidate: 60 },
+    })
     const data = await res.json()
     const rate: number = data?.monero?.eur
     if (rate && thread.total) {
-      const amount = (thread.total / rate).toFixed(6)
-      xmrAmount = amount
+      xmrAmount = (thread.total / rate).toFixed(6)
     }
-  } catch { /* taux indisponible — on n'affiche pas */ }
+  } catch {
+    /* taux indisponible */
+  }
 
   const walletMsg = [
-    `Commande validee ! Voici l'adresse du wallet Monero (XMR) ou effectuer ton depot :`,
+    `Commande validée ! Voici l'adresse du wallet Monero (XMR) où effectuer ton dépôt :`,
     ``,
     `[ ${w} ]`,
     ``,
     xmrAmount
-      ? `Montant a envoyer : ${xmrAmount} XMR (= ${thread.total}€ au taux actuel)`
-      : `Montant a envoyer : l'equivalent de ${thread.total}€ en XMR (verifie le taux sur Kraken ou Binance).`,
+      ? `Montant à envoyer : ${xmrAmount} XMR (= ${thread.total}€ au taux actuel)`
+      : `Montant à envoyer : l'équivalent de ${thread.total}€ en XMR (vérifie le taux sur Kraken ou Binance).`,
     ``,
-    `IMPORTANT : recopie cette adresse avec la plus grande attention, caractere par caractere.`,
-    `Une seule erreur de saisie et le depot sera perdu definitivement — Monero est une crypto intraçable.`,
+    `IMPORTANT : recopie cette adresse avec la plus grande attention, caractère par caractère.`,
+    `Une seule erreur de saisie et le dépôt sera perdu définitivement — Monero est une crypto intraçable.`,
     ``,
-    `Une fois le depot effectue, clique sur le bouton "J'ai effectue mon depot" dans ton suivi locker.`,
-    `La preparation de ta commande demarrera a reception de la confirmation.`,
+    `Une fois le dépôt effectué, clique sur le bouton « J'ai effectué mon dépôt » dans ton suivi locker.`,
+    `Dès confirmation du paiement, tu recevras ton token TRK_ en messagerie pour débloquer le suivi.`,
   ].join("\n")
 
   await db.insert(threadMessages).values({ threadId, sender: "vendeur", body: walletMsg })
-  await db.update(orderThreads).set({ status: "validee", updatedAt: sql`now()` }).where(eq(orderThreads.id, threadId))
 
   await notifyCustomer(thread.customerToken, {
     title: "Adresse de paiement XMR disponible",
-    body: "Ouvre ton suivi locker pour voir l'adresse de depot Monero.",
+    body: "Ouvre ton suivi locker pour voir l'adresse de dépôt Monero.",
     url: "/",
     tag: `xmr-${threadId}`,
-  })
+  }).catch(() => {})
 
   revalidatePath("/admin")
   return { ok: true as const }
 }
 
-// Client : signale que son depot XMR est effectue.
+// Admin : envoie les coordonnées Wero pour une commande locker et passe en validée.
+export async function sendWiroPayment(threadId: number, identifier?: string) {
+  if (!threadId) return { ok: false as const, error: "id manquant" }
+  const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
+  if (!thread) return { ok: false as const, error: "commande introuvable" }
+
+  let id = identifier?.trim() || ""
+  let instructions = ""
+  if (!id) {
+    try {
+      const cfg = await getWiroConfig()
+      id = cfg.identifier?.trim() || ""
+      instructions = cfg.instructions?.trim() || ""
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!id) {
+    return { ok: false as const, error: "Identifiant Wero manquant (configure-le dans Paiement ou saisis-le)." }
+  }
+
+  await db
+    .update(orderThreads)
+    .set({
+      wiroIdentifier: id,
+      paymentMethod: "wiro",
+      status: "validee",
+      updatedAt: sql`now()`,
+    })
+    .where(eq(orderThreads.id, threadId))
+
+  const msg = [
+    `Commande validée ! Paiement par Wero (virement instantané).`,
+    ``,
+    `Montant exact à envoyer : ${thread.total}€`,
+    ``,
+    `Identifiant Wero :`,
+    id,
+    ``,
+    instructions ||
+      `Envoie le montant via Wero (app bancaire → envoyer de l'argent / Wero), puis clique sur « J'ai effectué mon virement » dans ton suivi locker.`,
+    ``,
+    `Dès confirmation du paiement par le vendeur, tu recevras ton token TRK_ en messagerie pour débloquer le suivi Locker.`,
+  ].join("\n")
+
+  await db.insert(threadMessages).values({ threadId, sender: "vendeur", body: msg })
+
+  await notifyCustomer(thread.customerToken, {
+    title: "Paiement Wero — coordonnées disponibles",
+    body: "Ouvre ton suivi locker pour envoyer le virement Wero.",
+    url: "/",
+    tag: `wiro-${threadId}`,
+  }).catch(() => {})
+
+  revalidatePath("/admin")
+  return { ok: true as const }
+}
+
+// Client : signale que son dépôt (XMR ou Wero) est effectué.
 export async function notifyDeposit(threadId: number) {
   if (!threadId) return { ok: false as const }
   const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
   if (!thread) return { ok: false as const }
 
-  await db.update(orderThreads).set({ depositNotified: true, updatedAt: sql`now()` }).where(eq(orderThreads.id, threadId))
+  const isWiro = thread.paymentMethod === "wiro"
+  const label = isWiro ? "Wero" : "XMR"
+
+  await db
+    .update(orderThreads)
+    .set({ depositNotified: true, updatedAt: sql`now()` })
+    .where(eq(orderThreads.id, threadId))
   await db.insert(threadMessages).values({
     threadId,
     sender: "client",
-    body: "J'ai effectue mon depot XMR. Merci de verifier la reception.",
+    body: isWiro
+      ? "J'ai effectué mon virement Wero. Merci de vérifier la réception."
+      : "J'ai effectué mon dépôt XMR. Merci de vérifier la réception.",
   })
 
   await notifyVendor({
-    title: `Depot XMR signale — Commande #${threadId}`,
-    body: `${thread.customerName} signale avoir effectue son depot Monero.`,
+    title: `Dépôt ${label} signalé — Commande #${threadId}`,
+    body: `${thread.customerName} signale avoir effectué son paiement ${label}.`,
     url: "/admin",
     tag: `deposit-${threadId}`,
-  })
+  }).catch(() => {})
 
   revalidatePath("/admin")
   return { ok: true as const }
@@ -1020,27 +1236,50 @@ export async function updateOrderProducts(threadId: number, items: OrderProductI
   return { ok: true as const, newTotal, newSummary }
 }
 
-// Admin : confirme la reception du depot XMR et lance la preparation.
+// Admin : confirme la réception du paiement (XMR ou Wero), lance la préparation
+// et envoie le token TRK_ en messagerie pour débloquer le suivi Locker.
 export async function confirmDeposit(threadId: number) {
   if (!threadId) return { ok: false as const }
   const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
   if (!thread) return { ok: false as const }
 
-  await db.update(orderThreads).set({ depositConfirmed: true, status: "preparation", updatedAt: sql`now()` }).where(eq(orderThreads.id, threadId))
+  const isWiro = thread.paymentMethod === "wiro"
+  const payLabel = isWiro ? "Wero" : "XMR"
+
+  await db
+    .update(orderThreads)
+    .set({ depositConfirmed: true, status: "preparation", updatedAt: sql`now()` })
+    .where(eq(orderThreads.id, threadId))
+
   await db.insert(threadMessages).values({
     threadId,
     sender: "vendeur",
-    body: "Depot Monero recu et confirme. La preparation de ton colis est en cours — tu recevras une mise a jour des la mise en expedition.",
+    body: isWiro
+      ? `Virement Wero reçu et confirmé. La préparation de ton colis est en cours — tu recevras une mise à jour dès la mise en expédition.\n\nTon token de suivi TRK_ t'a été envoyé en messagerie (message à sauvegarder).`
+      : `Dépôt Monero reçu et confirmé. La préparation de ton colis est en cours — tu recevras une mise à jour dès la mise en expédition.\n\nTon token de suivi TRK_ t'a été envoyé en messagerie (message à sauvegarder).`,
   })
+
+  // Token TRK en messagerie (fil discussion / trk_token) — débloque l'onglet En locker
+  try {
+    await sendTrkTokenMessage({
+      orderId: thread.id,
+      trackingToken: thread.trackingToken,
+      customerName: thread.customerName,
+      customerToken: thread.customerToken,
+    })
+  } catch (e) {
+    console.error("[confirmDeposit] send TRK failed:", e)
+  }
 
   await notifyCustomer(thread.customerToken, {
-    title: "Depot recu — preparation en cours",
-    body: "Ton depot XMR a ete confirme. Ton colis est en preparation.",
+    title: `Paiement ${payLabel} confirmé — préparation`,
+    body: "Paiement OK. Token TRK_ disponible en messagerie pour le suivi Locker.",
     url: "/",
     tag: `prep-${threadId}`,
-  })
+  }).catch(() => {})
 
   revalidatePath("/admin")
+  revalidatePath("/messagerie")
   return { ok: true as const }
 }
 
@@ -1137,9 +1376,14 @@ export async function adminCreateOrder(input: AdminOrderInput) {
     address: address ?? undefined,
     scheduledDate: scheduledDate ?? undefined,
     scheduledSlot: scheduledSlot ?? undefined,
+    paymentMethod: input.fulfillment === "locker" ? "xmr" : null,
   })
 
-  return { ok: true as const, ...result, total }
+  if (!result.ok) {
+    return { ok: false as const, error: result.error ?? "Échec création commande." }
+  }
+
+  return { ok: true as const, id: result.id, trackingToken: result.trackingToken, total }
 }
 
 // Compte les fils "nouveau" (badge boîte de réception)

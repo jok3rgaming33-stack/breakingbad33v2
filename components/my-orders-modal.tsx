@@ -351,7 +351,9 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
               ))}
             </div>
 
-            {/* Onglet locker : verrou token TRK_ */}
+            {/* Onglet locker :
+                - Avant confirmation paiement : accès direct (suivre le paiement / signaler dépôt)
+                - Après confirmation : verrou TRK_ (token reçu en messagerie) */}
             {tab === "locker" && (
               <div className="flex-1 overflow-y-auto p-5">
                 {lockerLoading ? (
@@ -363,14 +365,53 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
                   </div>
                 ) : (
                   <div className="flex flex-col gap-4">
-                    {/* Verrou */}
+                    {/* Commandes en attente de paiement — ouvertes sans TRK */}
+                    {(() => {
+                      const pendingPay = lockerThreads.filter(
+                        (t) => !(t as { depositConfirmed?: boolean }).depositConfirmed,
+                      )
+                      if (pendingPay.length === 0) return null
+                      return (
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Paiement / en attente
+                          </p>
+                          <ul className="flex flex-col gap-2">
+                            {pendingPay.map((t) => {
+                              const method = (t as { paymentMethod?: string | null }).paymentMethod
+                              return (
+                                <li key={t.id}>
+                                  <button
+                                    type="button"
+                                    onClick={() => openThread(t)}
+                                    className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 p-4 text-left transition-colors hover:border-accent"
+                                  >
+                                    <div>
+                                      <div className="text-sm font-semibold">Commande #{t.id}</div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {t.total}€ · {method === "wiro" ? "Wero" : "XMR"}
+                                      </div>
+                                    </div>
+                                    <span className="shrink-0 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-semibold text-amber-400">
+                                      Paiement
+                                    </span>
+                                  </button>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        </div>
+                      )
+                    })()}
+
+                    {/* Accès sécurisé TRK pour commandes payées */}
                     <div className="rounded-2xl border border-border bg-background/60 p-4">
                       <div className="mb-3 flex items-center gap-2">
                         <Lock className="h-4 w-4 text-accent" aria-hidden="true" />
-                        <p className="text-sm font-semibold">Accès sécurisé par token</p>
+                        <p className="text-sm font-semibold">Suivi sécurisé (après paiement)</p>
                       </div>
                       <p className="mb-3 text-xs text-muted-foreground leading-relaxed">
-                        Pour accéder au suivi de ta commande Locker, saisis le token TRK_ recu dans la messagerie après ta commande.
+                        Après confirmation de ton paiement, saisis le token TRK_ reçu en messagerie pour débloquer le suivi détaillé.
                       </p>
                       <div className="flex gap-2">
                         <input
@@ -395,9 +436,8 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
                       )}
                     </div>
 
-                    {/* Liste des commandes (cachée derrière le verrou — on montre juste le nombre) */}
                     <p className="text-center text-xs text-muted-foreground">
-                      {lockerThreads.length} commande{lockerThreads.length > 1 ? "s" : ""} Locker enregistrée{lockerThreads.length > 1 ? "s" : ""}
+                      {lockerThreads.length} commande{lockerThreads.length > 1 ? "s" : ""} Locker
                     </p>
                   </div>
                 )}
@@ -540,30 +580,45 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
               )}
             </div>
 
-            {/* Zone depot XMR (locker avec wallet communiqué, depot pas encore signalé) */}
-            {isLockerSelected && xmrWallet && !depositAlreadyConfirmed && (
-              <div className="border-t border-border p-4">
-                {!depositAlreadyNotified && !depositSent ? (
-                  <button
-                    type="button"
-                    onClick={handleDeposit}
-                    disabled={depositSending}
-                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    {depositSending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    J&apos;ai effectué mon dépôt XMR
-                  </button>
-                ) : (
-                  <div className="rounded-2xl border border-border bg-background/60 px-4 py-3 text-center text-sm text-muted-foreground">
-                    Dépôt signalé — en attente de confirmation par le vendeur.
+            {/* Zone dépôt XMR / Wero (commande validée, paiement pas encore confirmé) */}
+            {isLockerSelected && !depositAlreadyConfirmed && (
+              (() => {
+                const method = (selected as { paymentMethod?: string | null })?.paymentMethod
+                const isWiro = method === "wiro"
+                const wiroId = (selected as { wiroIdentifier?: string | null })?.wiroIdentifier
+                const canNotify =
+                  (isWiro && (!!wiroId || selected.status === "validee" || selected.status === "preparation")) ||
+                  (!isWiro && !!xmrWallet)
+                if (!canNotify && !depositAlreadyNotified && !depositSent) return null
+                return (
+                  <div className="border-t border-border p-4">
+                    {!depositAlreadyNotified && !depositSent ? (
+                      canNotify ? (
+                        <button
+                          type="button"
+                          onClick={handleDeposit}
+                          disabled={depositSending}
+                          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {depositSending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                          {isWiro ? "J'ai effectué mon virement Wero" : "J'ai effectué mon dépôt XMR"}
+                        </button>
+                      ) : null
+                    ) : (
+                      <div className="rounded-2xl border border-border bg-background/60 px-4 py-3 text-center text-sm text-muted-foreground">
+                        {isWiro
+                          ? "Virement signalé — en attente de confirmation par le vendeur."
+                          : "Dépôt signalé — en attente de confirmation par le vendeur."}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                )
+              })()
             )}
             {isLockerSelected && depositAlreadyConfirmed && (
               <div className="border-t border-border p-4">
                 <div className="rounded-2xl border border-accent/40 bg-accent/10 px-4 py-3 text-center text-sm font-semibold text-accent">
-                  Dépôt confirmé — ton colis est en préparation.
+                  Paiement confirmé — ton colis est en préparation. Token TRK_ envoyé en messagerie.
                 </div>
               </div>
             )}

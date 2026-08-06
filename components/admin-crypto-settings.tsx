@@ -1,26 +1,31 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Loader2, Save, Wallet, ExternalLink, CheckCircle2, AlertTriangle } from "lucide-react"
+import { Loader2, Save, Wallet, ExternalLink, CheckCircle2, AlertTriangle, Smartphone } from "lucide-react"
 import {
   getCryptoGatewayStatus,
   setCryptoGatewayEnabled,
   type CryptoGatewayPublicStatus,
 } from "@/app/actions/crypto-payment"
+import { getWiroConfig, setWiroConfig, type WiroConfig } from "@/app/actions/settings"
 
-/** Réglages paiement Monero (NOWPayments XMR only). */
+/** Réglages paiement Monero (NOWPayments) + Wero (Locker). */
 export function AdminCryptoSettings() {
   const [status, setStatus] = useState<CryptoGatewayPublicStatus | null>(null)
   const [enabled, setEnabled] = useState(true)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [wiro, setWiro] = useState<WiroConfig>({ identifier: "", label: "Wero", instructions: "" })
+  const [wiroSaving, setWiroSaving] = useState(false)
+  const [wiroMsg, setWiroMsg] = useState<string | null>(null)
 
   useEffect(() => {
-    getCryptoGatewayStatus()
-      .then((s) => {
+    Promise.all([getCryptoGatewayStatus(), getWiroConfig()])
+      .then(([s, w]) => {
         setStatus(s)
         setEnabled(s.enabled)
+        setWiro(w)
       })
       .catch(() => setStatus(null))
       .finally(() => setLoading(false))
@@ -40,6 +45,19 @@ export function AdminCryptoSettings() {
     setMsg("Enregistré.")
   }
 
+  const saveWiro = async () => {
+    setWiroSaving(true)
+    setWiroMsg(null)
+    const res = await setWiroConfig(wiro)
+    setWiroSaving(false)
+    if (!res.ok) {
+      setWiroMsg(res.error ?? "Erreur")
+      return
+    }
+    if (res.config) setWiro(res.config)
+    setWiroMsg("Wero enregistré.")
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -49,6 +67,7 @@ export function AdminCryptoSettings() {
   }
 
   return (
+    <div className="space-y-5">
     <div className="rounded-2xl border border-border bg-card p-5">
       <div className="mb-4 flex items-start gap-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent">
@@ -131,6 +150,56 @@ export function AdminCryptoSettings() {
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
         Enregistrer
       </button>
+    </div>
+
+    {/* Wero — Locker uniquement */}
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="mb-4 flex items-start gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent">
+          <Smartphone className="h-5 w-5" />
+        </span>
+        <div>
+          <h3 className="text-lg font-bold">Wero (Locker uniquement)</h3>
+          <p className="text-sm text-muted-foreground">
+            Virement instantané proposé au checkout Locker. Même process que XMR : le client paie → tu confirmes → token TRK_ en messagerie.
+          </p>
+        </div>
+      </div>
+
+      <label className="mb-3 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Identifiant Wero (téléphone ou email)
+      </label>
+      <input
+        type="text"
+        value={wiro.identifier}
+        onChange={(e) => setWiro((w) => ({ ...w, identifier: e.target.value }))}
+        placeholder="06… ou email@…"
+        className="mb-3 w-full rounded-xl border border-input bg-background px-3 py-2.5 font-mono text-sm outline-none focus:border-accent"
+      />
+
+      <label className="mb-3 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Instructions client (optionnel)
+      </label>
+      <textarea
+        value={wiro.instructions}
+        onChange={(e) => setWiro((w) => ({ ...w, instructions: e.target.value }))}
+        rows={3}
+        placeholder="Envoie le montant exact via Wero…"
+        className="mb-3 w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-accent"
+      />
+
+      {wiroMsg && <p className="mb-3 text-sm text-accent">{wiroMsg}</p>}
+
+      <button
+        type="button"
+        onClick={saveWiro}
+        disabled={wiroSaving}
+        className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+      >
+        {wiroSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        Enregistrer Wero
+      </button>
+    </div>
     </div>
   )
 }

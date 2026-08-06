@@ -149,3 +149,38 @@ export async function setLogisticsContent(content: LogisticsContent) {
   revalidatePath("/admin")
   return { ok: true as const }
 }
+
+/** Coordonnées Wero (virement instantané) pour commandes Locker uniquement. */
+export type WiroConfig = {
+  /** Téléphone ou email Wero où le client envoie le virement */
+  identifier: string
+  /** Libellé affiché (ex. "Wero") */
+  label: string
+  /** Instructions libres affichées au client */
+  instructions: string
+}
+
+const DEFAULT_WIRO: WiroConfig = {
+  identifier: "",
+  label: "Wero",
+  instructions:
+    "Envoie le montant exact via Wero (virement instantané) vers l'identifiant ci-dessous, puis clique sur « J'ai effectué mon virement » dans ton suivi.",
+}
+
+export async function getWiroConfig(): Promise<WiroConfig> {
+  return readSetting<WiroConfig>("wiro_locker", DEFAULT_WIRO)
+}
+
+export async function setWiroConfig(config: Partial<WiroConfig>) {
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
+  const current = await getWiroConfig()
+  const next: WiroConfig = {
+    identifier: (config.identifier ?? current.identifier)?.trim() || "",
+    label: (config.label ?? current.label)?.trim() || "Wero",
+    instructions:
+      (config.instructions ?? current.instructions)?.trim() || DEFAULT_WIRO.instructions,
+  }
+  await writeSetting("wiro_locker", next)
+  revalidatePath("/admin")
+  return { ok: true as const, config: next }
+}

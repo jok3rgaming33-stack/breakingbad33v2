@@ -125,8 +125,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const isLocker = fulfillmentMode === "locker"
   const [meetupHour, setMeetupHour] = useState("")
   const [lockerAddress, setLockerAddress] = useState("")
+  /** Locker : XMR ou Wero (virement) */
+  const [lockerPayMethod, setLockerPayMethod] = useState<"xmr" | "wiro">("xmr")
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
-  const [xmrConfirmed, setXmrConfirmed] = useState(false)
+  const [wiroModalOpen, setWiroModalOpen] = useState(false)
+  const [payConfirmed, setPayConfirmed] = useState(false)
   const [cryptoPayment, setCryptoPayment] = useState<{
     enabled: boolean
     payUrl?: string | null
@@ -281,7 +284,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const canValidate =
     items.length > 0 &&
     (isLocker
-      ? !!lockerAddress.trim() && xmrConfirmed
+      ? !!lockerAddress.trim() && payConfirmed
       : !!date && (isMeetup ? !!meetupHour : !!address.trim() && !!slot && distanceKm != null))
 
   // Point d'entrée : à la 1re commande, on impose d'abord la vérification d'identité.
@@ -351,8 +354,12 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     const mode = isMeetup
       ? `Retrait sur place (meet-up) à ${meetupHour}`
         : isLocker
-        ? `Retrait en Locker Mondial Relay — ${lockerAddress} — créneau ${slot} (frais ${FEE_LOCKER}€)`
+        ? `Retrait en Locker Mondial Relay — ${lockerAddress} (frais ${FEE_LOCKER}€)`
         : `Livraison à ${address} — créneau ${slot} (frais ${deliveryFee}€)`
+
+    const payLine = isLocker
+      ? `Paiement : ${lockerPayMethod === "wiro" ? "Wero (virement)" : "Monero (XMR)"}`
+      : null
 
     const message = [
       `Nouvelle commande de ${name}`,
@@ -361,6 +368,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       ``,
       isLocker ? null : `Date : ${date}`,
       mode,
+      payLine,
       promo && promoDiscount > 0 ? `Code ${promo.code} : -${promoDiscount}€` : null,
       ``,
       `Sous-total : ${subtotal}€`,
@@ -388,7 +396,16 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         lng: isMeetup || isLocker ? null : coords?.lng ?? null,
         scheduledDate: isLocker ? undefined : date,
         scheduledSlot: isLocker ? undefined : isMeetup ? meetupHour : slot,
+        paymentMethod: isLocker ? lockerPayMethod : null,
       })
+      if (!orderRes || (typeof orderRes === "object" && "ok" in orderRes && orderRes.ok === false)) {
+        const errMsg =
+          orderRes && typeof orderRes === "object" && "error" in orderRes && orderRes.error
+            ? String(orderRes.error)
+            : "Impossible d'envoyer la commande. Réessaie dans un instant."
+        setSubmitError(errMsg)
+        return
+      }
       // Code fidélité (BB33-...) consommé à usage unique une fois la commande passée.
       if (promo && /^BB33-/i.test(promo.code)) {
         await markLoyaltyCodeUsed(promo.code)
@@ -422,7 +439,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     setFulfillmentMode("livraison")
     setMeetupHour("")
     setLockerAddress("")
-    setXmrConfirmed(false)
+    setLockerPayMethod("xmr")
+    setPayConfirmed(false)
     setDistanceKm(null)
     setCoords(null)
     setGeoStatus("idle")
@@ -475,10 +493,13 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
             </div>
             <h3 className="text-2xl font-bold text-balance">Commande validée</h3>
             <p className="text-sm text-muted-foreground text-pretty">
-              Ta commande a été transmise au vendeur. Un fil de discussion a été créé dans la messagerie interne pour le suivi.
+              Ta commande a été transmise au vendeur.
+              {isLocker
+                ? " Après confirmation du paiement, tu recevras ton token TRK_ en messagerie pour le suivi Locker."
+                : " Un fil de discussion a été créé dans la messagerie interne pour le suivi."}
             </p>
 
-            {cryptoPayment?.enabled && (
+            {cryptoPayment?.enabled && lockerPayMethod === "xmr" && (
               <div className="mt-2 w-full max-w-sm rounded-2xl border border-accent/40 bg-accent/10 p-4 text-left">
                 <p className="mb-1 text-sm font-bold text-accent">Paiement Monero (XMR)</p>
                 {cryptoPayment.payAmount && (
@@ -505,6 +526,16 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     Envoie le montant XMR à l&apos;adresse ci-dessus (aussi dans ta messagerie).
                   </p>
                 ) : null}
+              </div>
+            )}
+
+            {isLocker && lockerPayMethod === "wiro" && (
+              <div className="mt-2 w-full max-w-sm rounded-2xl border border-accent/40 bg-accent/10 p-4 text-left">
+                <p className="mb-1 text-sm font-bold text-accent">Paiement Wero</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Les coordonnées Wero te seront confirmées par le vendeur. Envoie le virement, signale-le, puis
+                  récupère ton token TRK_ en messagerie après confirmation.
+                </p>
               </div>
             )}
 
@@ -640,29 +671,80 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     Frais d&apos;envoi Locker : <span className="font-semibold text-foreground">{FEE_LOCKER}€</span>. Saisis l&apos;adresse exacte du point Locker Mondial Relay choisi.
                   </p>
 
-                  {/* Obligation de lire le tuto XMR avant de valider */}
+                  {/* Choix paiement Locker : XMR ou Wero */}
                   <div className="mt-3 rounded-2xl border border-border bg-background/60 p-4">
-                    <p className="mb-3 text-sm font-semibold">Paiement requis avant expedition</p>
+                    <p className="mb-3 text-sm font-semibold">Paiement requis avant expédition</p>
                     <p className="mb-3 text-xs text-muted-foreground leading-relaxed">
-                      Les commandes Locker sont expedieees uniquement apres reception du paiement en <span className="font-semibold text-foreground">Monero (XMR)</span>. Tu dois lire le tutoriel de paiement avant de valider ta commande.
+                      Choisis ton mode de paiement. Après envoi et confirmation par le vendeur, tu recevras un{" "}
+                      <span className="font-semibold text-foreground">token TRK_</span> en messagerie pour débloquer le suivi Locker.
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => setXmrModalOpen(true)}
-                      className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-accent/60 bg-accent/10 px-3 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/20"
+
+                    <div className="mb-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLockerPayMethod("xmr")
+                          setPayConfirmed(false)
+                        }}
+                        className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ${
+                          lockerPayMethod === "xmr"
+                            ? "border-accent bg-accent/15 text-accent"
+                            : "border-border text-muted-foreground hover:border-accent/40"
+                        }`}
+                      >
+                        Monero (XMR)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLockerPayMethod("wiro")
+                          setPayConfirmed(false)
+                        }}
+                        className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ${
+                          lockerPayMethod === "wiro"
+                            ? "border-accent bg-accent/15 text-accent"
+                            : "border-border text-muted-foreground hover:border-accent/40"
+                        }`}
+                      >
+                        Wero (virement)
+                      </button>
+                    </div>
+
+                    {lockerPayMethod === "xmr" ? (
+                      <button
+                        type="button"
+                        onClick={() => setXmrModalOpen(true)}
+                        className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-accent/60 bg-accent/10 px-3 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/20"
+                      >
+                        <Lock className="h-4 w-4" aria-hidden="true" />
+                        Lire le tutoriel paiement XMR
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setWiroModalOpen(true)}
+                        className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-accent/60 bg-accent/10 px-3 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/20"
+                      >
+                        <Lock className="h-4 w-4" aria-hidden="true" />
+                        Lire le tutoriel paiement Wero
+                      </button>
+                    )}
+
+                    <label
+                      className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${
+                        payConfirmed ? "border-accent bg-accent/10" : "border-border"
+                      }`}
                     >
-                      <Lock className="h-4 w-4" aria-hidden="true" />
-                      Lire le tutoriel paiement XMR
-                    </button>
-                    <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${xmrConfirmed ? "border-accent bg-accent/10" : "border-border"}`}>
                       <input
                         type="checkbox"
-                        checked={xmrConfirmed}
-                        onChange={(e) => setXmrConfirmed(e.target.checked)}
+                        checked={payConfirmed}
+                        onChange={(e) => setPayConfirmed(e.target.checked)}
                         className="h-4 w-4 accent-[var(--accent)]"
                       />
                       <span className="text-xs leading-relaxed">
-                        J&apos;ai lu et compris le tutoriel de paiement XMR. Je sais que ma commande sera expedieee apres reception du paiement.
+                        {lockerPayMethod === "wiro"
+                          ? "J'ai lu le tutoriel Wero. Je comprends que le token de suivi sera envoyé après confirmation du virement."
+                          : "J'ai lu le tutoriel XMR. Je comprends que le token de suivi sera envoyé après confirmation du dépôt."}
                       </span>
                     </label>
                   </div>
@@ -915,7 +997,9 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
               {!canValidate && items.length > 0 && (
                 <p className="mt-2 text-center text-xs text-muted-foreground">
                   {isLocker
-                    ? "Renseigne l'adresse du Locker pour valider."
+                    ? !lockerAddress.trim()
+                      ? "Renseigne l'adresse du Locker pour valider."
+                      : "Lis le tutoriel et coche la case paiement pour valider."
                     : isMeetup
                       ? "Renseigne l'heure de retrait et la date pour valider."
                       : "Renseigne l'adresse, le créneau et la date pour valider."}
@@ -1028,7 +1112,120 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
             <div className="shrink-0 px-6 py-4">
               <button
                 type="button"
-                onClick={() => { setXmrConfirmed(true); setXmrModalOpen(false) }}
+                onClick={() => {
+                  setPayConfirmed(true)
+                  setXmrModalOpen(false)
+                }}
+                className="w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+              >
+                J&apos;ai compris, je confirme
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale Wero — tutoriel virement instantané */}
+      {wiroModalOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setWiroModalOpen(false)}
+        >
+          <div
+            className="flex w-full max-w-sm flex-col rounded-3xl border border-border bg-card shadow-2xl"
+            style={{ maxHeight: "90dvh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between px-6 pt-6 pb-4">
+              <div className="flex items-center gap-2">
+                <Lock className="h-5 w-5 text-accent opacity-80" aria-hidden="true" />
+                <h2 className="text-base font-bold">Paiement Wero</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWiroModalOpen(false)}
+                aria-label="Fermer"
+                className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 pb-2 text-sm text-muted-foreground">
+              <div className="mb-4 rounded-2xl border border-accent/20 bg-accent/5 p-3">
+                <p className="mb-1 font-semibold text-foreground">Qu&apos;est-ce que Wero ?</p>
+                <p className="text-xs leading-relaxed">
+                  Wero (anciennement Paylib) est un virement instantané européen via ton app bancaire. Tu envoies
+                  l&apos;argent avec un numéro de téléphone ou un email — sans IBAN.
+                </p>
+              </div>
+
+              <p className="mb-3 font-semibold text-foreground">Comment payer en 4 étapes</p>
+              <ol className="flex flex-col gap-3">
+                <li className="flex gap-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">
+                    1
+                  </span>
+                  <div>
+                    <p className="font-medium text-foreground">Valide ta commande Locker</p>
+                    <p className="text-xs leading-relaxed">
+                      Choisis Wero au checkout. Le vendeur te communiquera son identifiant Wero (téléphone ou email).
+                    </p>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">
+                    2
+                  </span>
+                  <div>
+                    <p className="font-medium text-foreground">Ouvre ton app bancaire</p>
+                    <p className="text-xs leading-relaxed">
+                      Section Virement → « Envoyer avec Wero » (ou équivalent selon ta banque : BNP, CA, CM, etc.).
+                    </p>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">
+                    3
+                  </span>
+                  <div>
+                    <p className="font-medium text-foreground">Envoie le montant exact</p>
+                    <p className="text-xs leading-relaxed">
+                      Saisis l&apos;identifiant Wero reçu et le total de la commande à l&apos;euro près.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">
+                    4
+                  </span>
+                  <div>
+                    <p className="font-medium text-foreground">Signale puis récupère ton token</p>
+                    <p className="text-xs leading-relaxed">
+                      Clique sur « J&apos;ai effectué mon virement ». Après confirmation vendeur, tu reçois ton token{" "}
+                      <span className="font-mono text-foreground">TRK_</span> en messagerie pour le suivi Locker.
+                    </p>
+                  </div>
+                </li>
+              </ol>
+
+              <div className="mt-4 mb-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
+                <p className="mb-1 font-semibold text-amber-400">Important</p>
+                <ul className="flex flex-col gap-1 text-xs leading-relaxed">
+                  <li>— Envoie exactement le montant demandé.</li>
+                  <li>— Vérifie l&apos;identifiant Wero caractère par caractère.</li>
+                  <li>— Le token TRK_ n&apos;est envoyé qu&apos;après confirmation du virement.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="shrink-0 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setPayConfirmed(true)
+                  setWiroModalOpen(false)
+                }}
                 className="w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
               >
                 J&apos;ai compris, je confirme
