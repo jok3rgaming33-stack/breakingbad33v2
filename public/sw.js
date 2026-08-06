@@ -19,12 +19,19 @@ self.addEventListener("push", (event) => {
   }
 
   const title = data.title || "BreakingBad33"
+  const targetUrl = data.url || "/"
   const options = {
     body: data.body || "",
     icon: "/images/logoapp.png",
     badge: "/images/logoapp.png",
     tag: data.tag || undefined,
-    data: { url: data.url || "/" },
+    // Conservé pour le clic → deep-link (messagerie / commande / admin)
+    data: {
+      url: targetUrl,
+      threadId: data.threadId || null,
+      open: data.open || null,
+      notificationId: data.notificationId || null,
+    },
     vibrate: [80, 40, 80],
     // Propriété "image" : grande image affichée dans le corps de la notification
     // (Android Chrome, Edge). Ignorée silencieusement sur les plateformes qui ne la supportent pas.
@@ -73,7 +80,8 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close()
-  const targetUrl = (event.notification.data && event.notification.data.url) || "/"
+  const nd = event.notification.data || {}
+  const targetUrl = nd.url || "/"
 
   event.waitUntil(
     Promise.all([
@@ -88,23 +96,47 @@ self.addEventListener("notificationclick", (event) => {
         } catch (e) {}
       })(),
       self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
-        // Si un onglet de l'app est déjà ouvert, on le focus et on navigue.
+        // Préfère un onglet déjà sur le site (même origine)
+        for (const client of clientList) {
+          try {
+            const origin = self.location.origin
+            if (client.url && client.url.startsWith(origin) && "focus" in client) {
+              client.focus()
+              // Deep-link SPA sans rechargement complet si possible
+              try {
+                client.postMessage({
+                  type: "BB33_DEEP_LINK",
+                  url: targetUrl,
+                  threadId: nd.threadId || null,
+                  open: nd.open || null,
+                })
+              } catch (e) {}
+              try {
+                client.postMessage({ type: "BB33_REFRESH_BADGES" })
+              } catch (e) {}
+              // Fallback navigate si l'URL diffère vraiment
+              if ("navigate" in client && targetUrl) {
+                try {
+                  const abs = new URL(targetUrl, origin).href
+                  if (client.url.split("?")[0] !== abs.split("?")[0] || abs.includes("?")) {
+                    client.navigate(abs)
+                  }
+                } catch (e) {}
+              }
+              return
+            }
+          } catch (e) {}
+        }
         for (const client of clientList) {
           if ("focus" in client) {
             client.focus()
-            if ("navigate" in client) {
-              try {
-                client.navigate(targetUrl)
-              } catch (e) {}
-            }
-            // Demande à la page de resync les compteurs
             try {
+              client.postMessage({ type: "BB33_DEEP_LINK", url: targetUrl })
               client.postMessage({ type: "BB33_REFRESH_BADGES" })
             } catch (e) {}
             return
           }
         }
-        // Sinon on ouvre une nouvelle fenêtre.
         if (self.clients.openWindow) {
           return self.clients.openWindow(targetUrl)
         }

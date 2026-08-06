@@ -3,36 +3,40 @@
 import { createContext, useContext, useCallback, useEffect, useRef, useState } from "react"
 import { getCustomerThreadsOverview } from "@/app/actions/messaging"
 import { normalizeStatus, statusMeta, type OrderStatusKey } from "@/lib/order-status"
+import { sectionForThreadStatus, type ClientOpenSection } from "@/lib/deep-links"
 
 export type OrderNotification = {
   id: string
   threadId: number
-  kind: "status" | "message"
+  kind: "status" | "message" | "broadcast" | "trk"
   status: OrderStatusKey
+  rawStatus: string
   label: string
   createdAt: number
   read: boolean
+  /** Où ouvrir au clic */
+  openTarget: ClientOpenSection
 }
 
-type SeenEntry = { status: OrderStatusKey; vendor: number }
+type SeenEntry = { status: string; vendor: number }
 
 type NotificationsContextValue = {
   notifications: OrderNotification[]
   unreadCount: number
   markAllRead: () => void
+  markRead: (id: string) => void
   clearAll: () => void
 }
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null)
 
-const POLL_MS = 15000
+const POLL_MS = 12000
 
 function seenKey(pseudo: string) {
-  // v2 : suit désormais { statut, nb messages vendeur } par commande
-  return `notif:${pseudo}:seen2`
+  return `notif:${pseudo}:seen3`
 }
 function listKey(pseudo: string) {
-  return `notif:${pseudo}:list`
+  return `notif:${pseudo}:list3`
 }
 
 function readJSON<T>(key: string, fallback: T): T {
@@ -43,6 +47,13 @@ function readJSON<T>(key: string, fallback: T): T {
   } catch {
     return fallback
   }
+}
+
+function labelFor(status: string, kind: OrderNotification["kind"]): string {
+  if (kind === "broadcast") return "Nouvelle notification"
+  if (kind === "trk") return "Token de suivi Locker — à sauvegarder"
+  if (kind === "message") return "Nouveau message du vendeur"
+  return statusMeta(normalizeStatus(status)).label
 }
 
 export function NotificationsProvider({
@@ -59,7 +70,6 @@ export function NotificationsProvider({
   const [notifications, setNotifications] = useState<OrderNotification[]>([])
   const seenRef = useRef<Record<number, SeenEntry>>({})
 
-  // Charge l'état persisté quand le pseudo devient disponible
   useEffect(() => {
     if (!pseudo) {
       setNotifications([])
@@ -87,44 +97,82 @@ export function NotificationsProvider({
     const fresh: OrderNotification[] = []
 
     for (const t of threads) {
-      const current = normalizeStatus(t.status)
+      const rawStatus = t.status || "en_attente"
+      const current = normalizeStatus(rawStatus)
       const vendor = t.vendorCount ?? 0
       const previous = seen[t.id]
+      const openTarget = sectionForThreadStatus(rawStatus)
+
       if (previous === undefined) {
-        // Première observation de cette commande : on enregistre sans notifier (pas de spam)
-        seen[t.id] = { status: current, vendor }
+        // Première observation
+        seen[t.id] = { status: rawStatus, vendor }
+        // Broadcast admin / TRK : notifier immédiatement (sinon jamais de pastille)
+        if (rawStatus === "notification" && vendor > 0) {
+          fresh.push({
+            id: `${t.id}-broadcast-${Date.now()}`,
+            threadId: t.id,
+            kind: "broadcast",
+            status: current,
+            rawStatus,
+            label: labelFor(rawStatus, "broadcast"),
+            createdAt: Date.now(),
+            read: false,
+            openTarget: "messaging",
+          })
+        } else if (rawStatus === "trk_token") {
+          fresh.push({
+            id: `${t.id}-trk-${Date.now()}`,
+            threadId: t.id,
+            kind: "trk",
+            status: current,
+            rawStatus,
+            label: labelFor(rawStatus, "trk"),
+            createdAt: Date.now(),
+            read: false,
+            openTarget: "orders",
+          })
+        }
         continue
       }
-      // Changement de statut → notification
-      if (previous.status !== current) {
+
+      if (previous.status !== rawStatus) {
         fresh.push({
-          id: `${t.id}-status-${current}-${Date.now()}`,
+          id: `${t.id}-status-${rawStatus}-${Date.now()}`,
           threadId: t.id,
-          kind: "status",
+          kind: rawStatus === "notification" ? "broadcast" : "status",
           status: current,
-          label: statusMeta(current).label,
+          rawStatus,
+          label:
+            rawStatus === "notification"
+              ? labelFor(rawStatus, "broadcast")
+              : statusMeta(current).label,
           createdAt: Date.now(),
           read: false,
+          openTarget,
         })
       }
-      // Nouveau(x) message(s) du vendeur → notification
       if (vendor > previous.vendor) {
         fresh.push({
           id: `${t.id}-msg-${vendor}-${Date.now()}`,
           threadId: t.id,
-          kind: "message",
+          kind: rawStatus === "notification" ? "broadcast" : "message",
           status: current,
-          label: "Nouveau message du vendeur",
+          rawStatus,
+          label:
+            rawStatus === "notification"
+              ? labelFor(rawStatus, "broadcast")
+              : labelFor(rawStatus, "message"),
           createdAt: Date.now(),
           read: false,
+          openTarget,
         })
       }
-      seen[t.id] = { status: current, vendor }
+      seen[t.id] = { status: rawStatus, vendor }
     }
 
     if (fresh.length > 0) {
       setNotifications((prev) => {
-        const next = [...fresh, ...prev].slice(0, 30)
+        const next = [...fresh, ...prev].slice(0, 40)
         if (pseudo) localStorage.setItem(listKey(pseudo), JSON.stringify(next))
         return next
       })
@@ -132,12 +180,10 @@ export function NotificationsProvider({
     if (pseudo) localStorage.setItem(seenKey(pseudo), JSON.stringify(seen))
   }, [pseudo, token])
 
-  // Sondage périodique
   useEffect(() => {
     if (!enabled || !pseudo || !token) return
     poll()
     const interval = setInterval(poll, POLL_MS)
-    // Re-sonde quand l'onglet reprend le focus
     const onVisible = () => {
       if (document.visibilityState === "visible") poll()
     }
@@ -156,6 +202,17 @@ export function NotificationsProvider({
     })
   }, [pseudo])
 
+  const markRead = useCallback(
+    (id: string) => {
+      setNotifications((prev) => {
+        const next = prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+        if (pseudo) localStorage.setItem(listKey(pseudo), JSON.stringify(next))
+        return next
+      })
+    },
+    [pseudo],
+  )
+
   const clearAll = useCallback(() => {
     setNotifications([])
     if (pseudo) localStorage.setItem(listKey(pseudo), JSON.stringify([]))
@@ -164,7 +221,9 @@ export function NotificationsProvider({
   const unreadCount = notifications.reduce((acc, n) => acc + (n.read ? 0 : 1), 0)
 
   return (
-    <NotificationsContext.Provider value={{ notifications, unreadCount, markAllRead, clearAll }}>
+    <NotificationsContext.Provider
+      value={{ notifications, unreadCount, markAllRead, markRead, clearAll }}
+    >
       {children}
     </NotificationsContext.Provider>
   )
@@ -173,8 +232,13 @@ export function NotificationsProvider({
 export function useNotifications() {
   const ctx = useContext(NotificationsContext)
   if (!ctx) {
-    // Fallback neutre si le provider est absent (ex. admin)
-    return { notifications: [], unreadCount: 0, markAllRead: () => {}, clearAll: () => {} }
+    return {
+      notifications: [] as OrderNotification[],
+      unreadCount: 0,
+      markAllRead: () => {},
+      markRead: (_id: string) => {},
+      clearAll: () => {},
+    }
   }
   return ctx
 }

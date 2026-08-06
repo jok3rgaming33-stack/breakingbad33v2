@@ -48,6 +48,10 @@ type MyOrdersModalProps = {
   isOpen: boolean
   onClose: () => void
   userData: UserData
+  /** Deep-link : ouvrir ce fil (commandes / trk / locker) */
+  focusThreadId?: number | null
+  focusTab?: "active" | "locker" | "past" | null
+  onFocusConsumed?: () => void
 }
 
 type Thread = {
@@ -80,7 +84,14 @@ function isTrkMessage(t: Thread) {
   return t.status === "trk_token"
 }
 
-export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps) {
+export function MyOrdersModal({
+  isOpen,
+  onClose,
+  userData,
+  focusThreadId = null,
+  focusTab = null,
+  onFocusConsumed,
+}: MyOrdersModalProps) {
   const token = userData?.token ?? ""
   const [threads, setThreads] = useState<Thread[]>([])
   const [tab, setTab] = useState<"active" | "locker" | "past">("active")
@@ -163,6 +174,29 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
   useEffect(() => {
     selectedRef.current = selected?.id ?? null
   }, [selected])
+
+  // Deep-link depuis cloche / push
+  useEffect(() => {
+    if (!isOpen || !focusThreadId) return
+    if (focusTab) setTab(focusTab)
+    const fromOrders = threads.find((t) => t.id === focusThreadId)
+    const fromLocker = lockerThreads.find((t) => t.id === focusThreadId)
+    const t = fromOrders || fromLocker
+    if (!t) return
+    if (fromLocker && !fromOrders) {
+      setTab("locker")
+      setLockerUnlocked(t.id)
+    } else if (isTrkMessage(t)) {
+      setTab("active")
+    } else if (isClosedStatus(t.status)) {
+      setTab("past")
+    } else {
+      setTab("active")
+    }
+    void openThread(t)
+    onFocusConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, focusThreadId, threads, lockerThreads, focusTab])
 
   const openThread = async (thread: Thread) => {
     setSelected(thread)

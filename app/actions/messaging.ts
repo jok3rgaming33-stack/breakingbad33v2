@@ -11,6 +11,7 @@ import { adjustStock } from "@/app/actions/products"
 import { createXmrPaymentForOrder } from "@/app/actions/crypto-payment"
 import { getPaysafecardConfig } from "@/app/actions/settings"
 import { PAYSAFECARD_OFFICIAL } from "@/lib/paysafecard"
+import { adminThreadUrl, clientThreadUrl, sectionForThreadStatus } from "@/lib/deep-links"
 
 export type LockerPaymentMethod = "xmr" | "paysafecard"
 
@@ -112,8 +113,10 @@ async function sendTrkTokenMessage(opts: {
   await notifyCustomer(opts.customerToken, {
     title: "Token de suivi Locker — À SAUVEGARDER",
     body: "Paiement confirmé. Ouvre ta messagerie pour récupérer ton token TRK_ (supprimé après lecture).",
-    url: "/",
+    url: clientThreadUrl("orders", trkThread.id),
     tag: `trk-${opts.orderId}`,
+    threadId: trkThread.id,
+    open: "orders",
   }).catch(() => {})
 
   return trkThread.id
@@ -229,8 +232,10 @@ export async function createOrderThread(input: NewOrderInput) {
       body: `${name} vient de passer une commande (#${thread.id})${
         isLocker ? ` — LOCKER (${paymentMethod === "paysafecard" ? "Paysafecard" : "XMR"})` : ""
       }.`,
-      url: "/admin",
+      url: adminThreadUrl(isLocker ? "locker" : "commandes-en-cours", thread.id),
       tag: `order-${thread.id}`,
+      threadId: thread.id,
+      open: isLocker ? "locker" : "commandes-en-cours",
     }).catch(() => {})
 
     // Paiement XMR NOWPayments — uniquement si XMR, optionnel, timeout court, jamais bloquant
@@ -335,8 +340,10 @@ export async function createGeneralInquiryThread(input: {
   await notifyVendor({
     title: `Message de ${name}`,
     body: body.length > 80 ? `${body.slice(0, 77)}…` : body,
-    url: "/admin",
+    url: adminThreadUrl("messagerie", thread.id),
     tag: `thread-${thread.id}`,
+    threadId: thread.id,
+    open: "messagerie",
   }).catch(() => {})
 
   revalidatePath("/messagerie")
@@ -500,21 +507,31 @@ export async function addMessage(
       .trim()
     const preview = cleanPreview.length > 80 ? `${cleanPreview.slice(0, 77)}…` : cleanPreview
     if (sender === "vendeur") {
-      // Message du vendeur → push facultatif : le message en base reste visible
-      // dans la messagerie même si le client n'a pas activé les notifications.
+      const section = sectionForThreadStatus(thread.status)
       await notifyCustomer(thread.customerToken, {
         title: "Nouveau message du vendeur",
         body: preview,
-        url: "/",
+        url: clientThreadUrl(section, threadId),
         tag: `thread-${threadId}`,
+        threadId,
+        open: section,
       }).catch(() => {})
     } else {
-      // Message du client → push facultatif côté vendeur.
+      const isDiscussion = ["discussion", "pris_en_charge", "ouvert", "ferme"].includes(
+        thread.status || "",
+      )
+      const tab = isDiscussion
+        ? "messagerie"
+        : thread.fulfillment === "locker"
+          ? "locker"
+          : "commandes-en-cours"
       await notifyVendor({
         title: `Message de ${thread.customerName}`,
         body: preview,
-        url: "/admin",
+        url: adminThreadUrl(tab, threadId),
         tag: `thread-${threadId}`,
+        threadId,
+        open: tab,
       }).catch(() => {})
     }
   }
@@ -614,8 +631,13 @@ export async function updateThreadStatus(
       await notifyCustomer(current.customerToken, {
         title: `Commande #${threadId} — ${statusMeta(nextKey).label}`,
         body,
-        url: "/",
+        url: clientThreadUrl(
+          current.fulfillment === "locker" ? "locker" : "orders",
+          threadId,
+        ),
         tag: `status-${threadId}`,
+        threadId,
+        open: current.fulfillment === "locker" ? "locker" : "orders",
       }).catch(() => {})
     }
   }

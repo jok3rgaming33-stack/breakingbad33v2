@@ -31,6 +31,9 @@ export type PushPayload = {
   notificationId?: number
   customerToken?: string
   badgeCount?: number
+  /** Deep-link : id fil + section (messaging | orders | locker) */
+  threadId?: number
+  open?: string
 }
 
 // Envoie une notification à une liste d'abonnements et nettoie ceux qui sont expirés.

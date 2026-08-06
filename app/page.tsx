@@ -22,6 +22,8 @@ import { ShopSections } from "@/components/shop-sections"
 import { RecoveryBanner } from "@/components/recovery-banner"
 import { AppBadgeSync } from "@/components/app-badge-sync"
 import { setAppBadgeCount } from "@/lib/app-badge"
+import type { OrderNotification } from "@/components/notifications-provider"
+import type { ClientOpenSection } from "@/lib/deep-links"
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -36,6 +38,9 @@ export default function Home() {
   const [userData, setUserData] = useState<{ pseudo?: string; token?: string } | null>(null)
   const [unreadMessaging, setUnreadMessaging] = useState(0)
   const [unreadOrders, setUnreadOrders] = useState(0)
+  // Deep-link depuis push / cloche → fil précis
+  const [focusThreadId, setFocusThreadId] = useState<number | null>(null)
+  const [focusOrdersTab, setFocusOrdersTab] = useState<"active" | "locker" | "past" | null>(null)
 
   const refreshUnread = useCallback(async (token?: string) => {
     if (!token) return
@@ -67,7 +72,35 @@ export default function Home() {
     }
   }, [userData?.token, isAdmin, refreshUnread])
 
-  // Service worker → resync badges (clic notif push)
+  const applyClientDeepLink = useCallback((rawUrl: string) => {
+    try {
+      const u = rawUrl.startsWith("http")
+        ? new URL(rawUrl)
+        : new URL(rawUrl, window.location.origin)
+      const open = (u.searchParams.get("open") || "") as ClientOpenSection | ""
+      const thread = Number(u.searchParams.get("thread") || 0)
+      const tid = Number.isFinite(thread) && thread > 0 ? thread : null
+
+      if (open === "messaging") {
+        if (tid) setFocusThreadId(tid)
+        setIsMessagingOpen(true)
+        setIsOrdersOpen(false)
+      } else if (open === "orders" || open === "locker") {
+        if (tid) setFocusThreadId(tid)
+        setFocusOrdersTab(open === "locker" ? "locker" : "active")
+        setIsOrdersOpen(true)
+        setIsMessagingOpen(false)
+      } else if (tid) {
+        // thread seul → messagerie par défaut (annonces)
+        setFocusThreadId(tid)
+        setIsMessagingOpen(true)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  // Service worker → resync badges + deep-link au clic push
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return
     const onMsg = (event: MessageEvent) => {
@@ -77,10 +110,25 @@ export default function Home() {
           void refreshUnread(token)
         }
       }
+      if (event.data?.type === "BB33_DEEP_LINK" && event.data?.url) {
+        applyClientDeepLink(String(event.data.url))
+      }
     }
     navigator.serviceWorker.addEventListener("message", onMsg)
     return () => navigator.serviceWorker.removeEventListener("message", onMsg)
-  }, [refreshUnread])
+  }, [refreshUnread, applyClientDeepLink])
+
+  const handleOpenNotification = useCallback((n: OrderNotification) => {
+    setFocusThreadId(n.threadId)
+    if (n.openTarget === "messaging") {
+      setIsMessagingOpen(true)
+      setIsOrdersOpen(false)
+    } else {
+      setFocusOrdersTab(n.openTarget === "locker" ? "locker" : n.kind === "trk" ? "active" : "active")
+      setIsOrdersOpen(true)
+      setIsMessagingOpen(false)
+    }
+  }, [])
 
   // Au montage, on restaure la session pour éviter de retomber sur l'écran de
   // connexion lors d'un rechargement de la même session navigateur.
@@ -197,18 +245,20 @@ export default function Home() {
   }
 
   // Deep-link messagerie après KYC récupération (?open=messaging)
+  // Deep-link URL au chargement (?open=messaging&thread=…)
   useEffect(() => {
     if (typeof window === "undefined") return
     const params = new URLSearchParams(window.location.search)
-    if (params.get("open") !== "messaging") return
-    window.history.replaceState({}, "", window.location.pathname)
+    if (!params.get("open") && !params.get("thread")) return
     const token = localStorage.getItem("authToken")
     const pseudo = localStorage.getItem("userPseudo")
-    if (!token || !pseudo) return
-    setIsAuthenticated(true)
-    setUserData({ token, pseudo })
-    setIsMessagingOpen(true)
-  }, [])
+    if (token && pseudo && localStorage.getItem("isAdmin") !== "1") {
+      setIsAuthenticated(true)
+      setUserData({ token, pseudo })
+    }
+    applyClientDeepLink(window.location.href)
+    window.history.replaceState({}, "", window.location.pathname)
+  }, [applyClientDeepLink])
 
   const handleLogout = () => {
     setIsAuthenticated(false)
@@ -246,6 +296,7 @@ export default function Home() {
         isAdmin={isAdmin}
         unreadMessaging={unreadMessaging}
         unreadOrders={unreadOrders}
+        onOpenNotification={handleOpenNotification}
       />
 
       <main>
@@ -278,9 +329,16 @@ export default function Home() {
         isOpen={isOrdersOpen}
         onClose={() => {
           setIsOrdersOpen(false)
+          setFocusThreadId(null)
+          setFocusOrdersTab(null)
           if (userData?.token) refreshUnread(userData.token)
         }}
         userData={userData}
+        focusThreadId={isOrdersOpen ? focusThreadId : null}
+        focusTab={focusOrdersTab}
+        onFocusConsumed={() => {
+          /* garde focusThreadId jusqu'à fermeture pour re-render stable */
+        }}
       />
 
       <DeliveryInfoModal isOpen={isDeliveryOpen} onClose={() => setIsDeliveryOpen(false)} />
@@ -292,10 +350,13 @@ export default function Home() {
         onClose={() => {
           setIsMessagingOpen(false)
           setAutoOpenLatestMessaging(false)
+          setFocusThreadId(null)
           if (userData?.token) refreshUnread(userData.token)
         }}
         userData={userData}
         autoOpenLatest={autoOpenLatestMessaging}
+        focusThreadId={isMessagingOpen ? focusThreadId : null}
+        onFocusConsumed={() => {}}
       />
 
       {/* Popup News à l'entrée du site (client connecté non admin) */}
