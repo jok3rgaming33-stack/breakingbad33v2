@@ -6,6 +6,7 @@ import { deleteUserAccount, setLoyaltyAdjustment, setUserFlags, setUserNickname 
 import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle, Pencil, Check, X, Copy, Tag, ChevronDown, MessageSquare, Send, KeyRound } from "lucide-react"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { createGeneralInquiryThread } from "@/app/actions/messaging"
+import { grantRestoreAccess } from "@/app/actions/restore-access"
 
 // Étiquettes (flags) sélectionnables pour signaler un compte.
 const FLAG_OPTIONS: { value: string; label: string; className: string }[] = [
@@ -118,6 +119,11 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [contactMsg, setContactMsg] = useState("")
   const [contactSending, setContactSending] = useState(false)
   const [contactDone, setContactDone] = useState(false)
+  const [restoreUser, setRestoreUser] = useState<AdminUserRow | null>(null)
+  const [restoreUrl, setRestoreUrl] = useState("")
+  const [restoreSending, setRestoreSending] = useState(false)
+  const [restoreCopied, setRestoreCopied] = useState(false)
+  const [restoreError, setRestoreError] = useState("")
   // Édition du surnom interne (nickname)
   const [nickEditId, setNickEditId] = useState<number | null>(null)
   const [nickValue, setNickValue] = useState("")
@@ -235,6 +241,37 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
       }
     } finally {
       setContactSending(false)
+    }
+  }
+
+  const handleRestoreAccess = async (user: AdminUserRow) => {
+    setRestoreUser(user)
+    setRestoreUrl("")
+    setRestoreError("")
+    setRestoreCopied(false)
+    setRestoreSending(true)
+    try {
+      const result = await grantRestoreAccess(user.token, window.location.origin)
+      if (!result.ok || !result.restoreUrl) {
+        setRestoreError(result.error ?? "Impossible de générer le lien.")
+        return
+      }
+      setRestoreUrl(result.restoreUrl)
+    } catch {
+      setRestoreError("Impossible de générer le lien de récupération.")
+    } finally {
+      setRestoreSending(false)
+    }
+  }
+
+  const copyRestoreUrl = async () => {
+    if (!restoreUrl) return
+    try {
+      await navigator.clipboard.writeText(restoreUrl)
+      setRestoreCopied(true)
+      window.setTimeout(() => setRestoreCopied(false), 2000)
+    } catch {
+      setRestoreError("Copie impossible. Sélectionne le lien manuellement.")
     }
   }
 
@@ -470,6 +507,20 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
+                          onClick={() => handleRestoreAccess(u)}
+                          disabled={restoreSending}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+                          title="Générer un lien de récupération valable 24 heures"
+                        >
+                          {restoreSending && restoreUser?.id === u.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                          )}
+                          Récupérer
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => { setContactUser(u); setContactMsg(""); setContactDone(false) }}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
                         >
@@ -498,6 +549,74 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
           </table>
         </div>
       </div>
+
+      {/* Modale de récupération : le lien peut être copié dans WhatsApp */}
+      {restoreUser && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-background/90 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Récupérer le compte de ${restoreUser.pseudo}`}
+        >
+          <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-6">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-bold">Lien de récupération généré</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Envoie ce lien directement à {restoreUser.pseudo} par WhatsApp. Il expire dans 24 heures et ne peut être utilisé qu&apos;une fois.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRestoreUser(null)}
+                className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                aria-label="Fermer"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+            {restoreSending ? (
+              <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-background/50 px-3 py-4 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Génération du lien…
+              </div>
+            ) : restoreError ? (
+              <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{restoreError}</p>
+            ) : (
+              <>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    value={restoreUrl}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="min-w-0 flex-1 rounded-xl border border-border bg-background/60 px-3 py-2.5 font-mono text-xs outline-none"
+                    aria-label="Lien de récupération"
+                  />
+                  <button
+                    type="button"
+                    onClick={copyRestoreUrl}
+                    className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-accent px-3 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+                  >
+                    {restoreCopied ? <Check className="h-4 w-4" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
+                    {restoreCopied ? "Copié" : "Copier"}
+                  </button>
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Le client ouvrira le lien, choisira une nouvelle clé, puis l&apos;ancienne clé sera invalidée automatiquement.
+                </p>
+              </>
+            )}
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setRestoreUser(null)}
+                className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modale de contact client */}
       {contactUser && (
