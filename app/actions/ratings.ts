@@ -219,11 +219,12 @@ export async function getProductRatingSummaries(productIds: number[]): Promise<R
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function getProductRatingDetails(productId: number): Promise<ProductRatingDetail[]> {
+  // Alias explicite pour éviter tout conflit de nommage Drizzle entre les tables.
   const rows = await db
     .select({
       id: productRatings.id,
       customerToken: productRatings.customerToken,
-      pseudo: users.pseudo,
+      userPseudo: users.pseudo,
       threadId: productRatings.threadId,
       quality: productRatings.quality,
       quantity: productRatings.quantity,
@@ -238,8 +239,16 @@ export async function getProductRatingDetails(productId: number): Promise<Produc
     .orderBy(sql`${productRatings.createdAt} DESC`)
 
   return rows.map((r) => ({
-    ...r,
-    pseudo: r.pseudo ?? null,
+    id: r.id,
+    customerToken: r.customerToken,
+    pseudo: r.userPseudo ?? null,
+    threadId: r.threadId,
+    quality: r.quality,
+    quantity: r.quantity,
+    packaging: r.packaging,
+    delivery: r.delivery,
+    comment: r.comment,
+    createdAt: r.createdAt,
     avgScore: avgOfFour(r),
   }))
 }

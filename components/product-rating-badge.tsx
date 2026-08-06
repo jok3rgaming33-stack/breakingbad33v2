@@ -27,13 +27,13 @@ export function RatingBadge({
           setOpen(true)
         }}
         aria-label={`Note ${summary.avgScore}/5 — voir les avis pour ${productTitle}`}
-        className="flex items-center gap-0.5 rounded-full border border-amber-400/30 bg-black/70 px-2 py-0.5 backdrop-blur-sm transition-colors hover:border-amber-400/60"
+        className="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 ring-1 ring-amber-400/30 transition-colors hover:bg-amber-400/25"
       >
         <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-        <span className="font-mono text-[10px] font-bold tabular-nums text-amber-300">
+        <span className="font-mono text-[11px] font-bold tabular-nums text-amber-300 leading-none">
           {summary.avgScore.toFixed(1)}
         </span>
-        <span className="text-[9px] text-zinc-500">({summary.count})</span>
+        <span className="text-[10px] text-zinc-400 leading-none">({summary.count})</span>
       </button>
 
       {open && (
@@ -105,14 +105,14 @@ function RatingDetailsModal({
 
   return (
     <div
-      className="fixed inset-0 z-[140] flex items-center justify-center bg-background/90 p-4"
+      className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label={`Avis pour ${productTitle}`}
       onClick={onClose}
     >
       <div
-        className="relative flex max-h-[85dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-border bg-card"
+        className="relative flex max-h-[85dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* En-tête */}
