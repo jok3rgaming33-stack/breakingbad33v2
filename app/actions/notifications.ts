@@ -37,15 +37,18 @@ async function ensureNotificationSchema() {
         ALTER TABLE broadcast_notifications
         ADD COLUMN IF NOT EXISTS media JSONB NOT NULL DEFAULT '[]'::jsonb
       `)
-      // Unique (notif, client) pour onConflictDoNothing du suivi lu/non-lu
       await db.execute(sql`
         CREATE UNIQUE INDEX IF NOT EXISTS notification_reads_notif_token_uidx
         ON notification_reads (notification_id, customer_token)
       `)
-      // Colonnes order_threads requises pour créer un fil "notification"
+      // Colonnes optionnelles / NOT NULL qui cassent l'INSERT drizzle si absentes ou sans DEFAULT
       await db.execute(sql`
         ALTER TABLE order_threads
         ADD COLUMN IF NOT EXISTS product_ids JSONB NOT NULL DEFAULT '[]'::jsonb
+      `)
+      await db.execute(sql`
+        ALTER TABLE order_threads
+        ALTER COLUMN product_ids SET DEFAULT '[]'::jsonb
       `)
       await db.execute(sql`
         ALTER TABLE order_threads
@@ -53,7 +56,15 @@ async function ensureNotificationSchema() {
       `)
       await db.execute(sql`
         ALTER TABLE order_threads
+        ALTER COLUMN deposit_notified SET DEFAULT false
+      `)
+      await db.execute(sql`
+        ALTER TABLE order_threads
         ADD COLUMN IF NOT EXISTS deposit_confirmed BOOLEAN NOT NULL DEFAULT false
+      `)
+      await db.execute(sql`
+        ALTER TABLE order_threads
+        ALTER COLUMN deposit_confirmed SET DEFAULT false
       `)
     })().catch((e) => {
       schemaReady = null
@@ -65,13 +76,102 @@ async function ensureNotificationSchema() {
 }
 
 function errMsg(e: unknown): string {
-  if (e instanceof Error) return e.message
+  if (e instanceof Error) {
+    const any = e as Error & { cause?: unknown; detail?: string; code?: string }
+    const parts = [e.message]
+    if (any.detail) parts.push(String(any.detail))
+    if (any.cause instanceof Error) parts.push(any.cause.message)
+    else if (any.cause) parts.push(String(any.cause))
+    return parts.filter(Boolean).join(" | ")
+  }
   if (typeof e === "string") return e
   try {
     return JSON.stringify(e)
   } catch {
     return "erreur inconnue"
   }
+}
+
+function parseReturningId(result: unknown): number | null {
+  const asAny = result as {
+    rows?: { id?: number | string }[]
+  } & { id?: number | string }[]
+  const raw =
+    (Array.isArray(asAny) ? asAny[0]?.id : undefined) ??
+    asAny.rows?.[0]?.id ??
+    null
+  if (raw == null) return null
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Insert fil notification (SQL minimal — sans colonnes payment_* du schéma drizzle). */
+async function insertNotificationThread(input: {
+  customerName: string
+  customerToken: string
+  trackingToken: string
+  summary: string
+}): Promise<number> {
+  // Essai 1 : colonnes courantes (product_ids + deposit_*)
+  try {
+    const result = await db.execute(sql`
+      INSERT INTO order_threads (
+        customer_name,
+        customer_token,
+        tracking_token,
+        summary,
+        total,
+        fulfillment,
+        status,
+        product_ids,
+        deposit_notified,
+        deposit_confirmed
+      ) VALUES (
+        ${input.customerName},
+        ${input.customerToken},
+        ${input.trackingToken},
+        ${input.summary},
+        0,
+        'livraison',
+        'notification',
+        '[]'::jsonb,
+        false,
+        false
+      )
+      RETURNING id
+    `)
+    const id = parseReturningId(result)
+    if (id != null) return id
+  } catch (e) {
+    console.error("[notifications] insert full cols failed, fallback minimal:", errMsg(e))
+  }
+
+  // Essai 2 : strict minimum (schéma historique)
+  const result = await db.execute(sql`
+    INSERT INTO order_threads (
+      customer_name,
+      customer_token,
+      tracking_token,
+      summary,
+      total,
+      fulfillment,
+      status
+    ) VALUES (
+      ${input.customerName},
+      ${input.customerToken},
+      ${input.trackingToken},
+      ${input.summary},
+      0,
+      'livraison',
+      'notification'
+    )
+    RETURNING id
+  `)
+  const id = parseReturningId(result)
+  if (id == null) {
+    throw new Error(`INSERT order_threads sans id (retour: ${JSON.stringify(result).slice(0, 200)})`)
+  }
+  return id
 }
 
 function sanitizeMedia(media: MediaAttachment[] | null | undefined): MediaAttachment[] {
@@ -205,25 +305,15 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
           const short = crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()
           const trackingToken = `NOTIF_${notificationId}_${short}`
 
-          const [thread] = await db
-            .insert(orderThreads)
-            .values({
-              customerName: t.pseudo.slice(0, 200),
-              customerToken: t.token,
-              trackingToken,
-              summary: `Notification : ${title}`.slice(0, 500),
-              products: null,
-              productIds: [],
-              total: 0,
-              fulfillment: "livraison",
-              status: "notification",
-            })
-            .returning({ id: orderThreads.id })
-
-          if (!thread?.id) throw new Error("insert fil sans id")
+          const threadId = await insertNotificationThread({
+            customerName: t.pseudo.slice(0, 200),
+            customerToken: t.token,
+            trackingToken,
+            summary: `Notification : ${title}`.slice(0, 500),
+          })
 
           await db.insert(threadMessages).values({
-            threadId: thread.id,
+            threadId,
             sender: "vendeur",
             body: messageBody,
           })
