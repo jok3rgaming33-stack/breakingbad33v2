@@ -6,11 +6,11 @@ import { VoiceNoteButton } from "@/components/voice-note-button"
 import {
   getThreadsForToken,
   getLockerOrdersForToken,
-  getThread,
+  getThreadForToken,
   addMessage,
   consumeTrkThread,
   notifyDeposit,
-  markThreadRead,
+  markThreadReadForToken,
 } from "@/app/actions/messaging"
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
@@ -143,10 +143,10 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
     const interval = setInterval(async () => {
       await loadLists()
       if (selectedRef.current != null) {
-        const data = await getThread(selectedRef.current)
+        const data = await getThreadForToken(selectedRef.current, token)
         if (data) {
           setMessages(data.messages as Message[])
-          await markThreadRead(selectedRef.current)
+          await markThreadReadForToken(selectedRef.current, token)
         }
       }
     }, 8000)
@@ -167,8 +167,8 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
     setDepositSent(false)
     try {
       const [data] = await Promise.all([
-        getThread(thread.id),
-        markThreadRead(thread.id),
+        getThreadForToken(thread.id, token),
+        markThreadReadForToken(thread.id, token),
       ])
       if (data) setMessages(data.messages as Message[])
       // Si c'est un fil TRK : le supprimer maintenant que le client l'a ouvert
@@ -182,7 +182,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
   }
 
   const refreshThreadAfterSend = async (threadId: number) => {
-    const data = await getThread(threadId)
+    const data = await getThreadForToken(threadId, token)
     if (!data) return
     setMessages(data.messages as Message[])
     const now = data.thread?.updatedAt ?? new Date().toISOString()
@@ -199,7 +199,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
     if (!selected || !reply.trim() || sending) return
     setSending(true)
     try {
-      await addMessage(selected.id, "client", reply)
+      await addMessage(selected.id, "client", reply, token)
       await refreshThreadAfterSend(selected.id)
       setReply("")
     } finally {
@@ -209,7 +209,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
 
   const handleVoiceSent = async (body: string) => {
     if (!selected) return
-    await addMessage(selected.id, "client", body)
+    await addMessage(selected.id, "client", body, token)
     await refreshThreadAfterSend(selected.id)
   }
 
@@ -238,7 +238,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
       await notifyDeposit(selected.id)
       setDepositSent(true)
       // Recharger les messages
-      const data = await getThread(selected.id)
+      const data = await getThreadForToken(selected.id, token)
       if (data) setMessages(data.messages as Message[])
     } finally {
       setDepositSending(false)

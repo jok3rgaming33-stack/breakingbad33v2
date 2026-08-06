@@ -249,6 +249,23 @@ export async function getThread(id: number) {
   return { thread, messages }
 }
 
+// Lecture client : l'identifiant du fil seul ne suffit jamais.
+export async function getThreadForToken(id: number, customerToken: string) {
+  const token = customerToken?.trim()
+  if (!id || !token) return null
+  const [thread] = await db
+    .select()
+    .from(orderThreads)
+    .where(and(eq(orderThreads.id, id), eq(orderThreads.customerToken, token)))
+  if (!thread) return null
+  const messages = await db
+    .select()
+    .from(threadMessages)
+    .where(eq(threadMessages.threadId, id))
+    .orderBy(threadMessages.createdAt)
+  return { thread, messages }
+}
+
 // Supprime un message unique d'un fil (admin uniquement, sans impact sur le statut ou le total).
 export async function deleteMessage(messageId: number) {
   if (!messageId) return { ok: false as const }
@@ -257,10 +274,27 @@ export async function deleteMessage(messageId: number) {
   return { ok: true as const }
 }
 
-// Ajoute un message dans un fil (vendeur ou client)
-export async function addMessage(threadId: number, sender: "client" | "vendeur", body: string) {
+// Ajoute un message dans un fil (vendeur ou client).
+// Un message client doit toujours fournir le token du compte connecté.
+export async function addMessage(
+  threadId: number,
+  sender: "client" | "vendeur",
+  body: string,
+  customerToken?: string,
+) {
   const text = body?.trim()
   if (!text) return { ok: false }
+
+  if (sender === "client") {
+    const token = customerToken?.trim()
+    if (!token) return { ok: false }
+    const [ownedThread] = await db
+      .select({ id: orderThreads.id })
+      .from(orderThreads)
+      .where(and(eq(orderThreads.id, threadId), eq(orderThreads.customerToken, token)))
+      .limit(1)
+    if (!ownedThread) return { ok: false }
+  }
 
   await db.insert(threadMessages).values({ threadId, sender, body: text })
   // Le statut reste un choix délibéré du vendeur : on ne met à jour que la date.
@@ -449,9 +483,7 @@ export async function getThreadsForToken(customerToken: string) {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
-// Marque un fil comme lu par le client :
-// - met à jour clientLastSeen sur le thread
-// - horodate clientReadAt sur tous les messages vendeur non encore lus (visible admin uniquement)
+// Marque un fil comme lu par l'admin (appel interne/admin).
 export async function markThreadRead(threadId: number) {
   if (!threadId) return
   await db
@@ -468,6 +500,29 @@ export async function markThreadRead(threadId: number) {
         isNull(threadMessages.clientReadAt),
       )
     )
+}
+
+// Marque un fil comme lu par le client uniquement si le token possède ce fil.
+export async function markThreadReadForToken(threadId: number, customerToken: string) {
+  const token = customerToken?.trim()
+  if (!threadId || !token) return { ok: false as const }
+  const result = await db
+    .update(orderThreads)
+    .set({ clientLastSeen: sql`now()` })
+    .where(and(eq(orderThreads.id, threadId), eq(orderThreads.customerToken, token)))
+    .returning({ id: orderThreads.id })
+  if (!result.length) return { ok: false as const }
+  await db
+    .update(threadMessages)
+    .set({ clientReadAt: sql`now()` })
+    .where(
+      and(
+        eq(threadMessages.threadId, threadId),
+        eq(threadMessages.sender, "vendeur"),
+        isNull(threadMessages.clientReadAt),
+      )
+    )
+  return { ok: true as const }
 }
 
 function tsMs(d: Date | string | null | undefined): number {

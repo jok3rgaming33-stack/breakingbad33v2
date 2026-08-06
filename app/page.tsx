@@ -30,6 +30,7 @@ export default function Home() {
   const [isOrdersOpen, setIsOrdersOpen] = useState(false)
   const [isDeliveryOpen, setIsDeliveryOpen] = useState(false)
   const [isMessagingOpen, setIsMessagingOpen] = useState(false)
+  const [autoOpenLatestMessaging, setAutoOpenLatestMessaging] = useState(false)
   const [isHowItWorksOpen, setIsHowItWorksOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [userData, setUserData] = useState<{ pseudo?: string; token?: string } | null>(null)
@@ -178,7 +179,7 @@ export default function Home() {
     }
   }, [])
 
-  const handleLoginSuccess = (opts?: { openOrders?: boolean; openMessaging?: boolean; openKyc?: boolean }) => {
+  const handleLoginSuccess = (opts?: { openOrders?: boolean; openMessaging?: boolean; openLatestMessaging?: boolean; openKyc?: boolean }) => {
     setIsAuthenticated(true)
     const pseudo = localStorage.getItem("userPseudo") ?? undefined
     const token = localStorage.getItem("authToken") ?? undefined
