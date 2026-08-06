@@ -53,25 +53,30 @@ export async function grantRestoreAccess(
     tag: "access-restore",
   }).catch(() => {/* silencieux si pas de sub */})
 
-  // 2) Message dans le fil de discussion — GARANTI visible même sans push subscription
-  const targetThreadId = threadId ?? (await db
-    .select({ id: orderThreads.id })
-    .from(orderThreads)
-    .where(eq(orderThreads.customerToken, customerToken))
-    .orderBy(desc(orderThreads.updatedAt))
-    .limit(1)
-    .then(r => r[0]?.id))
+  // 2) Message dans le fil de discussion — best-effort : la récupération doit
+  // rester possible même si un ancien fil est corrompu ou indisponible.
+  try {
+    const targetThreadId = threadId ?? (await db
+      .select({ id: orderThreads.id })
+      .from(orderThreads)
+      .where(eq(orderThreads.customerToken, customerToken))
+      .orderBy(desc(orderThreads.updatedAt))
+      .limit(1)
+      .then(r => r[0]?.id))
 
-  if (targetThreadId) {
-    const msg = `Ton acces a ete retabli par le chimiste.\n\nClique sur ce lien pour te reconnecter et choisir ton nouveau mot de passe :\n\n${restoreUrl}\n\n(Lien valable 24h)`
-    await db.insert(threadMessages).values({
-      threadId: targetThreadId,
-      sender: "vendeur",
-      body: msg,
-    })
-    await db.update(orderThreads)
-      .set({ updatedAt: new Date() })
-      .where(eq(orderThreads.id, targetThreadId))
+    if (targetThreadId) {
+      const msg = `Ton acces a ete retabli par le chimiste.\n\nClique sur ce lien pour te reconnecter et choisir ton nouveau mot de passe :\n\n${restoreUrl}\n\n(Lien valable 24h)`
+      await db.insert(threadMessages).values({
+        threadId: targetThreadId,
+        sender: "vendeur",
+        body: msg,
+      })
+      await db.update(orderThreads)
+        .set({ updatedAt: new Date() })
+        .where(eq(orderThreads.id, targetThreadId))
+    }
+  } catch (error) {
+    console.log("[v0] Message de récupération indisponible:", error)
   }
 
   revalidatePath("/admin")
@@ -128,12 +133,15 @@ export async function loginWithRestoreToken(restoreToken: string): Promise<{
     return { ok: false, error: "Ce lien de rétablissement a expiré. Contacte le chimiste." }
   }
 
-  // Notifie le vendeur que le client a ouvert la notification et se connecte
+  // La notification est informative : elle ne doit jamais empêcher le client
+  // de récupérer son compte si le push vendeur est indisponible.
   await notifyVendor({
     title: "Acces retabli — Connexion client",
     body: `${user.pseudo} a ouvert le lien de retablissement et se reconnecte.`,
     url: "/admin",
     tag: `restore-login-${user.id}`,
+  }).catch((error) => {
+    console.log("[v0] Notification vendeur indisponible pendant la récupération:", error)
   })
 
   return { ok: true, userToken: user.token, pseudo: user.pseudo }
@@ -179,12 +187,15 @@ export async function setPasswordAfterRestore(
     tempPasswordBlocked: false,
   }).where(eq(users.id, user.id))
 
-  // Notifie le vendeur — nouveau mot de passe défini + reconnexion effective
+  // La mise à jour DB est la source de vérité : une notification indisponible
+  // ne doit pas faire croire au client que sa nouvelle clé n'a pas été enregistrée.
   await notifyVendor({
     title: "Nouveau mot de passe defini",
     body: `${user.pseudo} a defini son nouveau mot de passe et est reconnecte.`,
     url: "/admin",
     tag: `password-set-${user.id}`,
+  }).catch((error) => {
+    console.log("[v0] Notification vendeur indisponible après récupération:", error)
   })
 
   revalidatePath("/admin")

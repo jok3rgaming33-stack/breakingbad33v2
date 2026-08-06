@@ -377,8 +377,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         address: isMeetup ? undefined : isLocker ? lockerAddress : resolvedLabel ?? address,
         lat: isMeetup || isLocker ? null : coords?.lat ?? null,
         lng: isMeetup || isLocker ? null : coords?.lng ?? null,
-        scheduledDate: isLocker ? null : date,
-        scheduledSlot: isLocker ? null : isMeetup ? meetupHour : slot,
+        scheduledDate: isLocker ? undefined : date,
+        scheduledSlot: isLocker ? undefined : isMeetup ? meetupHour : slot,
       })
       // Code fidélité (BB33-...) consommé à usage unique une fois la commande passée.
       if (promo && /^BB33-/i.test(promo.code)) {
