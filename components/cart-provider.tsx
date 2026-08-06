@@ -8,6 +8,8 @@ export type CartItem = {
   title: string
   price: number
   qty: number
+  // ID numérique du produit — utilisé pour la notation post-livraison.
+  productId?: number
 }
 
 // Promo issue d'une news ou de l'admin.
@@ -24,7 +26,7 @@ type CartContextType = {
   count: number
   items: CartItem[]
   subtotal: number
-  addToCart: (title: string, price?: number) => void
+  addToCart: (title: string, price?: number, productId?: number) => void
   removeItem: (title: string) => void
   updateQty: (title: string, qty: number) => void
   clear: () => void
@@ -46,13 +48,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
   const [promo, setPromo] = useState<CartPromo | null>(null)
 
-  const addToCart = useCallback((title: string, price = 0) => {
+  const addToCart = useCallback((title: string, price = 0, productId?: number) => {
     setItems((prev) => {
       const existing = prev.find((i) => i.title === title)
       if (existing) {
         return prev.map((i) => (i.title === title ? { ...i, qty: i.qty + 1 } : i))
       }
-      return [...prev, { title, price, qty: 1 }]
+      return [...prev, { title, price, qty: 1, productId }]
     })
     const id = Date.now()
     setToast({ id, message: `${title} ajouté au panier` })

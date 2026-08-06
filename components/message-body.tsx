@@ -1,6 +1,6 @@
 "use client"
 
-import { Mic } from "lucide-react"
+import { Star, Mic } from "lucide-react"
 import { BlobImg, BlobVideo, BlobAudio, isVideoUrl } from "@/components/blob-media"
 
 /**

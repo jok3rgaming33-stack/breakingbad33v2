@@ -14,6 +14,8 @@ export type NewOrderInput = {
   customerToken?: string
   summary: string
   products?: string
+  // IDs numériques des produits commandés — utilisés pour la notation post-livraison.
+  productIds?: number[]
   total: number
   // Montant de la remise appliquée (promo ou fidélité). Stocké pour calculer
   // les points sur le total net et informer le client dans le message de livraison.
@@ -40,6 +42,7 @@ export async function createOrderThread(input: NewOrderInput) {
       trackingToken,
       summary: input.summary,
       products: input.products?.trim() || null,
+      productIds: input.productIds ?? [],
       total: input.total,
       fulfillment: input.fulfillment,
       address: input.address?.trim() || null,
@@ -404,6 +407,15 @@ export async function updateThreadStatus(
         body =
           `✨ Ta commande t'a bien été livrée (${mode}). Merci pour ta confiance !` +
           (points > 0 ? `\n${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités.` : "")
+        // Second message séparé pour inviter à noter les produits.
+        // Le tag [NOTER_PRODUITS] est détecté côté client pour afficher le bouton.
+        if (current.productIds?.length) {
+          await db.insert(threadMessages).values({
+            threadId,
+            sender: "vendeur",
+            body: `[NOTER_PRODUITS]\nTa satisfaction est importante. Prends 1 minute pour noter tes produits — ça aide vraiment !`,
+          })
+        }
         break
       }
       case "annulee": {

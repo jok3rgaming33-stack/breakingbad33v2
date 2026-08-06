@@ -176,6 +176,8 @@ export const orderThreads = pgTable("order_threads", {
   lng: doublePrecision("lng"),
   scheduledDate: text("scheduled_date"),
   scheduledSlot: text("scheduled_slot"),
+  // Tableau des IDs numériques de produits commandés — utilisé pour la notation post-livraison.
+  productIds: jsonb("product_ids").$type<number[]>().notNull().default([]),
   colissimoNumber: text("colissimo_number"), // Numéro de suivi Colissimo/transporteur
   xmrWallet: text("xmr_wallet"),             // Adresse wallet XMR communiquée au client locker
   depositNotified: boolean("deposit_notified").notNull().default(false),   // Client a cliqué "j'ai déposé"
@@ -395,3 +397,21 @@ export const accountRecoveryClaims = pgTable("account_recovery_claims", {
 })
 
 export type AccountRecoveryClaim = typeof accountRecoveryClaims.$inferSelect
+
+// Avis clients sur les produits achetés.
+// Seule une commande avec statut "livree" permet la notation.
+// Un client ne peut noter un produit qu'une seule fois par commande (index d'unicité).
+export const productRatings = pgTable("product_ratings", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id").notNull(),
+  customerToken: text("customer_token").notNull(),
+  threadId: integer("thread_id").notNull(),
+  quality: integer("quality").notNull(),
+  quantity: integer("quantity").notNull(),
+  packaging: integer("packaging").notNull(),
+  delivery: integer("delivery").notNull(),
+  comment: text("comment"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type ProductRating = typeof productRatings.$inferSelect
