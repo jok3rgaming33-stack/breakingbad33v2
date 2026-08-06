@@ -19,7 +19,12 @@ function apiKey(): string {
 }
 
 function ipnSecret(): string {
-  return process.env.NOWPAYMENTS_IPN_SECRET?.trim() || ""
+  // IPN Secret (recommandé) ou clé publique dashboard (fallback si pas de secret dédié)
+  return (
+    process.env.NOWPAYMENTS_IPN_SECRET?.trim() ||
+    process.env.NOWPAYMENTS_PUBLIC_KEY?.trim() ||
+    ""
+  )
 }
 
 export type NowPaymentsXmrPayment = {
@@ -131,22 +136,55 @@ function sortObject(obj: unknown): unknown {
   return sorted
 }
 
-export function verifyNowPaymentsIpn(rawBody: string, signatureHeader: string | null): boolean {
+export type IpnVerifyResult = "ok" | "invalid" | "no_secret"
+
+/**
+ * Vérifie la signature IPN (HMAC-SHA512).
+ * - ok : signature valide
+ * - no_secret : pas de secret configuré → le routeur peut valider via GET /payment/{id}
+ * - invalid : secret présent mais signature fausse
+ */
+export function verifyNowPaymentsIpn(
+  rawBody: string,
+  signatureHeader: string | null,
+): IpnVerifyResult {
   const secret = ipnSecret()
-  if (!secret) {
-    console.error("[nowpayments] IPN secret manquant — IPN rejeté")
-    return false
-  }
-  if (!signatureHeader) return false
+  if (!secret) return "no_secret"
+  if (!signatureHeader) return "invalid"
   try {
     const parsed = JSON.parse(rawBody) as unknown
     const sorted = sortObject(parsed)
     const payload = JSON.stringify(sorted)
     const hmac = createHmac("sha512", secret).update(payload).digest("hex")
-    return hmac === signatureHeader
+    return hmac === signatureHeader ? "ok" : "invalid"
   } catch (e) {
     console.error("[nowpayments] IPN verify parse error:", e)
-    return false
+    return "invalid"
+  }
+}
+
+/** Relit le statut d'un paiement côté API (auth x-api-key) — fallback si IPN non signé. */
+export async function fetchNowPaymentsPaymentStatus(
+  paymentId: string,
+): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: string }> {
+  if (!isNowPaymentsConfigured() || !paymentId) {
+    return { ok: false, error: "missing api key or payment id" }
+  }
+  try {
+    const res = await fetch(`${API_BASE}/payment/${encodeURIComponent(paymentId)}`, {
+      headers: { "x-api-key": apiKey() },
+      cache: "no-store",
+    })
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: typeof data.message === "string" ? data.message : `HTTP ${res.status}`,
+      }
+    }
+    return { ok: true, data }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "network error" }
   }
 }
 

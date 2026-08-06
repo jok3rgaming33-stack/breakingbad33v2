@@ -80,15 +80,20 @@ export function AdminCryptoSettings() {
       <div className="mb-4 space-y-2 rounded-xl border border-border bg-background/50 p-3 text-xs text-muted-foreground">
         <p className="font-semibold text-foreground">Variables d&apos;environnement Vercel</p>
         <ul className="list-inside list-disc space-y-1 font-mono">
-          <li>NOWPAYMENTS_API_KEY</li>
-          <li>NOWPAYMENTS_IPN_SECRET</li>
+          <li>NOWPAYMENTS_API_KEY (obligatoire)</li>
+          <li>NOWPAYMENTS_IPN_SECRET ou NOWPAYMENTS_PUBLIC_KEY (optionnel)</li>
           <li>NEXT_PUBLIC_SITE_URL (URL prod BreakingBad33)</li>
         </ul>
         <p>
-          IPN callback :{" "}
-          <code className="rounded bg-black/30 px-1">/api/crypto/ipn</code>
+          IPN callback dans NOWPayments (Settings → Store / IPN) :{" "}
+          <code className="rounded bg-black/30 px-1">https://www.breakingbad33.com/api/crypto/ipn</code>
         </p>
-        <p className="text-accent">pay_currency forcé = xmr (pas de multi-crypto côté client)</p>
+        <p className="text-muted-foreground">
+          Si tu ne vois pas « IPN Secret », colle la <b>Public key</b> en variable{" "}
+          <code className="font-mono">NOWPAYMENTS_PUBLIC_KEY</code>. Sans secret, le site revérifie quand même
+          chaque notification via l&apos;API (clé API).
+        </p>
+        <p className="text-accent">pay_currency forcé = xmr (Monero uniquement)</p>
         <a
           href="https://nowpayments.io/"
           target="_blank"
