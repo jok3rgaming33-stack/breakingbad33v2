@@ -5,10 +5,10 @@ import { X, ArrowLeft, MessageSquare, Send, Loader2, FlaskConical, Package, Pape
 import { VoiceNoteButton } from "@/components/voice-note-button"
 import {
   getThreadsForToken,
-  getThread,
+  getThreadForToken,
   addMessage,
   createGeneralInquiryThread,
-  markThreadRead,
+  markThreadReadForToken,
 } from "@/app/actions/messaging"
 import { statusMeta, isDiscussionStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
@@ -44,6 +44,7 @@ type MessagerieModalProps = {
   isOpen: boolean
   onClose: () => void
   userData: UserData
+  autoOpenLatest?: boolean
 }
 
 type Thread = {
@@ -65,7 +66,7 @@ type Message = {
   createdAt: Date | string
 }
 
-export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalProps) {
+export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = false }: MessagerieModalProps) {
   const token = userData?.token ?? ""
   const name = userData?.pseudo ?? "Client"
   const [threads, setThreads] = useState<Thread[]>([])
@@ -104,11 +105,11 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
         const list = await getThreadsForToken(token)
         setThreads(sortByActivityDesc(list as Thread[]))
         if (selectedRef.current != null) {
-          const data = await getThread(selectedRef.current)
+          const data = await getThreadForToken(selectedRef.current, token)
           if (data) {
             setMessages(data.messages as Message[])
             // Un fil ouvert signifie que les réponses reçues sont visibles.
-            await markThreadRead(selectedRef.current)
+            await markThreadReadForToken(selectedRef.current, token)
             // Sync heure d'activité du fil ouvert
             if (data.thread) {
               setThreads((prev) =>
@@ -130,6 +131,11 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
     return () => clearInterval(interval)
   }, [isOpen, token])
 
+  useEffect(() => {
+    if (!isOpen || !autoOpenLatest || selected || !threads.length) return
+    void openThread(threads[0])
+  }, [autoOpenLatest, isOpen, selected, threads])
+
   const openThread = async (thread: Thread) => {
     setSelected(thread)
     setView("thread")
@@ -137,8 +143,8 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
     setMessages([])
     try {
       const [data] = await Promise.all([
-        getThread(thread.id),
-        markThreadRead(thread.id),
+        getThreadForToken(thread.id, token),
+        markThreadReadForToken(thread.id, token),
       ])
       if (data) setMessages(data.messages as Message[])
     } finally {
@@ -147,7 +153,7 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
   }
 
   const refreshThreadAfterSend = async (threadId: number) => {
-    const data = await getThread(threadId)
+    const data = await getThreadForToken(threadId, token)
     if (!data) return
     setMessages(data.messages as Message[])
     const now = data.thread?.updatedAt ?? new Date().toISOString()
@@ -161,7 +167,7 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
     if (!selected || !reply.trim() || sending) return
     setSending(true)
     try {
-      await addMessage(selected.id, "client", reply)
+      await addMessage(selected.id, "client", reply, token)
       await refreshThreadAfterSend(selected.id)
       setReply("")
     } finally {
@@ -171,7 +177,7 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
 
   const handleVoiceSent = async (body: string) => {
     if (!selected) return
-    await addMessage(selected.id, "client", body)
+    await addMessage(selected.id, "client", body, token)
     await refreshThreadAfterSend(selected.id)
   }
 

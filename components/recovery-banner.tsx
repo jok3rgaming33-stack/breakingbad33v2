@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { getMyRecoveryStatus } from "@/app/actions/lost-key"
+import { getUnreadCounts } from "@/app/actions/messaging"
 import { KeyRound, Loader2, MessageSquare, ShieldCheck } from "lucide-react"
 import Link from "next/link"
 
@@ -22,6 +23,7 @@ export function RecoveryBanner({ token, onOpenMessaging }: Props) {
     needsKyc: boolean
   } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [unreadReplies, setUnreadReplies] = useState(0)
 
   useEffect(() => {
     if (!token) {
@@ -43,6 +45,25 @@ export function RecoveryBanner({ token, onOpenMessaging }: Props) {
       })
     return () => {
       cancelled = true
+    }
+  }, [token])
+
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    const refresh = async () => {
+      try {
+        const counts = await getUnreadCounts(token)
+        if (!cancelled) setUnreadReplies(counts.messaging + counts.orders)
+      } catch {
+        if (!cancelled) setUnreadReplies(0)
+      }
+    }
+    void refresh()
+    const interval = window.setInterval(refresh, 5000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
     }
   }, [token])
 
@@ -80,6 +101,11 @@ export function RecoveryBanner({ token, onOpenMessaging }: Props) {
             >
               <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
               Messagerie
+              {unreadReplies > 0 && (
+                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-amber-300 px-1.5 text-[10px] font-bold text-amber-950">
+                  {unreadReplies > 99 ? "99+" : unreadReplies}
+                </span>
+              )}
             </button>
           )}
           {status.needsKyc && (
