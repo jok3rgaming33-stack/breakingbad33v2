@@ -626,7 +626,7 @@ function MediaUploader({ form, setForm }: { form: FormState; setForm: (f: FormSt
     if (form.id) {
       const res = await deleteProductMedia(form.id, url)
       if (res.ok) {
-        setForm({ ...form, media: res.updatedMedia as ProductMedia[], image: res.updatedImage })
+        setForm({ ...form, media: res.updatedMedia as ProductMedia[], image: res.updatedImage ?? "" })
         setDeletingUrl(null)
         return
       }
