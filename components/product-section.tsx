@@ -224,11 +224,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                         À la une
                       </span>
                     )}
-                    {ratings[product.id] && (
-                      <div className="absolute bottom-2 right-2 z-20">
-                        <RatingBadge summary={ratings[product.id]} productTitle={product.title} />
-                      </div>
-                    )}
+
                   </div>
 
                   {/* Infos condensées + variantes */}
@@ -236,6 +232,11 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                     <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-white">
                       {product.title}
                     </h3>
+                    {ratings[product.id] && (
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <RatingBadge summary={ratings[product.id]} productTitle={product.title} />
+                      </div>
+                    )}
                     <p className="text-[11px] text-zinc-500">
                       {out ? "Rupture" : `Dès ${minPrice}€`}
                       {!out && product.stock <= 5 ? ` · stock ${product.stock}` : ""}

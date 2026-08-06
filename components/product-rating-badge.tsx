@@ -181,7 +181,8 @@ function RatingDetailsModal({
             <ul className="divide-y divide-border">
               {details.map((d, idx) => {
                 const isExp = expanded === d.id
-                const shortToken = d.customerToken.slice(-6).toUpperCase()
+                const displayName = d.pseudo ?? `…${d.customerToken.slice(-6).toUpperCase()}`
+                const avatarLetters = displayName.replace(/^…/, "").slice(0, 2).toUpperCase()
                 const date = new Date(d.createdAt).toLocaleDateString("fr-FR", {
                   day: "2-digit",
                   month: "short",
@@ -196,12 +197,12 @@ function RatingDetailsModal({
                     >
                       {/* Avatar */}
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/20 text-xs font-bold text-accent">
-                        {shortToken.slice(0, 2)}
+                        {avatarLetters}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium">…{shortToken}</span>
-                          <span className="text-[10px] text-muted-foreground">{date}</span>
+                          <span className="truncate text-xs font-medium">{displayName}</span>
+                          <span className="shrink-0 text-[10px] text-muted-foreground">{date}</span>
                         </div>
                         <div className="mt-0.5 flex items-center gap-1">
                           <StarDisplay value={d.avgScore} />
