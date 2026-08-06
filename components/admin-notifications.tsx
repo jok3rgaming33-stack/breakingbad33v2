@@ -123,8 +123,15 @@ export function AdminNotifications({ initialHistory, users }: Props) {
         // Permet à l'action serveur de construire une URL proxy absolue pour le payload push
         appOrigin: window.location.origin,
       })
-      if (!res.ok) { setSendErr(res.error ?? "Erreur."); return }
+      if (!res.ok) {
+        setSendErr(res.error ?? "Erreur d'envoi.")
+        if ("sentCount" in res && typeof res.sentCount === "number") setSent(res.sentCount)
+        return
+      }
       setSent(res.sentCount)
+      if ("partialError" in res && res.partialError) {
+        setSendErr(`Envoi partiel : ${res.sentCount}/${"targetCount" in res ? res.targetCount : "?"} — ${res.partialError}`)
+      }
       const newEntry = {
         id: Date.now(),
         title: t,
@@ -141,6 +148,8 @@ export function AdminNotifications({ initialHistory, users }: Props) {
       setMedia([])
       setSelectedTokens(new Set())
       setRecipientMode("all")
+    } catch (e) {
+      setSendErr(e instanceof Error ? e.message : "Erreur réseau pendant l'envoi.")
     } finally {
       setSending(false)
     }
