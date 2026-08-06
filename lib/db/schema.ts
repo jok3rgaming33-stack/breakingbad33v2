@@ -184,6 +184,15 @@ export const orderThreads = pgTable("order_threads", {
   depositConfirmed: boolean("deposit_confirmed").notNull().default(false),  // Admin a confirmé réception
   clientLastSeen: timestamp("client_last_seen", { withTimezone: true }),    // Dernière ouverture du fil par le client
   status: text("status").notNull().default("nouveau"),
+  // Paiement XMR (NOWPayments) — nullable = sans gateway / legacy
+  paymentProvider: text("payment_provider"),
+  paymentProviderId: text("payment_provider_id"),
+  paymentStatus: text("payment_status"),
+  paymentCrypto: text("payment_crypto"),
+  paymentAmountCrypto: text("payment_amount_crypto"),
+  paymentAmountEur: integer("payment_amount_eur"),
+  paymentPayUrl: text("payment_pay_url"),
+  paymentPayAddress: text("payment_pay_address"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })

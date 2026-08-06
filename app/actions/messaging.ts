@@ -8,6 +8,7 @@ import { normalizeStatus, statusMeta } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { notifyCustomer, notifyVendor } from "@/lib/push"
 import { adjustStock } from "@/app/actions/products"
+import { createXmrPaymentForOrder } from "@/app/actions/crypto-payment"
 
 export type NewOrderInput = {
   customerName: string
@@ -119,9 +120,53 @@ export async function createOrderThread(input: NewOrderInput) {
     tag: `order-${thread.id}`,
   })
 
+  // Paiement XMR (NOWPayments) — optionnel, ne bloque jamais la commande
+  let cryptoPayment: {
+    enabled: boolean
+    payUrl?: string | null
+    payAddress?: string | null
+    payAmount?: string | null
+    paymentStatus?: string
+    error?: string
+  } = { enabled: false }
+
+  try {
+    const inv = await createXmrPaymentForOrder({
+      threadId: thread.id,
+      totalEur: input.total,
+      customerToken: input.customerToken,
+      customerName: name,
+    })
+    if (inv.ok) {
+      cryptoPayment = {
+        enabled: true,
+        payUrl: inv.payUrl,
+        payAddress: inv.payAddress,
+        payAmount: inv.payAmount,
+        paymentStatus: inv.paymentStatus,
+      }
+      // Compat locker : renseigner xmr_wallet si adresse fournie
+      if (inv.payAddress) {
+        try {
+          await db
+            .update(orderThreads)
+            .set({ xmrWallet: inv.payAddress })
+            .where(eq(orderThreads.id, thread.id))
+        } catch {
+          /* non bloquant */
+        }
+      }
+    } else if (!inv.skipped) {
+      cryptoPayment = { enabled: false, error: inv.error }
+      console.error("[createOrderThread] XMR payment skipped:", inv.error)
+    }
+  } catch (e) {
+    console.error("[createOrderThread] crypto error:", e)
+  }
+
   revalidatePath("/messagerie")
   revalidatePath("/admin")
-  return { id: thread.id, trackingToken }
+  return { id: thread.id, trackingToken, cryptoPayment }
 }
 
 // Crée une discussion générale (sans commande) : le client contacte directement le chimiste.
