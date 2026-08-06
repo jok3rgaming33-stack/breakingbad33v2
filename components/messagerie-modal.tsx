@@ -12,6 +12,7 @@ import {
 } from "@/app/actions/messaging"
 import { statusMeta, isDiscussionStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
+import { ProductRatingModal } from "@/components/product-rating-modal"
 import {
   formatMessageTime,
   formatThreadActivity,
@@ -82,6 +83,7 @@ export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = fa
   const [creating, setCreating] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadErr, setUploadErr] = useState<string | null>(null)
+  const [ratingThreadId, setRatingThreadId] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const selectedRef = useRef<number | null>(null)
@@ -240,6 +242,15 @@ export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = fa
 
   if (!isOpen) return null
 
+  // Rendu de la modale de notation (z-index supérieur à la messagerie)
+  const ratingModal = ratingThreadId ? (
+    <ProductRatingModal
+      threadId={ratingThreadId}
+      customerToken={token}
+      onClose={() => setRatingThreadId(null)}
+    />
+  ) : null
+
   const orderThreads = threads.filter((t) => !isDiscussionStatus(t.status))
   const discussionThreads = threads.filter((t) => isDiscussionStatus(t.status))
 
@@ -253,6 +264,7 @@ export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = fa
         : "Messagerie"
 
   return (
+    <>
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-background/90 p-4"
       role="dialog"
@@ -479,7 +491,10 @@ export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = fa
                         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
                           {isClient ? "Vous" : "Le chimiste"} · {formatMessageTime(m.createdAt)}
                         </div>
-                        <MessageBody body={m.body} />
+                        <MessageBody
+                          body={m.body}
+                          onRateProducts={selected ? () => setRatingThreadId(selected.id) : undefined}
+                        />
                       </div>
                     )
                   })}
@@ -546,5 +561,6 @@ export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = fa
         )}
       </div>
     </div>
+    </>
   )
 }

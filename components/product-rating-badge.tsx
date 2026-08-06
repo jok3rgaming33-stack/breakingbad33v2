@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Star, X, ChevronDown, Loader2 } from "lucide-react"
 import type { ProductRatingSummary, ProductRatingDetail } from "@/app/actions/ratings"
 import { getProductRatingDetails } from "@/app/actions/ratings"
@@ -87,13 +87,14 @@ function RatingDetailsModal({
   const [expanded, setExpanded] = useState<number | null>(null)
 
   // Chargement au montage
-  useState(() => {
+  useEffect(() => {
     void (async () => {
       const data = await getProductRatingDetails(productId)
       setDetails(data)
       setLoading(false)
     })()
-  })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId])
 
   const CRITERIA = [
     { key: "quality" as const, label: "Qualité" },
