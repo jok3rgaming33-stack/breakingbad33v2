@@ -21,12 +21,17 @@ import {
 export function VendorInbox({
   initialThreads,
   mode = "orders",
+  focusThreadId = null,
 }: {
   initialThreads: OrderThread[]
   mode?: "orders" | "locker" | "messages" | "past"
+  /** Deep-link admin : sélectionner ce fil au montage */
+  focusThreadId?: number | null
 }) {
   const [threads, setThreads] = useState(() => sortByActivityDesc(initialThreads))
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(
+    focusThreadId && Number.isFinite(focusThreadId) ? focusThreadId : null,
+  )
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
   const [reply, setReply] = useState("")
@@ -67,6 +72,14 @@ export function VendorInbox({
   const [productSearch, setProductSearch] = useState("")
 
   const selected = threads.find((t) => t.id === selectedId) ?? null
+
+  // Deep-link prop (query ?thread=) → ouvre le fil et charge les messages
+  useEffect(() => {
+    if (focusThreadId && Number.isFinite(focusThreadId) && focusThreadId > 0) {
+      void openThread(focusThreadId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusThreadId])
 
   // Ouvre un fil ciblé (ex. depuis onglet Récupérations)
   useEffect(() => {

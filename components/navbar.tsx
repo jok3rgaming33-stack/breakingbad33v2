@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useCart } from "@/components/cart-provider"
 import { NotificationBell } from "@/components/notification-bell"
+import type { OrderNotification } from "@/components/notifications-provider"
 import { Menu, ShoppingCart, X, ShieldCheck, LogOut, HelpCircle } from "lucide-react"
 import Image from "next/image"
 
@@ -27,6 +28,7 @@ type NavbarProps = {
   isAdmin?: boolean
   unreadMessaging?: number
   unreadOrders?: number
+  onOpenNotification?: (n: OrderNotification) => void
 }
 
 export function Navbar({
@@ -40,6 +42,7 @@ export function Navbar({
   isAdmin,
   unreadMessaging = 0,
   unreadOrders = 0,
+  onOpenNotification,
 }: NavbarProps) {
   const { count, openCart } = useCart()
   const [open, setOpen] = useState(false)
@@ -126,7 +129,7 @@ export function Navbar({
         <div className="flex items-center gap-2 sm:gap-4">
 
           {/* Cloche de notifications (client connecté uniquement) */}
-          {isLoggedIn && !isAdmin && <NotificationBell onOpenOrder={onOpenOrders} />}
+          {isLoggedIn && !isAdmin && <NotificationBell onOpenNotification={onOpenNotification} />}
 
           {/* === MON PANIER + Icône Caddie === */}
           <button

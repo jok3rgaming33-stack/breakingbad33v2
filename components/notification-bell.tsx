@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Bell, Check, Package, MessageSquare } from "lucide-react"
-import { useNotifications } from "@/components/notifications-provider"
+import { Bell, Check, Package, MessageSquare, Megaphone, ShieldAlert } from "lucide-react"
+import { useNotifications, type OrderNotification } from "@/components/notifications-provider"
 import { statusMeta } from "@/lib/order-status"
 import { PushToggle } from "@/components/push-toggle"
 
@@ -17,18 +17,21 @@ function timeAgo(ts: number) {
   return `il y a ${d} j`
 }
 
-export function NotificationBell({ onOpenOrder }: { onOpenOrder?: () => void }) {
-  const { notifications, unreadCount, markAllRead, clearAll } = useNotifications()
+type Props = {
+  /** Ouvre le bon écran + fil (messagerie / commandes) */
+  onOpenNotification?: (n: OrderNotification) => void
+}
+
+export function NotificationBell({ onOpenNotification }: Props) {
+  const { notifications, unreadCount, markRead, clearAll } = useNotifications()
   const [open, setOpen] = useState(false)
   const [token, setToken] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
-  // Récupère le token client (identifiant stable, multi-appareils) pour lier l'abonnement push.
   useEffect(() => {
     setToken(localStorage.getItem("authToken"))
   }, [])
 
-  // Ferme au clic extérieur
   useEffect(() => {
     if (!open) return
     const onClick = (e: MouseEvent) => {
@@ -38,22 +41,22 @@ export function NotificationBell({ onOpenOrder }: { onOpenOrder?: () => void }) 
     return () => document.removeEventListener("mousedown", onClick)
   }, [open])
 
-  const toggle = () => {
-    const next = !open
-    setOpen(next)
-    if (next && unreadCount > 0) markAllRead()
+  const handleItemClick = (n: OrderNotification) => {
+    markRead(n.id)
+    setOpen(false)
+    onOpenNotification?.(n)
   }
 
   return (
     <div className="relative" ref={ref}>
       <button
-        onClick={toggle}
+        onClick={() => setOpen((v) => !v)}
         className="relative flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} non lues)` : ""}`}
       >
         <Bell className="h-5 w-5" aria-hidden="true" />
         {unreadCount > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#22ffaa] px-1 text-[10px] font-bold text-black">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -73,7 +76,6 @@ export function NotificationBell({ onOpenOrder }: { onOpenOrder?: () => void }) 
             )}
           </div>
 
-          {/* Activation des notifications push (alertes même site fermé) */}
           <div className="border-b border-border px-4 py-3">
             <PushToggle role="client" customerToken={token} />
           </div>
@@ -87,37 +89,51 @@ export function NotificationBell({ onOpenOrder }: { onOpenOrder?: () => void }) 
             ) : (
               <ul className="flex flex-col">
                 {notifications.map((n) => {
+                  const isBroadcast = n.kind === "broadcast"
                   const isMessage = n.kind === "message"
+                  const isTrk = n.kind === "trk"
                   const meta = statusMeta(n.status)
+                  const title = isBroadcast
+                    ? "Annonce"
+                    : isTrk
+                      ? "Token Locker"
+                      : `Commande #${n.threadId}`
                   return (
                     <li key={n.id}>
                       <button
                         type="button"
-                        onClick={() => {
-                          setOpen(false)
-                          onOpenOrder?.()
-                        }}
+                        onClick={() => handleItemClick(n)}
                         className="flex w-full items-start gap-3 border-b border-border/60 px-4 py-3 text-left transition-colors hover:bg-secondary"
                       >
                         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary text-foreground">
-                          {isMessage ? (
+                          {isBroadcast ? (
+                            <Megaphone className="h-4 w-4" aria-hidden="true" />
+                          ) : isTrk ? (
+                            <ShieldAlert className="h-4 w-4 text-amber-400" aria-hidden="true" />
+                          ) : isMessage ? (
                             <MessageSquare className="h-4 w-4" aria-hidden="true" />
                           ) : (
                             <Package className="h-4 w-4" aria-hidden="true" />
                           )}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-medium">Commande #{n.threadId}</span>
-                          {isMessage ? (
+                          <span className="block text-sm font-medium">{title}</span>
+                          {isMessage || isBroadcast || isTrk ? (
                             <span className="mt-1 block text-[11px] font-medium text-accent">{n.label}</span>
                           ) : (
-                            <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.badge}`}>
+                            <span
+                              className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.badge}`}
+                            >
                               {n.label}
                             </span>
                           )}
-                          <span className="mt-1 block text-[11px] text-muted-foreground">{timeAgo(n.createdAt)}</span>
+                          <span className="mt-1 block text-[11px] text-muted-foreground">
+                            {timeAgo(n.createdAt)} · ouvrir
+                          </span>
                         </span>
-                        {!n.read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#22ffaa]" aria-hidden="true" />}
+                        {!n.read && (
+                          <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" aria-hidden="true" />
+                        )}
                       </button>
                     </li>
                   )

@@ -46,6 +46,9 @@ type MessagerieModalProps = {
   onClose: () => void
   userData: UserData
   autoOpenLatest?: boolean
+  /** Deep-link : ouvrir directement ce fil (ex. depuis notif / push) */
+  focusThreadId?: number | null
+  onFocusConsumed?: () => void
 }
 
 type Thread = {
@@ -67,7 +70,14 @@ type Message = {
   createdAt: Date | string
 }
 
-export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = false }: MessagerieModalProps) {
+export function MessagerieModal({
+  isOpen,
+  onClose,
+  userData,
+  autoOpenLatest = false,
+  focusThreadId = null,
+  onFocusConsumed,
+}: MessagerieModalProps) {
   const token = userData?.token ?? ""
   const name = userData?.pseudo ?? "Client"
   const [threads, setThreads] = useState<Thread[]>([])
@@ -134,9 +144,21 @@ export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = fa
   }, [isOpen, token])
 
   useEffect(() => {
-    if (!isOpen || !autoOpenLatest || selected || !threads.length) return
+    if (!isOpen || !autoOpenLatest || selected || !threads.length || focusThreadId) return
     void openThread(threads[0])
-  }, [autoOpenLatest, isOpen, selected, threads])
+  }, [autoOpenLatest, isOpen, selected, threads, focusThreadId])
+
+  // Deep-link : ouvrir le fil ciblé (Discussions pour notifs, Commandes sinon)
+  useEffect(() => {
+    if (!isOpen || !focusThreadId || !threads.length) return
+    const t = threads.find((x) => x.id === focusThreadId)
+    if (!t) return
+    if (isMessagingThreadStatus(t.status)) setTab("discussions")
+    else setTab("commandes")
+    void openThread(t)
+    onFocusConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, focusThreadId, threads])
 
   const openThread = async (thread: Thread) => {
     setSelected(thread)

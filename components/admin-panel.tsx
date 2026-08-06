@@ -86,6 +86,7 @@ export function AdminPanel({
   initialStaff: StaffRow[]
 }) {
   const [tab, setTab] = useState<TabId>("commandes-en-cours")
+  const [focusThreadId, setFocusThreadId] = useState<number | null>(null)
   const [badges, setBadges] = useState({
     orders: 0,
     locker: 0,
@@ -128,6 +129,42 @@ export function AdminPanel({
     } catch {
       /* ignore */
     }
+  }, [])
+
+  // Deep-link URL push : /admin?tab=messagerie&thread=123
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const t = params.get("tab") as TabId | null
+      const thread = Number(params.get("thread") || 0)
+      if (t && TABS.some((x) => x.id === t)) setTab(t)
+      if (Number.isFinite(thread) && thread > 0) setFocusThreadId(thread)
+      if (t || thread) {
+        window.history.replaceState({}, "", window.location.pathname)
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // SW postMessage pour admin
+    if (!("serviceWorker" in navigator)) return
+    const onMsg = (event: MessageEvent) => {
+      if (event.data?.type !== "BB33_DEEP_LINK" || !event.data?.url) return
+      try {
+        const u = String(event.data.url).startsWith("http")
+          ? new URL(String(event.data.url))
+          : new URL(String(event.data.url), window.location.origin)
+        const t = u.searchParams.get("tab") as TabId | null
+        const thread = Number(u.searchParams.get("thread") || 0)
+        if (t && TABS.some((x) => x.id === t)) setTab(t)
+        if (Number.isFinite(thread) && thread > 0) setFocusThreadId(thread)
+      } catch {
+        /* ignore */
+      }
+    }
+    navigator.serviceWorker.addEventListener("message", onMsg)
+    return () => navigator.serviceWorker.removeEventListener("message", onMsg)
   }, [])
 
   // Pastille rouge par onglet
@@ -231,13 +268,25 @@ export function AdminPanel({
 
         {/* Content */}
         {tab === "commandes-en-cours" ? (
-          <VendorInbox initialThreads={initialActiveOrders} mode="orders" />
+          <VendorInbox
+            initialThreads={initialActiveOrders}
+            mode="orders"
+            focusThreadId={focusThreadId}
+          />
         ) : tab === "locker" ? (
-          <VendorInbox initialThreads={initialLockerOrders} mode="locker" />
+          <VendorInbox
+            initialThreads={initialLockerOrders}
+            mode="locker"
+            focusThreadId={focusThreadId}
+          />
         ) : tab === "cloturees" ? (
-          <VendorInbox initialThreads={initialPastOrders} mode="past" />
+          <VendorInbox initialThreads={initialPastOrders} mode="past" focusThreadId={focusThreadId} />
         ) : tab === "messagerie" ? (
-          <VendorInbox initialThreads={initialDiscussions} mode="messages" />
+          <VendorInbox
+            initialThreads={initialDiscussions}
+            mode="messages"
+            focusThreadId={focusThreadId}
+          />
         ) : tab === "commandes" ? (
           <AdminOrdersRecap threads={initialThreads} />
         ) : tab === "utilisateurs" ? (

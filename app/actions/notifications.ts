@@ -13,6 +13,7 @@ import { desc, eq, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { notifyCustomer } from "@/lib/push"
+import { clientThreadUrl } from "@/lib/deep-links"
 
 export type NotificationRecipient = "all" | string[] // 'all' | tableau de tokens
 
@@ -318,14 +319,16 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
             body: messageBody,
           })
 
-          // Push OS best-effort (n'empêche pas le comptage messagerie)
+          // Push OS → ouvre directement le fil dans Messagerie → Discussions
           await notifyCustomer(t.token, {
             title: `BreakingBad33 — ${title}`,
             body,
-            url: "/",
+            url: clientThreadUrl("messaging", threadId),
             tag: `notif-${notificationId}`,
             notificationId,
             customerToken: t.token,
+            threadId,
+            open: "messaging",
             ...(pushImageUrl ? { image: pushImageUrl } : {}),
           }).catch(() => {})
 
