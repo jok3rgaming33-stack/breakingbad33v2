@@ -42,12 +42,36 @@ async function ensureNotificationSchema() {
         CREATE UNIQUE INDEX IF NOT EXISTS notification_reads_notif_token_uidx
         ON notification_reads (notification_id, customer_token)
       `)
+      // Colonnes order_threads requises pour créer un fil "notification"
+      await db.execute(sql`
+        ALTER TABLE order_threads
+        ADD COLUMN IF NOT EXISTS product_ids JSONB NOT NULL DEFAULT '[]'::jsonb
+      `)
+      await db.execute(sql`
+        ALTER TABLE order_threads
+        ADD COLUMN IF NOT EXISTS deposit_notified BOOLEAN NOT NULL DEFAULT false
+      `)
+      await db.execute(sql`
+        ALTER TABLE order_threads
+        ADD COLUMN IF NOT EXISTS deposit_confirmed BOOLEAN NOT NULL DEFAULT false
+      `)
     })().catch((e) => {
       schemaReady = null
       console.error("[notifications] ensureNotificationSchema failed:", e)
+      throw e
     })
   }
   await schemaReady
+}
+
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message
+  if (typeof e === "string") return e
+  try {
+    return JSON.stringify(e)
+  } catch {
+    return "erreur inconnue"
+  }
 }
 
 function sanitizeMedia(media: MediaAttachment[] | null | undefined): MediaAttachment[] {
@@ -86,7 +110,13 @@ function toAbsoluteProxyUrl(blobUrl: string, origin: string): string {
 // Crée un fil status "notification" distinct par client (affiché onglet Discussions, pas Commandes).
 export async function sendBroadcastNotification(input: BroadcastInput) {
   if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
-  await ensureNotificationSchema()
+
+  try {
+    await ensureNotificationSchema()
+  } catch (e) {
+    console.error("[notifications] schema:", e)
+    return { ok: false as const, error: `Schéma DB : ${errMsg(e)}` }
+  }
 
   const title = input.title?.trim()
   const body = input.body?.trim()
@@ -102,33 +132,57 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
   // Récupère les destinataires
   let targets: { token: string; pseudo: string }[] = []
 
-  if (input.recipients === "all") {
-    const allUsers = await db.select({ token: users.token, pseudo: users.pseudo }).from(users)
-    targets = allUsers.map((u) => ({ token: u.token, pseudo: u.pseudo ?? "Client" }))
-  } else {
-    const tokens = input.recipients as string[]
-    const allUsers = await db.select({ token: users.token, pseudo: users.pseudo }).from(users)
-    targets = allUsers
-      .filter((u) => tokens.includes(u.token))
-      .map((u) => ({ token: u.token, pseudo: u.pseudo ?? "Client" }))
+  try {
+    if (input.recipients === "all") {
+      const allUsers = await db.select({ token: users.token, pseudo: users.pseudo }).from(users)
+      targets = allUsers
+        .filter((u) => !!u.token?.trim())
+        .map((u) => ({ token: u.token, pseudo: (u.pseudo ?? "Client").trim() || "Client" }))
+    } else {
+      const tokens = (input.recipients as string[]).map((t) => String(t).trim()).filter(Boolean)
+      if (!tokens.length) return { ok: false as const, error: "Aucun destinataire sélectionné." }
+      const allUsers = await db.select({ token: users.token, pseudo: users.pseudo }).from(users)
+      const tokenSet = new Set(tokens)
+      targets = allUsers
+        .filter((u) => u.token && tokenSet.has(u.token))
+        .map((u) => ({ token: u.token, pseudo: (u.pseudo ?? "Client").trim() || "Client" }))
+      // Si tokens admin non présents en table users (ex. collés manuellement), on livre quand même
+      if (targets.length === 0 && tokens.length > 0) {
+        targets = tokens.map((token, i) => ({ token, pseudo: `Client ${i + 1}` }))
+      }
+    }
+  } catch (e) {
+    console.error("[notifications] load targets:", e)
+    return { ok: false as const, error: `Lecture clients : ${errMsg(e)}` }
   }
 
-  if (!targets.length) return { ok: false as const, error: "Aucun destinataire trouvé." }
+  if (!targets.length) {
+    return {
+      ok: false as const,
+      error: "Aucun destinataire trouvé (table utilisateurs vide ?).",
+    }
+  }
 
   // Insère le log en base AVANT l'envoi pour récupérer l'ID à injecter dans le payload.
-  const [inserted] = await db
-    .insert(broadcastNotifications)
-    .values({
-      title,
-      body,
-      imageUrl: pushImageSource,
-      media,
-      recipients: input.recipients === "all" ? "all" : JSON.stringify(input.recipients),
-      sentCount: 0, // mis à jour après l'envoi
-    })
-    .returning()
-
-  const notificationId = inserted.id
+  let notificationId: number
+  try {
+    const [inserted] = await db
+      .insert(broadcastNotifications)
+      .values({
+        title,
+        body,
+        imageUrl: pushImageSource,
+        media,
+        recipients: input.recipients === "all" ? "all" : JSON.stringify(input.recipients),
+        sentCount: 0,
+      })
+      .returning()
+    if (!inserted?.id) return { ok: false as const, error: "Impossible de créer le log de notification." }
+    notificationId = inserted.id
+  } catch (e) {
+    console.error("[notifications] insert log:", e)
+    return { ok: false as const, error: `Log notification : ${errMsg(e)}` }
+  }
 
   // L'image dans le payload push doit être une URL absolue publiquement accessible
   // (l'OS Android la fetche sans token). On passe par notre proxy /api/media.
@@ -139,56 +193,100 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
 
   const messageBody = buildThreadMessageBody(title, body, media)
   let sentCount = 0
+  let firstError: string | null = null
 
-  for (const t of targets) {
-    try {
-      // Fil messagerie client (Discussions) — hors commandes admin via status notification
-      const [thread] = await db
-        .insert(orderThreads)
-        .values({
-          customerName: t.pseudo,
-          customerToken: t.token,
-          // Encode l'id broadcast pour le suivi lecture à l'ouverture du fil
-          trackingToken: `NOTIF_${notificationId}_${crypto.randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`,
-          summary: `Notification : ${title}`,
-          total: 0,
-          fulfillment: "livraison",
-          status: "notification",
-        })
-        .returning()
+  // Lots pour limiter la charge (timeout Vercel) tout en livrant tout le monde
+  const BATCH = 25
+  for (let i = 0; i < targets.length; i += BATCH) {
+    const batch = targets.slice(i, i + BATCH)
+    const results = await Promise.all(
+      batch.map(async (t) => {
+        try {
+          const short = crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()
+          const trackingToken = `NOTIF_${notificationId}_${short}`
 
-      await db.insert(threadMessages).values({
-        threadId: thread.id,
-        sender: "vendeur",
-        body: messageBody,
-      })
+          const [thread] = await db
+            .insert(orderThreads)
+            .values({
+              customerName: t.pseudo.slice(0, 200),
+              customerToken: t.token,
+              trackingToken,
+              summary: `Notification : ${title}`.slice(0, 500),
+              products: null,
+              productIds: [],
+              total: 0,
+              fulfillment: "livraison",
+              status: "notification",
+            })
+            .returning({ id: orderThreads.id })
 
-      // Push OS (best-effort) — le suivi réception SW utilise notificationId + customerToken
-      await notifyCustomer(t.token, {
-        title: `BreakingBad33 — ${title}`,
-        body,
-        url: "/",
-        tag: `notif-${notificationId}`,
-        notificationId,
-        customerToken: t.token,
-        ...(pushImageUrl ? { image: pushImageUrl } : {}),
-      }).catch(() => {})
+          if (!thread?.id) throw new Error("insert fil sans id")
 
-      sentCount++
-    } catch {
-      // best-effort par destinataire
+          await db.insert(threadMessages).values({
+            threadId: thread.id,
+            sender: "vendeur",
+            body: messageBody,
+          })
+
+          // Push OS best-effort (n'empêche pas le comptage messagerie)
+          await notifyCustomer(t.token, {
+            title: `BreakingBad33 — ${title}`,
+            body,
+            url: "/",
+            tag: `notif-${notificationId}`,
+            notificationId,
+            customerToken: t.token,
+            ...(pushImageUrl ? { image: pushImageUrl } : {}),
+          }).catch(() => {})
+
+          return { ok: true as const }
+        } catch (e) {
+          const msg = errMsg(e)
+          console.error("[notifications] deliver fail:", t.token?.slice(0, 8), msg)
+          return { ok: false as const, error: msg }
+        }
+      }),
+    )
+
+    for (const r of results) {
+      if (r.ok) sentCount++
+      else if (!firstError) firstError = r.error
     }
   }
 
-  // Met à jour le sentCount réel (= fils messagerie créés)
-  await db
-    .update(broadcastNotifications)
-    .set({ sentCount })
-    .where(eq(broadcastNotifications.id, notificationId))
+  try {
+    await db
+      .update(broadcastNotifications)
+      .set({ sentCount })
+      .where(eq(broadcastNotifications.id, notificationId))
+  } catch (e) {
+    console.error("[notifications] update sentCount:", e)
+  }
 
-  revalidatePath("/admin")
-  revalidatePath("/")
-  return { ok: true as const, sentCount }
+  try {
+    revalidatePath("/admin")
+    revalidatePath("/")
+  } catch {
+    /* ignore */
+  }
+
+  if (sentCount === 0) {
+    return {
+      ok: false as const,
+      error: firstError
+        ? `Aucun client livré (${targets.length} ciblé(s)). ${firstError}`
+        : `Aucun client livré (${targets.length} ciblé(s)).`,
+      sentCount: 0,
+      targetCount: targets.length,
+    }
+  }
+
+  return {
+    ok: true as const,
+    sentCount,
+    targetCount: targets.length,
+    partialError: firstError && sentCount < targets.length ? firstError : undefined,
+  }
 }
 
 // Historique des notifications envoyées
