@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Star, X, ChevronRight, ChevronLeft, Check, Loader2 } from "lucide-react"
 import { submitRating, getRatableProducts, type RatableProduct } from "@/app/actions/ratings"
 
@@ -85,15 +85,15 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
   const [done, setDone] = useState<Set<string>>(new Set()) // "productId:threadId"
 
   // Chargement initial
-  useState(() => {
+  useEffect(() => {
     void (async () => {
       const list = await getRatableProducts(customerToken)
-      // Filtrer par threadId si fourni
       const filtered = threadId ? list.filter((p) => p.threadId === threadId) : list
       setProducts(filtered)
       setLoading(false)
     })()
-  })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (loading) {
     return (

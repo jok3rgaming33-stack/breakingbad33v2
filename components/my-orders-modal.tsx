@@ -15,6 +15,7 @@ import {
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
 import { BlobMedia } from "@/components/blob-media"
+import { ProductRatingModal } from "@/components/product-rating-modal"
 import {
   formatMessageTime,
   formatThreadActivity,
@@ -97,6 +98,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
   const [sending, setSending] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadErr, setUploadErr] = useState<string | null>(null)
+  const [ratingThreadId, setRatingThreadId] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Notification push
   const [pushSupported, setPushSupported] = useState(false)
@@ -286,6 +288,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
   const depositAlreadyConfirmed = (selected as any)?.depositConfirmed ?? false
 
   return (
+    <>
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-background/90 p-4"
       role="dialog"
@@ -524,7 +527,10 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
                         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
                           {isClient ? "Vous" : "Le Chimiste"} · {formatMessageTime(m.createdAt)}
                         </div>
-                        <MessageBody body={m.body} />
+                        <MessageBody
+                          body={m.body}
+                          onRateProducts={selected ? () => setRatingThreadId(selected.id) : undefined}
+                        />
                       </div>
                     )
                   })}
@@ -639,5 +645,13 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
         )}
       </div>
     </div>
+    {ratingThreadId && (
+      <ProductRatingModal
+        threadId={ratingThreadId}
+        customerToken={token}
+        onClose={() => setRatingThreadId(null)}
+      />
+    )}
+    </>
   )
 }

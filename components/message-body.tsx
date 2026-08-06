@@ -53,14 +53,35 @@ export function parseMessageBody(body: string): Segment[] {
   return segments
 }
 
+// Tag spécial inséré automatiquement lors du passage au statut "livree".
+const RATING_TAG = "[NOTER_PRODUITS]"
+
 /**
  * Rendu d'un corps de message (texte + image / vidéo / vocal).
+ * Accepte un callback optionnel `onRateProducts` : quand le corps contient
+ * le tag [NOTER_PRODUITS], un bouton s'affiche à la place du tag.
  */
-export function MessageBody({ body }: { body: string }) {
-  const segments = parseMessageBody(body)
+export function MessageBody({ body, onRateProducts }: { body: string; onRateProducts?: () => void }) {
+  // Tag notation : remplacer par bouton si callback fourni
+  const cleanBody = body.startsWith(RATING_TAG)
+    ? body.slice(RATING_TAG.length).trimStart()
+    : body
+
+  const isRatingMessage = body.startsWith(RATING_TAG)
+
+  const segments = parseMessageBody(cleanBody)
 
   return (
     <div className="flex flex-col gap-2">
+      {isRatingMessage && onRateProducts && (
+        <button
+          onClick={onRateProducts}
+          className="mt-1 flex items-center gap-2 self-start rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-300 transition hover:bg-amber-400/20 active:scale-95"
+        >
+          <Star className="h-4 w-4 fill-amber-400 text-amber-400" aria-hidden="true" />
+          Noter mes produits
+        </button>
+      )}
       {segments.map((seg, i) => {
         if (seg.type === "text") {
           return (
