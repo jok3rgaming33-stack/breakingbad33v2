@@ -25,6 +25,12 @@ export type PushPayload = {
   body: string
   url?: string
   tag?: string
+  /** Image OS (Android) — URL absolue publique */
+  image?: string
+  /** Suivi lecture broadcast admin */
+  notificationId?: number
+  customerToken?: string
+  badgeCount?: number
 }
 
 // Envoie une notification à une liste d'abonnements et nettoie ceux qui sont expirés.

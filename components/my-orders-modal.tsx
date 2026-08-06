@@ -129,7 +129,9 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
       getThreadsForToken(token),
       getLockerOrdersForToken(token),
     ])
-    setThreads(sortByActivityDesc(list as Thread[]))
+    // Exclure les broadcasts admin (ils sont dans Messagerie → Discussions)
+    const ordersOnly = (list as Thread[]).filter((t) => t.status !== "notification")
+    setThreads(sortByActivityDesc(ordersOnly))
     setLockerThreads(sortByActivityDesc(lockerList as Thread[]))
   }
 

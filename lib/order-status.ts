@@ -119,7 +119,20 @@ export function normalizeStatus(raw: string | null | undefined): OrderStatusKey 
 }
 
 export function statusMeta(raw: string | null | undefined): StatusMeta {
+  // Broadcast admin : affiché dans Discussions client, pas comme une commande
+  if (raw === "notification") {
+    return {
+      label: "Notification",
+      badge: "bg-accent/15 text-accent border border-accent/30",
+      accent: "text-accent",
+    }
+  }
   return STATUS_META[normalizeStatus(raw)]
+}
+
+/** Fils messagerie directe (Discussions) : discussions classiques + broadcasts admin */
+export function isMessagingThreadStatus(raw: string | null | undefined): boolean {
+  return isDiscussionStatus(raw) || raw === "notification"
 }
 
 // Statuts considérés comme "terminés" (commandes passées)
@@ -133,6 +146,7 @@ export function isClosedStatus(raw: string | null | undefined): boolean {
 export const DISCUSSION_STATUSES: OrderStatusKey[] = ["discussion", "pris_en_charge", "ouvert", "ferme"]
 
 export function isDiscussionStatus(raw: string | null | undefined): boolean {
+  if (raw === "notification") return false // traité à part (onglet Discussions via isMessagingThreadStatus)
   const k = normalizeStatus(raw)
   return DISCUSSION_STATUSES.includes(k) || raw === "discussion" || raw === "pris_en_charge" || raw === "ouvert" || raw === "ferme"
 }

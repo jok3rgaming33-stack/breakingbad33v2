@@ -10,7 +10,7 @@ import {
   createGeneralInquiryThread,
   markThreadReadForToken,
 } from "@/app/actions/messaging"
-import { statusMeta, isDiscussionStatus } from "@/lib/order-status"
+import { statusMeta, isDiscussionStatus, isMessagingThreadStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
 import { ProductRatingModal } from "@/components/product-rating-modal"
 import {
@@ -251,14 +251,17 @@ export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = fa
     />
   ) : null
 
-  const orderThreads = threads.filter((t) => !isDiscussionStatus(t.status))
-  const discussionThreads = threads.filter((t) => isDiscussionStatus(t.status))
+  // Commandes réelles uniquement — les broadcasts admin vont dans Discussions
+  const orderThreads = threads.filter((t) => !isMessagingThreadStatus(t.status))
+  const discussionThreads = threads.filter((t) => isMessagingThreadStatus(t.status))
 
   const title =
     view === "thread"
-      ? isDiscussionStatus(selected?.status)
-        ? "Discussion"
-        : `Commande #${selected?.id}`
+      ? selected?.status === "notification"
+        ? selected.summary?.replace(/^Notification\s*:\s*/i, "") || "Notification"
+        : isDiscussionStatus(selected?.status)
+          ? "Discussion"
+          : `Commande #${selected?.id}`
       : view === "compose"
         ? "Contacter le chimiste"
         : "Messagerie"
@@ -393,6 +396,10 @@ export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = fa
                         </li>
                       ) : discussionThreads.map((t) => {
                         const meta = statusMeta(t.status)
+                        const isNotif = t.status === "notification"
+                        const label = isNotif
+                          ? (t.summary?.replace(/^Notification\s*:\s*/i, "") || "Notification")
+                          : `Discussion #${t.id}`
                         return (
                           <li key={t.id}>
                             <button
@@ -405,7 +412,7 @@ export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = fa
                                   <FlaskConical className="h-4 w-4" aria-hidden="true" />
                                 </span>
                                 <div>
-                                  <div className="font-semibold">Discussion #{t.id}</div>
+                                  <div className="font-semibold line-clamp-1">{label}</div>
                                   <div className="text-xs text-muted-foreground">
                                     {formatThreadActivity(threadActivityAt(t))}
                                   </div>

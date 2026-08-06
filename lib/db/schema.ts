@@ -370,12 +370,21 @@ export const broadcastNotifications = pgTable("broadcast_notifications", {
 export type BroadcastNotification = typeof broadcastNotifications.$inferSelect
 
 // Trace les lectures de notifications push par membre (pour suivi lu/non-lu dans l'admin).
-export const notificationReads = pgTable("notification_reads", {
-  id: serial("id").primaryKey(),
-  notificationId: integer("notification_id").notNull(),
-  customerToken: text("customer_token").notNull(),
-  readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
-})
+export const notificationReads = pgTable(
+  "notification_reads",
+  {
+    id: serial("id").primaryKey(),
+    notificationId: integer("notification_id").notNull(),
+    customerToken: text("customer_token").notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    notifTokenUidx: uniqueIndex("notification_reads_notif_token_uidx").on(
+      t.notificationId,
+      t.customerToken,
+    ),
+  }),
+)
 
 export type NotificationRead = typeof notificationReads.$inferSelect
 

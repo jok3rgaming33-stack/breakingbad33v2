@@ -4,6 +4,8 @@ import { db } from "@/lib/db"
 import {
   broadcastNotifications,
   notificationReads,
+  orderThreads,
+  threadMessages,
   users,
   type MediaAttachment,
 } from "@/lib/db/schema"
@@ -35,6 +37,11 @@ async function ensureNotificationSchema() {
         ALTER TABLE broadcast_notifications
         ADD COLUMN IF NOT EXISTS media JSONB NOT NULL DEFAULT '[]'::jsonb
       `)
+      // Unique (notif, client) pour onConflictDoNothing du suivi lu/non-lu
+      await db.execute(sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS notification_reads_notif_token_uidx
+        ON notification_reads (notification_id, customer_token)
+      `)
     })().catch((e) => {
       schemaReady = null
       console.error("[notifications] ensureNotificationSchema failed:", e)
@@ -59,14 +66,24 @@ function resolveMedia(row: { imageUrl?: string | null; media?: MediaAttachment[]
   return [{ type: isVideo ? "video" : "image", url }]
 }
 
+/** Corps messagerie : titre + message + balises média (image/vidéo). */
+function buildThreadMessageBody(title: string, body: string, media: MediaAttachment[]): string {
+  let full = `${title}\n\n${body}`
+  for (const m of media) {
+    if (m.type === "video") full += `\n\n[video]${m.url}[/video]`
+    else full += `\n\n[image]${m.url}[/image]`
+  }
+  return full
+}
+
 /** Convertit une URL Blob privée en URL proxy absolue fetchable sans token (par le SW / l'OS). */
 function toAbsoluteProxyUrl(blobUrl: string, origin: string): string {
   if (!blobUrl.includes(".blob.vercel-storage.com")) return blobUrl
   return `${origin}/api/media?url=${encodeURIComponent(blobUrl)}`
 }
 
-// Envoie une notification dans la messagerie de chaque destinataire.
-// Crée un fil "notification" distinct pour chaque client ciblé.
+// Envoie une notification dans la messagerie (Discussions) de chaque destinataire + push.
+// Crée un fil status "notification" distinct par client (affiché onglet Discussions, pas Commandes).
 export async function sendBroadcastNotification(input: BroadcastInput) {
   if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
   await ensureNotificationSchema()
@@ -120,11 +137,34 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
       ? toAbsoluteProxyUrl(pushImageSource, input.appOrigin)
       : pushImageSource ?? undefined
 
+  const messageBody = buildThreadMessageBody(title, body, media)
   let sentCount = 0
 
   for (const t of targets) {
     try {
-      const payload = {
+      // Fil messagerie client (Discussions) — hors commandes admin via status notification
+      const [thread] = await db
+        .insert(orderThreads)
+        .values({
+          customerName: t.pseudo,
+          customerToken: t.token,
+          // Encode l'id broadcast pour le suivi lecture à l'ouverture du fil
+          trackingToken: `NOTIF_${notificationId}_${crypto.randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`,
+          summary: `Notification : ${title}`,
+          total: 0,
+          fulfillment: "livraison",
+          status: "notification",
+        })
+        .returning()
+
+      await db.insert(threadMessages).values({
+        threadId: thread.id,
+        sender: "vendeur",
+        body: messageBody,
+      })
+
+      // Push OS (best-effort) — le suivi réception SW utilise notificationId + customerToken
+      await notifyCustomer(t.token, {
         title: `BreakingBad33 — ${title}`,
         body,
         url: "/",
@@ -132,21 +172,22 @@ export async function sendBroadcastNotification(input: BroadcastInput) {
         notificationId,
         customerToken: t.token,
         ...(pushImageUrl ? { image: pushImageUrl } : {}),
-      }
-      await notifyCustomer(t.token, payload)
+      }).catch(() => {})
+
       sentCount++
     } catch {
-      // best-effort
+      // best-effort par destinataire
     }
   }
 
-  // Met à jour le sentCount réel
+  // Met à jour le sentCount réel (= fils messagerie créés)
   await db
     .update(broadcastNotifications)
     .set({ sentCount })
     .where(eq(broadcastNotifications.id, notificationId))
 
   revalidatePath("/admin")
+  revalidatePath("/")
   return { ok: true as const, sentCount }
 }
 
@@ -167,9 +208,10 @@ export async function listBroadcastNotifications(limit = 50) {
 
 export type BroadcastNotificationRow = Awaited<ReturnType<typeof listBroadcastNotifications>>[number]
 
-// Enregistre la lecture d'une notification par un client (appelé depuis le SW via /api/notification-read).
+// Enregistre la lecture d'une notification par un client (SW push ou ouverture du fil messagerie).
 export async function markNotificationRead(notificationId: number, customerToken: string) {
   if (!notificationId || !customerToken) return { ok: false as const }
+  await ensureNotificationSchema()
   await db
     .insert(notificationReads)
     .values({ notificationId, customerToken })
