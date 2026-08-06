@@ -389,7 +389,7 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
                                     <div>
                                       <div className="text-sm font-semibold">Commande #{t.id}</div>
                                       <div className="text-xs text-muted-foreground">
-                                        {t.total}€ · {method === "wiro" ? "Wero" : "XMR"}
+                                        {t.total}€ · {method === "paysafecard" || method === "wiro" ? "Paysafecard" : "XMR"}
                                       </div>
                                     </div>
                                     <span className="shrink-0 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-semibold text-amber-400">
@@ -580,18 +580,27 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
               )}
             </div>
 
-            {/* Zone dépôt XMR / Wero (commande validée, paiement pas encore confirmé) */}
+            {/* Zone dépôt XMR / Paysafecard (commande validée, paiement pas encore confirmé) */}
             {isLockerSelected && !depositAlreadyConfirmed && (
               (() => {
                 const method = (selected as { paymentMethod?: string | null })?.paymentMethod
-                const isWiro = method === "wiro"
-                const wiroId = (selected as { wiroIdentifier?: string | null })?.wiroIdentifier
+                const isPsc = method === "paysafecard" || method === "wiro"
                 const canNotify =
-                  (isWiro && (!!wiroId || selected.status === "validee" || selected.status === "preparation")) ||
-                  (!isWiro && !!xmrWallet)
+                  (isPsc && (selected.status === "validee" || selected.status === "preparation")) ||
+                  (!isPsc && !!xmrWallet)
                 if (!canNotify && !depositAlreadyNotified && !depositSent) return null
                 return (
-                  <div className="border-t border-border p-4">
+                  <div className="border-t border-border p-4 space-y-2">
+                    {isPsc && !depositAlreadyNotified && !depositSent && (
+                      <a
+                        href="https://www.paysafecard.com/fr-fr/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex w-full items-center justify-center rounded-2xl border border-accent/40 bg-accent/10 py-2.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/20"
+                      >
+                        Acheter sur paysafecard.com (officiel)
+                      </a>
+                    )}
                     {!depositAlreadyNotified && !depositSent ? (
                       canNotify ? (
                         <button
@@ -601,13 +610,13 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
                           className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
                         >
                           {depositSending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                          {isWiro ? "J'ai effectué mon virement Wero" : "J'ai effectué mon dépôt XMR"}
+                          {isPsc ? "J'ai envoyé mon code Paysafecard" : "J'ai effectué mon dépôt XMR"}
                         </button>
                       ) : null
                     ) : (
                       <div className="rounded-2xl border border-border bg-background/60 px-4 py-3 text-center text-sm text-muted-foreground">
-                        {isWiro
-                          ? "Virement signalé — en attente de confirmation par le vendeur."
+                        {isPsc
+                          ? "Code signalé — en attente de confirmation par le vendeur."
                           : "Dépôt signalé — en attente de confirmation par le vendeur."}
                       </div>
                     )}

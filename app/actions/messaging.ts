@@ -9,9 +9,17 @@ import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { notifyCustomer, notifyVendor } from "@/lib/push"
 import { adjustStock } from "@/app/actions/products"
 import { createXmrPaymentForOrder } from "@/app/actions/crypto-payment"
-import { getWiroConfig } from "@/app/actions/settings"
+import { getPaysafecardConfig, PAYSAFECARD_OFFICIAL } from "@/app/actions/settings"
 
-export type LockerPaymentMethod = "xmr" | "wiro"
+export type LockerPaymentMethod = "xmr" | "paysafecard"
+
+/** Normalise l'ancien "wiro" vers paysafecard. */
+function normalizeLockerPay(raw: string | null | undefined): LockerPaymentMethod | null {
+  if (!raw) return null
+  if (raw === "paysafecard" || raw === "wiro" || raw === "psc") return "paysafecard"
+  if (raw === "xmr") return "xmr"
+  return null
+}
 
 export type NewOrderInput = {
   customerName: string
@@ -30,8 +38,8 @@ export type NewOrderInput = {
   lng?: number | null
   scheduledDate?: string
   scheduledSlot?: string
-  /** Locker uniquement : xmr | wiro */
-  paymentMethod?: LockerPaymentMethod | null
+  /** Locker uniquement : xmr | paysafecard */
+  paymentMethod?: LockerPaymentMethod | "wiro" | null
 }
 
 /** Colonnes order_threads potentiellement absentes sur anciennes bases. */
@@ -120,9 +128,7 @@ export async function createOrderThread(input: NewOrderInput) {
     const trackingToken = `TRK_${crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`
     const isLocker = input.fulfillment === "locker"
     const paymentMethod: LockerPaymentMethod | null = isLocker
-      ? input.paymentMethod === "wiro"
-        ? "wiro"
-        : "xmr"
+      ? normalizeLockerPay(input.paymentMethod) ?? "xmr"
       : null
 
     const [thread] = await db
@@ -155,14 +161,11 @@ export async function createOrderThread(input: NewOrderInput) {
 
     if (isLocker) {
       // Locker : pas de token TRK tout de suite — envoyé après confirmation du paiement.
-      // Message d'accueil + instructions paiement.
-      if (paymentMethod === "wiro") {
-        let wiroId = ""
-        let wiroInstructions = ""
+      if (paymentMethod === "paysafecard") {
+        let extraInstructions = ""
         try {
-          const wiro = await getWiroConfig()
-          wiroId = wiro.identifier?.trim() || ""
-          wiroInstructions = wiro.instructions?.trim() || ""
+          const cfg = await getPaysafecardConfig()
+          extraInstructions = cfg.instructions?.trim() || ""
         } catch {
           /* ignore */
         }
@@ -170,35 +173,24 @@ export async function createOrderThread(input: NewOrderInput) {
         const lines = [
           `Merci pour ta commande Locker #${thread.id} !`,
           ``,
-          `Mode de paiement : Wero (virement instantané).`,
-          `Total à envoyer : ${input.total}€`,
+          `Mode de paiement : Paysafecard (code prépayé).`,
+          `Total à régler : ${input.total}€`,
           ``,
+          `⚠️ Achète UNIQUEMENT sur le site officiel Paysafecard :`,
+          PAYSAFECARD_OFFICIAL.home,
+          ``,
+          `Acheter en ligne (officiel) :`,
+          PAYSAFECARD_OFFICIAL.buyOnline,
+          ``,
+          `Trouver un point de vente (officiel) :`,
+          PAYSAFECARD_OFFICIAL.findStore,
+          ``,
+          extraInstructions ||
+            `Achète un ticket du montant exact (ou supérieur), puis envoie le code à 16 chiffres dans ce fil après validation vendeur.`,
+          ``,
+          `Après validation de ta commande, envoie le PIN ici et clique sur « J'ai envoyé mon code Paysafecard ».`,
+          `Dès confirmation du code, tu recevras ton token TRK_ en messagerie pour débloquer le suivi Locker.`,
         ]
-        if (wiroId) {
-          lines.push(
-            `Identifiant Wero :`,
-            wiroId,
-            ``,
-            wiroInstructions ||
-              `Envoie exactement ${input.total}€ via Wero, puis clique sur « J'ai effectué mon virement » une fois le suivi débloqué.`,
-            ``,
-            `Après validation de ta commande par le vendeur, tu pourras signaler ton virement.`,
-            `Dès confirmation du paiement, tu recevras ton token TRK_ en messagerie pour débloquer le suivi Locker.`,
-          )
-          try {
-            await db
-              .update(orderThreads)
-              .set({ wiroIdentifier: wiroId, updatedAt: sql`now()` })
-              .where(eq(orderThreads.id, thread.id))
-          } catch {
-            /* non bloquant */
-          }
-        } else {
-          lines.push(
-            `Le vendeur t'enverra bientôt son identifiant Wero pour le virement.`,
-            `Après confirmation du paiement, tu recevras ton token TRK_ en messagerie pour débloquer le suivi Locker.`,
-          )
-        }
 
         await db.insert(threadMessages).values({
           threadId: thread.id,
@@ -234,7 +226,7 @@ export async function createOrderThread(input: NewOrderInput) {
     await notifyVendor({
       title: "Nouvelle commande",
       body: `${name} vient de passer une commande (#${thread.id})${
-        isLocker ? ` — LOCKER (${paymentMethod === "wiro" ? "Wero" : "XMR"})` : ""
+        isLocker ? ` — LOCKER (${paymentMethod === "paysafecard" ? "Paysafecard" : "XMR"})` : ""
       }.`,
       url: "/admin",
       tag: `order-${thread.id}`,
@@ -250,7 +242,7 @@ export async function createOrderThread(input: NewOrderInput) {
       error?: string
     } = { enabled: false }
 
-    if (paymentMethod !== "wiro") {
+    if (paymentMethod !== "paysafecard") {
       try {
         const invPromise = createXmrPaymentForOrder({
           threadId: thread.id,
@@ -1039,72 +1031,76 @@ export async function sendXmrWallet(threadId: number, wallet: string) {
   return { ok: true as const }
 }
 
-// Admin : envoie les coordonnées Wero pour une commande locker et passe en validée.
-export async function sendWiroPayment(threadId: number, identifier?: string) {
+// Admin : valide une commande locker Paysafecard et envoie les instructions officielles.
+export async function sendPaysafecardInstructions(threadId: number) {
   if (!threadId) return { ok: false as const, error: "id manquant" }
   const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
   if (!thread) return { ok: false as const, error: "commande introuvable" }
 
-  let id = identifier?.trim() || ""
   let instructions = ""
-  if (!id) {
-    try {
-      const cfg = await getWiroConfig()
-      id = cfg.identifier?.trim() || ""
-      instructions = cfg.instructions?.trim() || ""
-    } catch {
-      /* ignore */
-    }
-  }
-  if (!id) {
-    return { ok: false as const, error: "Identifiant Wero manquant (configure-le dans Paiement ou saisis-le)." }
+  try {
+    const cfg = await getPaysafecardConfig()
+    instructions = cfg.instructions?.trim() || ""
+  } catch {
+    /* ignore */
   }
 
   await db
     .update(orderThreads)
     .set({
-      wiroIdentifier: id,
-      paymentMethod: "wiro",
+      paymentMethod: "paysafecard",
       status: "validee",
       updatedAt: sql`now()`,
     })
     .where(eq(orderThreads.id, threadId))
 
   const msg = [
-    `Commande validée ! Paiement par Wero (virement instantané).`,
+    `Commande validée ! Paiement par Paysafecard.`,
     ``,
-    `Montant exact à envoyer : ${thread.total}€`,
+    `Montant à régler : ${thread.total}€ (ticket du montant exact ou supérieur).`,
     ``,
-    `Identifiant Wero :`,
-    id,
+    `1️⃣ Achète ton code UNIQUEMENT sur le site officiel :`,
+    PAYSAFECARD_OFFICIAL.home,
+    ``,
+    `   • Acheter en ligne : ${PAYSAFECARD_OFFICIAL.buyOnline}`,
+    `   • Points de vente : ${PAYSAFECARD_OFFICIAL.findStore}`,
+    ``,
+    `2️⃣ Tu reçois un code PIN à 16 chiffres.`,
+    ``,
+    `3️⃣ Envoie ce code dans CE fil de suivi (message), puis clique sur « J'ai envoyé mon code Paysafecard ».`,
     ``,
     instructions ||
-      `Envoie le montant via Wero (app bancaire → envoyer de l'argent / Wero), puis clique sur « J'ai effectué mon virement » dans ton suivi locker.`,
+      `N'utilise aucun site tiers non officiel pour acheter le code.`,
     ``,
-    `Dès confirmation du paiement par le vendeur, tu recevras ton token TRK_ en messagerie pour débloquer le suivi Locker.`,
+    `Dès vérification du code, tu recevras ton token TRK_ en messagerie pour débloquer le suivi Locker.`,
   ].join("\n")
 
   await db.insert(threadMessages).values({ threadId, sender: "vendeur", body: msg })
 
   await notifyCustomer(thread.customerToken, {
-    title: "Paiement Wero — coordonnées disponibles",
-    body: "Ouvre ton suivi locker pour envoyer le virement Wero.",
+    title: "Paiement Paysafecard — instructions",
+    body: "Achète ton code sur paysafecard.com (officiel) et envoie le PIN dans ton suivi Locker.",
     url: "/",
-    tag: `wiro-${threadId}`,
+    tag: `psc-${threadId}`,
   }).catch(() => {})
 
   revalidatePath("/admin")
   return { ok: true as const }
 }
 
-// Client : signale que son dépôt (XMR ou Wero) est effectué.
+/** @deprecated alias → sendPaysafecardInstructions */
+export async function sendWiroPayment(threadId: number, _identifier?: string) {
+  return sendPaysafecardInstructions(threadId)
+}
+
+// Client : signale que son dépôt (XMR ou Paysafecard) est effectué.
 export async function notifyDeposit(threadId: number) {
   if (!threadId) return { ok: false as const }
   const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
   if (!thread) return { ok: false as const }
 
-  const isWiro = thread.paymentMethod === "wiro"
-  const label = isWiro ? "Wero" : "XMR"
+  const isPsc = normalizeLockerPay(thread.paymentMethod) === "paysafecard"
+  const label = isPsc ? "Paysafecard" : "XMR"
 
   await db
     .update(orderThreads)
@@ -1113,14 +1109,16 @@ export async function notifyDeposit(threadId: number) {
   await db.insert(threadMessages).values({
     threadId,
     sender: "client",
-    body: isWiro
-      ? "J'ai effectué mon virement Wero. Merci de vérifier la réception."
+    body: isPsc
+      ? "J'ai acheté mon code Paysafecard et je l'ai envoyé (ou je l'envoie) dans ce fil. Merci de vérifier le PIN à 16 chiffres."
       : "J'ai effectué mon dépôt XMR. Merci de vérifier la réception.",
   })
 
   await notifyVendor({
-    title: `Dépôt ${label} signalé — Commande #${threadId}`,
-    body: `${thread.customerName} signale avoir effectué son paiement ${label}.`,
+    title: `Paiement ${label} signalé — Commande #${threadId}`,
+    body: isPsc
+      ? `${thread.customerName} a signalé l'envoi d'un code Paysafecard — vérifie le PIN dans le fil.`
+      : `${thread.customerName} signale avoir effectué son dépôt Monero.`,
     url: "/admin",
     tag: `deposit-${threadId}`,
   }).catch(() => {})
@@ -1236,15 +1234,15 @@ export async function updateOrderProducts(threadId: number, items: OrderProductI
   return { ok: true as const, newTotal, newSummary }
 }
 
-// Admin : confirme la réception du paiement (XMR ou Wero), lance la préparation
+// Admin : confirme la réception du paiement (XMR ou Paysafecard), lance la préparation
 // et envoie le token TRK_ en messagerie pour débloquer le suivi Locker.
 export async function confirmDeposit(threadId: number) {
   if (!threadId) return { ok: false as const }
   const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
   if (!thread) return { ok: false as const }
 
-  const isWiro = thread.paymentMethod === "wiro"
-  const payLabel = isWiro ? "Wero" : "XMR"
+  const isPsc = normalizeLockerPay(thread.paymentMethod) === "paysafecard"
+  const payLabel = isPsc ? "Paysafecard" : "XMR"
 
   await db
     .update(orderThreads)
@@ -1254,8 +1252,8 @@ export async function confirmDeposit(threadId: number) {
   await db.insert(threadMessages).values({
     threadId,
     sender: "vendeur",
-    body: isWiro
-      ? `Virement Wero reçu et confirmé. La préparation de ton colis est en cours — tu recevras une mise à jour dès la mise en expédition.\n\nTon token de suivi TRK_ t'a été envoyé en messagerie (message à sauvegarder).`
+    body: isPsc
+      ? `Code Paysafecard reçu et confirmé. La préparation de ton colis est en cours — tu recevras une mise à jour dès la mise en expédition.\n\nTon token de suivi TRK_ t'a été envoyé en messagerie (message à sauvegarder).`
       : `Dépôt Monero reçu et confirmé. La préparation de ton colis est en cours — tu recevras une mise à jour dès la mise en expédition.\n\nTon token de suivi TRK_ t'a été envoyé en messagerie (message à sauvegarder).`,
   })
 

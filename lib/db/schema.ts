@@ -184,9 +184,9 @@ export const orderThreads = pgTable("order_threads", {
   depositConfirmed: boolean("deposit_confirmed").notNull().default(false),  // Admin a confirmé réception
   clientLastSeen: timestamp("client_last_seen", { withTimezone: true }),    // Dernière ouverture du fil par le client
   status: text("status").notNull().default("nouveau"),
-  // Locker : mode de paiement choisi au checkout — 'xmr' | 'wiro' | null
+  // Locker : mode de paiement — 'xmr' | 'paysafecard' (legacy: 'wiro') | null
   paymentMethod: text("payment_method"),
-  // Identifiant Wero (téléphone / email) envoyé au client pour le virement
+  // Réf. paiement libre (ex. code PSC noté côté admin) — colonne historique wiro_identifier
   wiroIdentifier: text("wiro_identifier"),
   // Paiement XMR (NOWPayments) — nullable = sans gateway / legacy
   paymentProvider: text("payment_provider"),
