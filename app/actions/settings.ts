@@ -161,13 +161,6 @@ const DEFAULT_PAYSAFECARD: PaysafecardConfig = {
     "Achète un code Paysafecard du montant exact (ou supérieur) sur le site officiel, puis envoie le code à 16 chiffres dans ton suivi Locker et clique sur « J'ai envoyé mon code Paysafecard ».",
 }
 
-/** Site officiel FR — toujours privilégier ces URLs côté client */
-export const PAYSAFECARD_OFFICIAL = {
-  home: "https://www.paysafecard.com/fr-fr/",
-  buyOnline: "https://www.paysafecard.com/fr-fr/acheter-paysafecard-en-ligne/",
-  findStore: "https://www.paysafecard.com/fr-fr/trouver-un-point-de-vente/",
-} as const
-
 export async function getPaysafecardConfig(): Promise<PaysafecardConfig> {
   // Compat : ancienne clé wiro_locker éventuelle
   const modern = await readSetting<PaysafecardConfig>("paysafecard_locker", DEFAULT_PAYSAFECARD)
