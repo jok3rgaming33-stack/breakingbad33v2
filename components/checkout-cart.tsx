@@ -125,10 +125,10 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const isLocker = fulfillmentMode === "locker"
   const [meetupHour, setMeetupHour] = useState("")
   const [lockerAddress, setLockerAddress] = useState("")
-  /** Locker : XMR ou Wero (virement) */
-  const [lockerPayMethod, setLockerPayMethod] = useState<"xmr" | "wiro">("xmr")
+  /** Locker : XMR ou Paysafecard */
+  const [lockerPayMethod, setLockerPayMethod] = useState<"xmr" | "paysafecard">("xmr")
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
-  const [wiroModalOpen, setWiroModalOpen] = useState(false)
+  const [pscModalOpen, setPscModalOpen] = useState(false)
   const [payConfirmed, setPayConfirmed] = useState(false)
   const [cryptoPayment, setCryptoPayment] = useState<{
     enabled: boolean
@@ -358,7 +358,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         : `Livraison à ${address} — créneau ${slot} (frais ${deliveryFee}€)`
 
     const payLine = isLocker
-      ? `Paiement : ${lockerPayMethod === "wiro" ? "Wero (virement)" : "Monero (XMR)"}`
+      ? `Paiement : ${lockerPayMethod === "paysafecard" ? "Paysafecard" : "Monero (XMR)"}`
       : null
 
     const message = [
@@ -529,13 +529,21 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
               </div>
             )}
 
-            {isLocker && lockerPayMethod === "wiro" && (
+            {isLocker && lockerPayMethod === "paysafecard" && (
               <div className="mt-2 w-full max-w-sm rounded-2xl border border-accent/40 bg-accent/10 p-4 text-left">
-                <p className="mb-1 text-sm font-bold text-accent">Paiement Wero</p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Les coordonnées Wero te seront confirmées par le vendeur. Envoie le virement, signale-le, puis
-                  récupère ton token TRK_ en messagerie après confirmation.
+                <p className="mb-1 text-sm font-bold text-accent">Paiement Paysafecard</p>
+                <p className="mb-2 text-xs text-muted-foreground leading-relaxed">
+                  Achète ton code uniquement sur le site officiel, envoie le PIN à 16 chiffres dans ton suivi, puis
+                  récupère ton token TRK_ après confirmation.
                 </p>
+                <a
+                  href="https://www.paysafecard.com/fr-fr/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-semibold text-accent underline"
+                >
+                  Site officiel Paysafecard →
+                </a>
               </div>
             )}
 
@@ -671,7 +679,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     Frais d&apos;envoi Locker : <span className="font-semibold text-foreground">{FEE_LOCKER}€</span>. Saisis l&apos;adresse exacte du point Locker Mondial Relay choisi.
                   </p>
 
-                  {/* Choix paiement Locker : XMR ou Wero */}
+                  {/* Choix paiement Locker : XMR ou Paysafecard */}
                   <div className="mt-3 rounded-2xl border border-border bg-background/60 p-4">
                     <p className="mb-3 text-sm font-semibold">Paiement requis avant expédition</p>
                     <p className="mb-3 text-xs text-muted-foreground leading-relaxed">
@@ -697,16 +705,16 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                       <button
                         type="button"
                         onClick={() => {
-                          setLockerPayMethod("wiro")
+                          setLockerPayMethod("paysafecard")
                           setPayConfirmed(false)
                         }}
                         className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ${
-                          lockerPayMethod === "wiro"
+                          lockerPayMethod === "paysafecard"
                             ? "border-accent bg-accent/15 text-accent"
                             : "border-border text-muted-foreground hover:border-accent/40"
                         }`}
                       >
-                        Wero (virement)
+                        Paysafecard
                       </button>
                     </div>
 
@@ -722,11 +730,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setWiroModalOpen(true)}
+                        onClick={() => setPscModalOpen(true)}
                         className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-accent/60 bg-accent/10 px-3 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/20"
                       >
                         <Lock className="h-4 w-4" aria-hidden="true" />
-                        Lire le tutoriel paiement Wero
+                        Lire le tutoriel Paysafecard
                       </button>
                     )}
 
@@ -742,8 +750,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                         className="h-4 w-4 accent-[var(--accent)]"
                       />
                       <span className="text-xs leading-relaxed">
-                        {lockerPayMethod === "wiro"
-                          ? "J'ai lu le tutoriel Wero. Je comprends que le token de suivi sera envoyé après confirmation du virement."
+                        {lockerPayMethod === "paysafecard"
+                          ? "J'ai lu le tutoriel Paysafecard. J'achèterai mon code sur le site officiel et j'enverrai le PIN après validation."
                           : "J'ai lu le tutoriel XMR. Je comprends que le token de suivi sera envoyé après confirmation du dépôt."}
                       </span>
                     </label>
@@ -1125,11 +1133,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         </div>
       )}
 
-      {/* Modale Wero — tutoriel virement instantané */}
-      {wiroModalOpen && (
+      {/* Modale Paysafecard — tutoriel + liens officiels */}
+      {pscModalOpen && (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setWiroModalOpen(false)}
+          onClick={() => setPscModalOpen(false)}
         >
           <div
             className="flex w-full max-w-sm flex-col rounded-3xl border border-border bg-card shadow-2xl"
@@ -1139,11 +1147,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
             <div className="flex shrink-0 items-center justify-between px-6 pt-6 pb-4">
               <div className="flex items-center gap-2">
                 <Lock className="h-5 w-5 text-accent opacity-80" aria-hidden="true" />
-                <h2 className="text-base font-bold">Paiement Wero</h2>
+                <h2 className="text-base font-bold">Paiement Paysafecard</h2>
               </div>
               <button
                 type="button"
-                onClick={() => setWiroModalOpen(false)}
+                onClick={() => setPscModalOpen(false)}
                 aria-label="Fermer"
                 className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary"
               >
@@ -1153,11 +1161,45 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
 
             <div className="flex-1 overflow-y-auto px-6 pb-2 text-sm text-muted-foreground">
               <div className="mb-4 rounded-2xl border border-accent/20 bg-accent/5 p-3">
-                <p className="mb-1 font-semibold text-foreground">Qu&apos;est-ce que Wero ?</p>
+                <p className="mb-1 font-semibold text-foreground">Qu&apos;est-ce que Paysafecard ?</p>
                 <p className="text-xs leading-relaxed">
-                  Wero (anciennement Paylib) est un virement instantané européen via ton app bancaire. Tu envoies
-                  l&apos;argent avec un numéro de téléphone ou un email — sans IBAN.
+                  Un ticket prépayé avec un <span className="font-semibold text-foreground">code PIN à 16 chiffres</span>.
+                  Tu l&apos;achètes en cash (tabac, supermarché) ou en ligne — <strong className="text-foreground">sans
+                  carte bancaire obligatoire</strong> selon le point de vente. Aucun compte bancaire à partager avec le vendeur.
                 </p>
+              </div>
+
+              <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3">
+                <p className="mb-2 text-xs font-semibold text-emerald-300">Site officiel uniquement</p>
+                <p className="mb-2 text-xs leading-relaxed">
+                  N&apos;achète jamais sur un site douteux. Utilise uniquement le site officiel Paysafecard :
+                </p>
+                <div className="flex flex-col gap-2">
+                  <a
+                    href="https://www.paysafecard.com/fr-fr/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-xl border border-accent/40 bg-accent/10 px-3 py-2 text-center text-xs font-semibold text-accent transition-colors hover:bg-accent/20"
+                  >
+                    paysafecard.com/fr-fr — Accueil officiel
+                  </a>
+                  <a
+                    href="https://www.paysafecard.com/fr-fr/acheter-paysafecard-en-ligne/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-xl border border-border bg-background/60 px-3 py-2 text-center text-xs font-semibold text-foreground transition-colors hover:border-accent"
+                  >
+                    Acheter en ligne (officiel)
+                  </a>
+                  <a
+                    href="https://www.paysafecard.com/fr-fr/trouver-un-point-de-vente/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-xl border border-border bg-background/60 px-3 py-2 text-center text-xs font-semibold text-foreground transition-colors hover:border-accent"
+                  >
+                    Trouver un point de vente (officiel)
+                  </a>
+                </div>
               </div>
 
               <p className="mb-3 font-semibold text-foreground">Comment payer en 4 étapes</p>
@@ -1169,7 +1211,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   <div>
                     <p className="font-medium text-foreground">Valide ta commande Locker</p>
                     <p className="text-xs leading-relaxed">
-                      Choisis Wero au checkout. Le vendeur te communiquera son identifiant Wero (téléphone ou email).
+                      Choisis Paysafecard au checkout. Note le montant total à régler.
                     </p>
                   </div>
                 </li>
@@ -1178,9 +1220,18 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     2
                   </span>
                   <div>
-                    <p className="font-medium text-foreground">Ouvre ton app bancaire</p>
+                    <p className="font-medium text-foreground">Achète sur le site officiel</p>
                     <p className="text-xs leading-relaxed">
-                      Section Virement → « Envoyer avec Wero » (ou équivalent selon ta banque : BNP, CA, CM, etc.).
+                      Va sur{" "}
+                      <a
+                        href="https://www.paysafecard.com/fr-fr/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold text-accent underline"
+                      >
+                        paysafecard.com/fr-fr
+                      </a>{" "}
+                      → achat en ligne ou point de vente. Prends un ticket du <strong className="text-foreground">montant exact ou supérieur</strong> au total de la commande.
                     </p>
                   </div>
                 </li>
@@ -1189,9 +1240,9 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     3
                   </span>
                   <div>
-                    <p className="font-medium text-foreground">Envoie le montant exact</p>
+                    <p className="font-medium text-foreground">Envoie le code PIN (16 chiffres)</p>
                     <p className="text-xs leading-relaxed">
-                      Saisis l&apos;identifiant Wero reçu et le total de la commande à l&apos;euro près.
+                      Dans ton suivi Locker (après validation vendeur), envoie le PIN en message — recopié sans erreur.
                     </p>
                   </div>
                 </li>
@@ -1202,8 +1253,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   <div>
                     <p className="font-medium text-foreground">Signale puis récupère ton token</p>
                     <p className="text-xs leading-relaxed">
-                      Clique sur « J&apos;ai effectué mon virement ». Après confirmation vendeur, tu reçois ton token{" "}
-                      <span className="font-mono text-foreground">TRK_</span> en messagerie pour le suivi Locker.
+                      Clique sur « J&apos;ai envoyé mon code Paysafecard ». Après confirmation vendeur, tu reçois ton token{" "}
+                      <span className="font-mono text-foreground">TRK_</span> en messagerie.
                     </p>
                   </div>
                 </li>
@@ -1212,19 +1263,28 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
               <div className="mt-4 mb-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
                 <p className="mb-1 font-semibold text-amber-400">Important</p>
                 <ul className="flex flex-col gap-1 text-xs leading-relaxed">
-                  <li>— Envoie exactement le montant demandé.</li>
-                  <li>— Vérifie l&apos;identifiant Wero caractère par caractère.</li>
-                  <li>— Le token TRK_ n&apos;est envoyé qu&apos;après confirmation du virement.</li>
+                  <li>— Uniquement le site / points de vente officiels Paysafecard.</li>
+                  <li>— Ne partage jamais ton PIN ailleurs que dans ton suivi commande.</li>
+                  <li>— Vérifie les 16 chiffres avant d&apos;envoyer.</li>
+                  <li>— Le token TRK_ n&apos;est envoyé qu&apos;après validation du code.</li>
                 </ul>
               </div>
             </div>
 
-            <div className="shrink-0 px-6 py-4">
+            <div className="shrink-0 space-y-2 px-6 py-4">
+              <a
+                href="https://www.paysafecard.com/fr-fr/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-full items-center justify-center rounded-2xl border border-accent/50 bg-accent/10 py-3 text-sm font-semibold text-accent transition-colors hover:bg-accent/20"
+              >
+                Ouvrir le site officiel
+              </a>
               <button
                 type="button"
                 onClick={() => {
                   setPayConfirmed(true)
-                  setWiroModalOpen(false)
+                  setPscModalOpen(false)
                 }}
                 className="w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
               >

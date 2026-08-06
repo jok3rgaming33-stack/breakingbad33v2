@@ -2,8 +2,7 @@
 
 import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import type { OrderThread, ThreadMessage, Product } from "@/lib/db/schema"
-import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, sendWiroPayment, confirmDeposit, updateOrderProducts, deleteMessage } from "@/app/actions/messaging"
-import { getWiroConfig } from "@/app/actions/settings"
+import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, sendPaysafecardInstructions, confirmDeposit, updateOrderProducts, deleteMessage } from "@/app/actions/messaging"
 import type { OrderProductItem } from "@/app/actions/messaging"
 import { listProducts } from "@/app/actions/products"
 import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock } from "lucide-react"
@@ -47,10 +46,8 @@ export function VendorInbox({
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
   const [xmrWalletInput, setXmrWalletInput] = useState("")
   const [xmrSending, setXmrSending] = useState(false)
-  const [wiroModalOpen, setWiroModalOpen] = useState(false)
-  const [wiroIdInput, setWiroIdInput] = useState("")
-  const [wiroSending, setWiroSending] = useState(false)
-  const [wiroError, setWiroError] = useState<string | null>(null)
+  const [pscSending, setPscSending] = useState(false)
+  const [pscError, setPscError] = useState<string | null>(null)
   // Suppression d'un message
   const [confirmDeleteMsgId, setConfirmDeleteMsgId] = useState<number | null>(null)
   const [deletingMsgId, setDeletingMsgId] = useState<number | null>(null)
@@ -361,17 +358,34 @@ export function VendorInbox({
       setColissimoOpen(true)
       return
     }
-    // Locker validée → modal paiement selon méthode (XMR wallet ou Wero)
+    // Locker validée → XMR wallet ou instructions Paysafecard
     const currentThread = threads.find((t) => t.id === selectedId)
     if (status === "validee" && currentThread?.fulfillment === "locker") {
       const method = (currentThread as { paymentMethod?: string | null }).paymentMethod
-      if (method === "wiro") {
-        setWiroError(null)
-        setWiroIdInput("")
-        getWiroConfig()
-          .then((c) => setWiroIdInput(c.identifier || ""))
-          .catch(() => {})
-        setWiroModalOpen(true)
+      if (method === "paysafecard" || method === "wiro") {
+        // Envoi direct des instructions officielles (pas de modal identifiant)
+        setPscError(null)
+        setPscSending(true)
+        startTransition(async () => {
+          try {
+            const res = await sendPaysafecardInstructions(selectedId)
+            if (!res.ok) {
+              setPscError(res.error ?? "Échec envoi instructions Paysafecard.")
+              return
+            }
+            setThreads((prev) =>
+              prev.map((t) =>
+                t.id === selectedId
+                  ? ({ ...t, status: "validee", paymentMethod: "paysafecard" } as typeof t)
+                  : t,
+              ),
+            )
+            const data = await getThread(selectedId)
+            setMessages(data?.messages ?? [])
+          } finally {
+            setPscSending(false)
+          }
+        })
       } else {
         setXmrWalletInput("")
         setXmrModalOpen(true)
@@ -415,36 +429,6 @@ export function VendorInbox({
     } finally {
       setXmrSending(false)
       setXmrModalOpen(false)
-    }
-  }
-
-  const confirmWiroPayment = async () => {
-    if (selectedId == null) return
-    setWiroSending(true)
-    setWiroError(null)
-    try {
-      const res = await sendWiroPayment(selectedId, wiroIdInput.trim() || undefined)
-      if (!res.ok) {
-        setWiroError(res.error ?? "Échec envoi Wero.")
-        return
-      }
-      setThreads((prev) =>
-        prev.map((t) =>
-          t.id === selectedId
-            ? ({
-                ...t,
-                status: "validee",
-                paymentMethod: "wiro",
-                wiroIdentifier: wiroIdInput.trim() || null,
-              } as typeof t)
-            : t,
-        ),
-      )
-      const data = await getThread(selectedId)
-      setMessages(data?.messages ?? [])
-      setWiroModalOpen(false)
-    } finally {
-      setWiroSending(false)
     }
   }
 
@@ -791,20 +775,30 @@ export function VendorInbox({
               )}
             </div>
 
-            {/* Bandeau dépôt (XMR / Wero) notifié — bouton confirmer → envoie token TRK */}
+            {pscError && selected?.fulfillment === "locker" && (
+              <div className="border-t border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">
+                {pscError}
+              </div>
+            )}
+            {pscSending && selected?.fulfillment === "locker" && (
+              <div className="flex items-center gap-2 border-t border-border px-4 py-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Envoi instructions Paysafecard…
+              </div>
+            )}
+            {/* Bandeau dépôt (XMR / Paysafecard) notifié — bouton confirmer → envoie token TRK */}
             {selected.fulfillment === "locker" && (selected as any).depositNotified && !(selected as any).depositConfirmed && (
               <div className="border-t border-amber-500/30 bg-amber-500/10 px-4 py-3">
                 <div className="mb-2 flex items-center gap-2">
                   <Wallet className="h-4 w-4 text-amber-400" aria-hidden="true" />
                   <p className="text-sm font-semibold text-amber-400">
-                    {(selected as any).paymentMethod === "wiro"
-                      ? "Virement Wero signalé par le client"
+                    {(selected as any).paymentMethod === "paysafecard" || (selected as any).paymentMethod === "wiro"
+                      ? "Code Paysafecard signalé par le client"
                       : "Dépôt XMR signalé par le client"}
                   </p>
                 </div>
                 <p className="mb-3 text-xs text-muted-foreground">
-                  {(selected as any).paymentMethod === "wiro"
-                    ? "Vérifie la réception Wero avant de confirmer. Le token TRK_ sera envoyé en messagerie au client."
+                  {(selected as any).paymentMethod === "paysafecard" || (selected as any).paymentMethod === "wiro"
+                    ? "Vérifie le PIN à 16 chiffres dans le fil avant de confirmer. Le token TRK_ sera envoyé en messagerie."
                     : "Vérifie la réception sur ton wallet Monero avant de confirmer. Le token TRK_ sera envoyé en messagerie au client."}
                 </p>
                 <button
@@ -928,67 +922,6 @@ export function VendorInbox({
                 className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {xmrSending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Wallet className="h-4 w-4" aria-hidden="true" />}
-                Valider et envoyer au client
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modale : Wero pour commande locker validée */}
-      {wiroModalOpen && selected && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setWiroModalOpen(false)}
-        >
-          <div
-            className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/15">
-                <Wallet className="h-5 w-5 text-accent" aria-hidden="true" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold">Paiement Wero — Commande #{selected.id}</h3>
-                <p className="text-xs text-muted-foreground">{selected.customerName} · Locker · {selected.total}€</p>
-              </div>
-            </div>
-            <p className="mb-4 text-sm text-muted-foreground leading-relaxed">
-              Identifiant Wero (téléphone ou email) où le client enverra le virement. Pré-rempli depuis tes réglages admin si configuré.
-            </p>
-            <label htmlFor="wiro-id" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Identifiant Wero
-            </label>
-            <input
-              id="wiro-id"
-              type="text"
-              value={wiroIdInput}
-              onChange={(e) => setWiroIdInput(e.target.value)}
-              autoFocus
-              placeholder="06… ou email@…"
-              className="w-full rounded-xl border border-input bg-background px-3 py-2.5 font-mono text-sm outline-none focus:border-accent"
-            />
-            {wiroError && <p className="mt-2 text-xs text-destructive">{wiroError}</p>}
-            <p className="mt-2 text-xs text-muted-foreground">
-              Après confirmation du virement, le client recevra le token TRK_ en messagerie.
-            </p>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setWiroModalOpen(false)}
-                disabled={wiroSending}
-                className="rounded-lg border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={confirmWiroPayment}
-                disabled={wiroSending || !wiroIdInput.trim()}
-                className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {wiroSending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Wallet className="h-4 w-4" aria-hidden="true" />}
                 Valider et envoyer au client
               </button>
             </div>

@@ -150,37 +150,58 @@ export async function setLogisticsContent(content: LogisticsContent) {
   return { ok: true as const }
 }
 
-/** Coordonnées Wero (virement instantané) pour commandes Locker uniquement. */
-export type WiroConfig = {
-  /** Téléphone ou email Wero où le client envoie le virement */
-  identifier: string
-  /** Libellé affiché (ex. "Wero") */
-  label: string
-  /** Instructions libres affichées au client */
+/** Réglages Paysafecard pour commandes Locker uniquement. */
+export type PaysafecardConfig = {
+  /** Instructions libres affichées au client (en plus du tutoriel) */
   instructions: string
 }
 
-const DEFAULT_WIRO: WiroConfig = {
-  identifier: "",
-  label: "Wero",
+const DEFAULT_PAYSAFECARD: PaysafecardConfig = {
   instructions:
-    "Envoie le montant exact via Wero (virement instantané) vers l'identifiant ci-dessous, puis clique sur « J'ai effectué mon virement » dans ton suivi.",
+    "Achète un code Paysafecard du montant exact (ou supérieur) sur le site officiel, puis envoie le code à 16 chiffres dans ton suivi Locker et clique sur « J'ai envoyé mon code Paysafecard ».",
 }
 
-export async function getWiroConfig(): Promise<WiroConfig> {
-  return readSetting<WiroConfig>("wiro_locker", DEFAULT_WIRO)
-}
+/** Site officiel FR — toujours privilégier ces URLs côté client */
+export const PAYSAFECARD_OFFICIAL = {
+  home: "https://www.paysafecard.com/fr-fr/",
+  buyOnline: "https://www.paysafecard.com/fr-fr/acheter-paysafecard-en-ligne/",
+  findStore: "https://www.paysafecard.com/fr-fr/trouver-un-point-de-vente/",
+} as const
 
-export async function setWiroConfig(config: Partial<WiroConfig>) {
-  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
-  const current = await getWiroConfig()
-  const next: WiroConfig = {
-    identifier: (config.identifier ?? current.identifier)?.trim() || "",
-    label: (config.label ?? current.label)?.trim() || "Wero",
-    instructions:
-      (config.instructions ?? current.instructions)?.trim() || DEFAULT_WIRO.instructions,
+export async function getPaysafecardConfig(): Promise<PaysafecardConfig> {
+  // Compat : ancienne clé wiro_locker éventuelle
+  const modern = await readSetting<PaysafecardConfig>("paysafecard_locker", DEFAULT_PAYSAFECARD)
+  if (modern.instructions) return modern
+  try {
+    const legacy = await readSetting<{ instructions?: string }>("wiro_locker", {})
+    if (legacy.instructions?.trim()) {
+      return { instructions: legacy.instructions.trim() }
+    }
+  } catch {
+    /* ignore */
   }
-  await writeSetting("wiro_locker", next)
+  return DEFAULT_PAYSAFECARD
+}
+
+export async function setPaysafecardConfig(config: Partial<PaysafecardConfig>) {
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
+  const current = await getPaysafecardConfig()
+  const next: PaysafecardConfig = {
+    instructions:
+      (config.instructions ?? current.instructions)?.trim() || DEFAULT_PAYSAFECARD.instructions,
+  }
+  await writeSetting("paysafecard_locker", next)
   revalidatePath("/admin")
   return { ok: true as const, config: next }
+}
+
+/** @deprecated utiliser getPaysafecardConfig */
+export async function getWiroConfig() {
+  const c = await getPaysafecardConfig()
+  return { identifier: "", label: "Paysafecard", instructions: c.instructions }
+}
+
+/** @deprecated utiliser setPaysafecardConfig */
+export async function setWiroConfig(config: { instructions?: string; identifier?: string; label?: string }) {
+  return setPaysafecardConfig({ instructions: config.instructions })
 }
