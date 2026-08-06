@@ -184,6 +184,10 @@ export const orderThreads = pgTable("order_threads", {
   depositConfirmed: boolean("deposit_confirmed").notNull().default(false),  // Admin a confirmé réception
   clientLastSeen: timestamp("client_last_seen", { withTimezone: true }),    // Dernière ouverture du fil par le client
   status: text("status").notNull().default("nouveau"),
+  // Locker : mode de paiement choisi au checkout — 'xmr' | 'wiro' | null
+  paymentMethod: text("payment_method"),
+  // Identifiant Wero (téléphone / email) envoyé au client pour le virement
+  wiroIdentifier: text("wiro_identifier"),
   // Paiement XMR (NOWPayments) — nullable = sans gateway / legacy
   paymentProvider: text("payment_provider"),
   paymentProviderId: text("payment_provider_id"),
