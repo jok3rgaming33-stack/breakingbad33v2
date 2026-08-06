@@ -82,11 +82,12 @@ export function LoginPage({
   const [captchaCreateError, setCaptchaCreateError] = useState(false)
   const [captchaLoginError, setCaptchaLoginError] = useState(false)
   const hasTurnstile = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
-  // Valeur envoyée au serveur : token réel, ou sentinel si le widget est indisponible.
+  // La création conserve le contrôle anti-robot. La connexion client reste accessible
+  // même si Turnstile est invalide (erreur 110200) ou bloqué par le navigateur.
   const createCaptchaValue = captchaCreateError ? "unavailable" : captchaCreate
-  const loginCaptchaValue = captchaLoginError ? "unavailable" : captchaLogin
+  const loginCaptchaValue = captchaLogin || "unavailable"
   const createCaptchaReady = !hasTurnstile || Boolean(captchaCreate) || captchaCreateError
-  const loginCaptchaReady = !hasTurnstile || Boolean(captchaLogin) || captchaLoginError
+  const loginCaptchaReady = true
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // Canvas Cristaux
@@ -278,8 +279,12 @@ export function LoginPage({
         return
       }
 
-      // Compte classique OU whitelist : un seul user, bon pseudo, fils rattachés
-      const resolved = await resolveClientLogin(token)
+      // Les clients normaux sont résolus directement dans users. Cela évite que
+      // l'ajout du module Staff puisse casser la connexion de tous les clients.
+      const account = await getAccount(token)
+      const resolved = account
+        ? { ok: true as const, pseudo: account.pseudo, token: account.token }
+        : await resolveClientLogin(token)
 
       // Token inconnu ou compte supprimé — on refuse sans recréer.
       if (!resolved.ok) {
@@ -1000,6 +1005,20 @@ export function LoginPage({
               <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
               Clé perdue
             </button>
+            <a
+              href="https://wa.me/33766970439"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-5 flex items-center justify-center gap-3 rounded-2xl border border-border bg-background/50 px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:border-accent/50 hover:text-foreground"
+            >
+              <img
+                src="https://thesvg.org/icons/whatsapp/default.svg"
+                alt=""
+                aria-hidden="true"
+                className="size-5"
+              />
+              <span>Besoin d&apos;aide ? Contacter le support WhatsApp</span>
+            </a>
           </div>
         </div>
       </div>
