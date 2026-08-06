@@ -516,9 +516,10 @@ export async function getLockerOrdersForToken(customerToken: string) {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
-// Vue client "Mes commandes" onglet "En cours" :
-// - commandes non-locker (toutes)
+// Vue client messagerie + commandes :
+// - commandes non-locker
 // - fils trk_token (locker) : alerte ambre "token à sauvegarder"
+// - fils status "notification" : broadcast admin → onglet Discussions (pas Commandes côté UI)
 // Les vraies commandes locker (non-trk) sont dans getLockerOrdersForToken.
 export async function getThreadsForToken(customerToken: string) {
   const token = customerToken?.trim()
@@ -529,10 +530,10 @@ export async function getThreadsForToken(customerToken: string) {
     .where(
       and(
         eq(orderThreads.customerToken, token),
-        ne(orderThreads.status, "notification"),            // les notifs broadcast passent par la cloche, pas la messagerie
         or(
-          ne(orderThreads.fulfillment, "locker"),            // commandes normales
-          eq(orderThreads.status, "trk_token"),             // fils TRK locker à afficher en ambre
+          eq(orderThreads.status, "notification"), // notifs → messagerie Discussions
+          ne(orderThreads.fulfillment, "locker"), // commandes normales + discussions
+          eq(orderThreads.status, "trk_token"), // fils TRK locker à afficher en ambre
         ),
       )
     )
@@ -559,6 +560,7 @@ export async function markThreadRead(threadId: number) {
 }
 
 // Marque un fil comme lu par le client uniquement si le token possède ce fil.
+// Pour les fils broadcast (trackingToken NOTIF_<id>_…), met aussi à jour notification_reads.
 export async function markThreadReadForToken(threadId: number, customerToken: string) {
   const token = customerToken?.trim()
   if (!threadId || !token) return { ok: false as const }
@@ -566,7 +568,11 @@ export async function markThreadReadForToken(threadId: number, customerToken: st
     .update(orderThreads)
     .set({ clientLastSeen: sql`now()` })
     .where(and(eq(orderThreads.id, threadId), eq(orderThreads.customerToken, token)))
-    .returning({ id: orderThreads.id })
+    .returning({
+      id: orderThreads.id,
+      status: orderThreads.status,
+      trackingToken: orderThreads.trackingToken,
+    })
   if (!result.length) return { ok: false as const }
   await db
     .update(threadMessages)
@@ -578,6 +584,21 @@ export async function markThreadReadForToken(threadId: number, customerToken: st
         isNull(threadMessages.clientReadAt),
       )
     )
+
+  const row = result[0]
+  if (row.status === "notification" && row.trackingToken?.startsWith("NOTIF_")) {
+    const parts = row.trackingToken.split("_")
+    const notifId = Number(parts[1])
+    if (Number.isFinite(notifId) && notifId > 0) {
+      try {
+        const { markNotificationRead } = await import("@/app/actions/notifications")
+        await markNotificationRead(notifId, token)
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
   return { ok: true as const }
 }
 
@@ -597,7 +618,7 @@ function tsMs(d: Date | string | null | undefined): number {
  *
  * Ne compte plus les réponses du client lui-même (bug qui re-badgeait après envoi).
  *
- * - messaging : discussions (status discussion / pris_en_charge / ouvert / ferme)
+ * - messaging : discussions + notifications broadcast
  * - orders    : commandes réelles + locker + trk
  */
 export async function getUnreadCounts(
@@ -621,13 +642,12 @@ export async function getUnreadCounts(
       )`,
     })
     .from(orderThreads)
-    .where(
-      and(eq(orderThreads.customerToken, token), ne(orderThreads.status, "notification")),
-    )
+    .where(eq(orderThreads.customerToken, token))
 
   let messaging = 0
   let orders = 0
-  const DISCUSSION = new Set(["discussion", "pris_en_charge", "ouvert", "ferme"])
+  // Notifications broadcast comptent comme messagerie (onglet Discussions)
+  const DISCUSSION = new Set(["discussion", "pris_en_charge", "ouvert", "ferme", "notification"])
 
   for (const r of rows) {
     const seenMs = tsMs(r.clientLastSeen)
@@ -744,7 +764,7 @@ export async function getAdminBadgeCounts(): Promise<{
 }
 
 // Aperçu léger pour les notifications client : statut + nombre de messages du vendeur.
-// Permet de détecter à la fois un changement de statut ET un nouveau message vendeur.
+// Inclut les broadcast (status notification) pour la cloche + messagerie.
 export async function getCustomerThreadsOverview(customerToken: string) {
   const token = customerToken?.trim()
   if (!token) return []
@@ -756,12 +776,7 @@ export async function getCustomerThreadsOverview(customerToken: string) {
     })
     .from(orderThreads)
     .leftJoin(threadMessages, eq(threadMessages.threadId, orderThreads.id))
-    .where(
-      and(
-        eq(orderThreads.customerToken, token),
-        ne(orderThreads.status, "notification"),
-      )
-    )
+    .where(eq(orderThreads.customerToken, token))
     .groupBy(orderThreads.id, orderThreads.status)
   return rows
 }
