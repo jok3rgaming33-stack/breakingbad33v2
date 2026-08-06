@@ -88,23 +88,48 @@ export async function generateLoyaltyCode(token: string, points: number) {
   const stats = await getCustomerStats(t)
   if (stats.points < reward.points) return { ok: false as const, error: "Points insuffisants" }
 
-  // Débite les points et enregistre le code.
+  // Compte doit exister pour stocker loyaltySpent
+  const [account] = await db.select().from(users).where(eq(users.token, t)).limit(1)
+  if (!account) return { ok: false as const, error: "Compte introuvable" }
+
+  const spentBefore = account.loyaltySpent ?? 0
+
+  // Débite les points AVANT d'émettre le code (atomicité applicative).
   await db
     .update(users)
     .set({ loyaltySpent: sql`${users.loyaltySpent} + ${reward.points}` })
     .where(eq(users.token, t))
 
+  // Vérifie que le débit a bien été appliqué
+  const [after] = await db.select().from(users).where(eq(users.token, t)).limit(1)
+  const spentAfter = after?.loyaltySpent ?? 0
+  if (spentAfter < spentBefore + reward.points) {
+    console.error("[loyalty] debit failed", { t: t.slice(0, 8), spentBefore, spentAfter, need: reward.points })
+    return { ok: false as const, error: "Échec du débit des points. Réessaie." }
+  }
+
   const code = makeCode(reward.discount)
-  await db.insert(loyaltyCodes).values({
-    userToken: t,
-    code,
-    discount: reward.discount,
-    pointsCost: reward.points,
-    minAmount: reward.minAmount,
-  })
+  try {
+    await db.insert(loyaltyCodes).values({
+      userToken: t,
+      code,
+      discount: reward.discount,
+      pointsCost: reward.points,
+      minAmount: reward.minAmount,
+    })
+  } catch (e) {
+    // Rollback débit si l'insert code échoue
+    await db
+      .update(users)
+      .set({ loyaltySpent: sql`GREATEST(0, ${users.loyaltySpent} - ${reward.points})` })
+      .where(eq(users.token, t))
+    console.error("[loyalty] code insert failed, debit rolled back", e)
+    return { ok: false as const, error: "Échec création du bon. Points non débités." }
+  }
 
   revalidatePath("/")
-  return { ok: true as const, code, remaining: stats.points - reward.points }
+  revalidatePath("/admin")
+  return { ok: true as const, code, remaining: stats.points - reward.points, debited: reward.points }
 }
 
 // Liste les codes générés par un client ("Mes codes").
