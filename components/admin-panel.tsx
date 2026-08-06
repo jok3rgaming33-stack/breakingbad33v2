@@ -18,6 +18,7 @@ import { AdminProducts } from "@/components/admin-products"
 import { AdminPromos } from "@/components/admin-promos"
 import { AdminLogistics } from "@/components/admin-logistics"
 import { AdminCartSettings } from "@/components/admin-cart-settings"
+import { AdminCryptoSettings } from "@/components/admin-crypto-settings"
 import { AdminLoginLogs } from "@/components/admin-login-logs"
 import type { LoginLogRow } from "@/app/actions/login-logs"
 import { AdminProfit } from "@/components/admin-profit"
@@ -27,11 +28,11 @@ import type { BroadcastNotificationRow } from "@/app/actions/notifications"
 import { adminLogout } from "@/app/actions/admin-auth"
 import { getAdminBadgeCounts } from "@/app/actions/messaging"
 import { AdminAppBadgeSync } from "@/components/app-badge-sync"
-import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox, Activity, Bell, CheckCheck, KeyRound } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox, Activity, Bell, CheckCheck, KeyRound, Wallet } from "lucide-react"
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 
-type TabId = "commandes-en-cours" | "locker" | "cloturees" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "recuperations" | "produits" | "promos" | "logistique" | "news" | "admins" | "profits" | "connexions" | "notifications" | "staff"
+type TabId = "commandes-en-cours" | "locker" | "cloturees" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "recuperations" | "produits" | "promos" | "logistique" | "crypto" | "news" | "admins" | "profits" | "connexions" | "notifications" | "staff"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "commandes-en-cours", label: "Commandes en cours", icon: Inbox },
@@ -43,6 +44,7 @@ const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "promos", label: "Codes promo", icon: Ticket },
   { id: "carte", label: "Carte interactive", icon: Map },
   { id: "logistique", label: "Logistique", icon: Truck },
+  { id: "crypto", label: "Paiement XMR", icon: Wallet },
   { id: "commandes", label: "Récap commandes", icon: ListOrdered },
   { id: "utilisateurs", label: "Utilisateurs", icon: Users },
   { id: "verifications", label: "Vérifications", icon: ShieldCheck },
@@ -257,6 +259,8 @@ export function AdminPanel({
             <AdminCartSettings />
             <AdminLogistics />
           </div>
+        ) : tab === "crypto" ? (
+          <AdminCryptoSettings />
         ) : tab === "news" ? (
           <AdminNews />
         ) : tab === "connexions" ? (

@@ -127,6 +127,12 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const [lockerAddress, setLockerAddress] = useState("")
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
   const [xmrConfirmed, setXmrConfirmed] = useState(false)
+  const [cryptoPayment, setCryptoPayment] = useState<{
+    enabled: boolean
+    payUrl?: string | null
+    payAddress?: string | null
+    payAmount?: string | null
+  } | null>(null)
 
   const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "done" | "error" | "notfound">("idle")
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
@@ -367,8 +373,9 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
 
     setSubmitting(true)
     setSubmitError(null)
+    setCryptoPayment(null)
     try {
-      await createOrderThread({
+      const orderRes = await createOrderThread({
         customerName: name,
         customerToken: token,
         summary: message,
@@ -385,6 +392,10 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       // Code fidélité (BB33-...) consommé à usage unique une fois la commande passée.
       if (promo && /^BB33-/i.test(promo.code)) {
         await markLoyaltyCodeUsed(promo.code)
+      }
+      if (orderRes && typeof orderRes === "object" && "cryptoPayment" in orderRes) {
+        const cp = (orderRes as { cryptoPayment?: typeof cryptoPayment }).cryptoPayment
+        if (cp?.enabled) setCryptoPayment(cp)
       }
       onOrderPlaced?.(message)
       setPlaced(true)
@@ -466,6 +477,37 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
             <p className="text-sm text-muted-foreground text-pretty">
               Ta commande a été transmise au vendeur. Un fil de discussion a été créé dans la messagerie interne pour le suivi.
             </p>
+
+            {cryptoPayment?.enabled && (
+              <div className="mt-2 w-full max-w-sm rounded-2xl border border-accent/40 bg-accent/10 p-4 text-left">
+                <p className="mb-1 text-sm font-bold text-accent">Paiement Monero (XMR)</p>
+                {cryptoPayment.payAmount && (
+                  <p className="mb-1 font-mono text-sm text-foreground">
+                    {cryptoPayment.payAmount} XMR
+                  </p>
+                )}
+                {cryptoPayment.payAddress && (
+                  <p className="mb-3 break-all font-mono text-[11px] text-muted-foreground">
+                    {cryptoPayment.payAddress}
+                  </p>
+                )}
+                {cryptoPayment.payUrl ? (
+                  <a
+                    href={cryptoPayment.payUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex w-full items-center justify-center rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
+                  >
+                    Payer en XMR
+                  </a>
+                ) : cryptoPayment.payAddress ? (
+                  <p className="text-xs text-muted-foreground">
+                    Envoie le montant XMR à l&apos;adresse ci-dessus (aussi dans ta messagerie).
+                  </p>
+                ) : null}
+              </div>
+            )}
+
             <button
               type="button"
               onClick={handleNewOrder}
