@@ -17,39 +17,127 @@ export const metadata = {
 }
 
 export default async function AdminPage() {
-  const authed = await isAdminAuthenticated()
+  // Ne jamais faire planter /admin si la session / DB échoue
+  let authed = false
+  try {
+    authed = await isAdminAuthenticated()
+  } catch (e) {
+    console.error("[admin] isAdminAuthenticated failed:", e)
+  }
 
   if (!authed) {
     return <AdminGate />
   }
 
-  const [activeOrders, lockerOrders, discussions, threads, pastOrders, usersList, verifications, loginLogs, profitData, notifHistory, staffList] = await Promise.all([
-    getActiveOrders(),
-    getLockerOrders(),
-    getDiscussions(),
-    getThreads(),
-    getPastOrders(),
-    listUsers(),
-    listVerifications(),
-    listLoginLogs(200),
-    getProfitData(),
-    listBroadcastNotifications(50),
-    listStaff(),
-  ])
+  const empty = {
+    activeOrders: [] as Awaited<ReturnType<typeof getActiveOrders>>,
+    lockerOrders: [] as Awaited<ReturnType<typeof getLockerOrders>>,
+    discussions: [] as Awaited<ReturnType<typeof getDiscussions>>,
+    threads: [] as Awaited<ReturnType<typeof getThreads>>,
+    pastOrders: [] as Awaited<ReturnType<typeof getPastOrders>>,
+    usersList: [] as Awaited<ReturnType<typeof listUsers>>,
+    verifications: [] as Awaited<ReturnType<typeof listVerifications>>,
+    loginLogs: [] as Awaited<ReturnType<typeof listLoginLogs>>,
+    profitData: {
+      products: [],
+      totalRevenue: 0,
+      totalCost: 0,
+      totalNetProfit: 0,
+    } as Awaited<ReturnType<typeof getProfitData>>,
+    notifHistory: [] as Awaited<ReturnType<typeof listBroadcastNotifications>>,
+    staffList: [] as Awaited<ReturnType<typeof listStaff>>,
+  }
+
+  let data = empty
+  try {
+    const [
+      activeOrders,
+      lockerOrders,
+      discussions,
+      threads,
+      pastOrders,
+      usersList,
+      verifications,
+      loginLogs,
+      profitData,
+      notifHistory,
+      staffList,
+    ] = await Promise.all([
+      getActiveOrders().catch((e) => {
+        console.error("[admin] getActiveOrders", e)
+        return empty.activeOrders
+      }),
+      getLockerOrders().catch((e) => {
+        console.error("[admin] getLockerOrders", e)
+        return empty.lockerOrders
+      }),
+      getDiscussions().catch((e) => {
+        console.error("[admin] getDiscussions", e)
+        return empty.discussions
+      }),
+      getThreads().catch((e) => {
+        console.error("[admin] getThreads", e)
+        return empty.threads
+      }),
+      getPastOrders().catch((e) => {
+        console.error("[admin] getPastOrders", e)
+        return empty.pastOrders
+      }),
+      listUsers().catch((e) => {
+        console.error("[admin] listUsers", e)
+        return empty.usersList
+      }),
+      listVerifications().catch((e) => {
+        console.error("[admin] listVerifications", e)
+        return empty.verifications
+      }),
+      listLoginLogs(200).catch((e) => {
+        console.error("[admin] listLoginLogs", e)
+        return empty.loginLogs
+      }),
+      getProfitData().catch((e) => {
+        console.error("[admin] getProfitData", e)
+        return empty.profitData
+      }),
+      listBroadcastNotifications(50).catch((e) => {
+        console.error("[admin] listBroadcastNotifications", e)
+        return empty.notifHistory
+      }),
+      listStaff().catch((e) => {
+        console.error("[admin] listStaff", e)
+        return empty.staffList
+      }),
+    ])
+    data = {
+      activeOrders,
+      lockerOrders,
+      discussions,
+      threads,
+      pastOrders,
+      usersList,
+      verifications,
+      loginLogs,
+      profitData,
+      notifHistory,
+      staffList,
+    }
+  } catch (e) {
+    console.error("[admin] Promise.all failed:", e)
+  }
 
   return (
     <AdminPanel
-      initialActiveOrders={activeOrders}
-      initialLockerOrders={lockerOrders}
-      initialDiscussions={discussions}
-      initialThreads={threads}
-      initialPastOrders={pastOrders}
-      initialUsers={usersList}
-      initialVerifications={verifications}
-      initialLoginLogs={loginLogs}
-      initialProfitData={profitData}
-      initialNotificationsHistory={notifHistory}
-      initialStaff={staffList}
+      initialActiveOrders={data.activeOrders}
+      initialLockerOrders={data.lockerOrders}
+      initialDiscussions={data.discussions}
+      initialThreads={data.threads}
+      initialPastOrders={data.pastOrders}
+      initialUsers={data.usersList}
+      initialVerifications={data.verifications}
+      initialLoginLogs={data.loginLogs}
+      initialProfitData={data.profitData}
+      initialNotificationsHistory={data.notifHistory}
+      initialStaff={data.staffList}
     />
   )
 }

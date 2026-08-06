@@ -64,12 +64,17 @@ export async function adminLoginWithPassword(
 
 // Lu côté serveur (panel admin) pour vérifier la session.
 export async function isAdminAuthenticated() {
-  const store = await cookies()
-  const session = store.get(COOKIE_NAME)?.value
-  if (!session) return false
-  if (process.env.ADMIN_TOKEN && session === process.env.ADMIN_TOKEN) return true
-  const rows = await db.select().from(adminAccounts).where(eq(adminAccounts.token, session)).limit(1)
-  return rows.length > 0 && rows[0].active
+  try {
+    const store = await cookies()
+    const session = store.get(COOKIE_NAME)?.value
+    if (!session) return false
+    if (process.env.ADMIN_TOKEN && session === process.env.ADMIN_TOKEN) return true
+    const rows = await db.select().from(adminAccounts).where(eq(adminAccounts.token, session)).limit(1)
+    return rows.length > 0 && rows[0].active
+  } catch (e) {
+    console.error("[admin-auth] isAdminAuthenticated:", e)
+    return false
+  }
 }
 
 export async function adminLogout() {
