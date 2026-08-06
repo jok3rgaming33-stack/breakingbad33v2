@@ -3,7 +3,7 @@
 import crypto from "crypto"
 import { db } from "@/lib/db"
 import { users } from "@/lib/db/schema"
-import { eq } from "drizzle-orm"
+import { eq, desc } from "drizzle-orm"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { notifyCustomer, notifyVendor } from "@/lib/push"
 import { revalidatePath } from "next/cache"
@@ -19,12 +19,18 @@ export async function grantRestoreAccess(
   customerToken: string,
   appOrigin: string,
   threadId?: number, // fil de discussion actif — on y poste le lien pour garantir la réception
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; restoreUrl?: string; error?: string }> {
   if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
 
   const rows = await db.select().from(users).where(eq(users.token, customerToken)).limit(1)
   const user = rows[0]
   if (!user) return { ok: false, error: "Client introuvable." }
+
+  // La récupération est une action explicite de réactivation : on retire uniquement
+  // les blocages liés à une clé perdue, sans toucher aux autres étiquettes admin.
+  const flags = Array.isArray(user.flags)
+    ? user.flags.filter((flag) => flag !== "banni" && flag !== "lost_key_rejected")
+    : []
 
   // Token one-time URL-safe (64 chars hex)
   const restoreToken = crypto.randomBytes(32).toString("hex")
@@ -34,6 +40,7 @@ export async function grantRestoreAccess(
     accessRestoreToken: restoreToken,
     accessRestoreExpires: expires,
     mustSetPassword: true,
+    flags,
   }).where(eq(users.id, user.id))
 
   const restoreUrl = `${appOrigin}/?restore=${restoreToken}`
@@ -51,7 +58,7 @@ export async function grantRestoreAccess(
     .select({ id: orderThreads.id })
     .from(orderThreads)
     .where(eq(orderThreads.customerToken, customerToken))
-    .orderBy(orderThreads.updatedAt)
+    .orderBy(desc(orderThreads.updatedAt))
     .limit(1)
     .then(r => r[0]?.id))
 
@@ -68,7 +75,7 @@ export async function grantRestoreAccess(
   }
 
   revalidatePath("/admin")
-  return { ok: true }
+  return { ok: true, restoreUrl }
 }
 
 // ─── Admin : état du rétablissement d'accès pour un client ────────────────────────────────────
