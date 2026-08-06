@@ -340,6 +340,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
 
     const lines = items.map((i) => `• ${i.qty}x ${i.title} — ${i.price * i.qty}€`).join("\n")
     const productsShort = items.map((i) => `${i.qty}x ${i.title}`).join(", ")
+    const productIds = items.flatMap((i) => i.productId ? Array(i.qty).fill(i.productId) : []).filter((v, idx, arr) => arr.indexOf(v) === idx)
     const token = typeof window !== "undefined" ? localStorage.getItem("authToken") ?? undefined : undefined
     const mode = isMeetup
       ? `Retrait sur place (meet-up) à ${meetupHour}`
@@ -372,6 +373,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         customerToken: token,
         summary: message,
         products: productsShort,
+        productIds,
         total,
         fulfillment: isMeetup ? "meetup" : isLocker ? "locker" : "livraison",
         address: isMeetup ? undefined : isLocker ? lockerAddress : resolvedLabel ?? address,

@@ -13,6 +13,8 @@ import {
 import { BlobMedia } from "@/components/blob-media"
 import { getProductsBySection, decrementStock } from "@/app/actions/products"
 import { requestRestockAlert, hasRestockAlert } from "@/app/actions/restock"
+import { getProductRatingSummaries, type ProductRatingSummary } from "@/app/actions/ratings"
+import { RatingBadge } from "@/components/product-rating-badge"
 import type { Product, ProductVariant } from "@/lib/db/schema"
 
 type SectionConfig = {
@@ -77,6 +79,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
   const [isAnimating, setIsAnimating] = useState(false)
   const [alerted, setAlerted] = useState<Record<number, boolean>>({})
   const [alerting, setAlerting] = useState<number | null>(null)
+  const [ratings, setRatings] = useState<Record<number, ProductRatingSummary>>({})
 
   const requestAlert = async (product: Product) => {
     const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null
@@ -114,6 +117,12 @@ export function ProductSection({ config }: { config: SectionConfig }) {
     return () => clearTimeout(timer)
   }, [isModalOpen, isAnimating])
 
+  // Charge les résumés de notation une fois les produits disponibles.
+  useEffect(() => {
+    if (!products?.length) return
+    void getProductRatingSummaries(products.map((p) => p.id)).then(setRatings)
+  }, [products])
+
   const Icon = config.icon === "flask" ? FlaskConical : Sparkles
   const sectionProps = config.anchor
     ? { id: config.anchor, className: "w-full pb-12 pt-8 scroll-mt-20" }
@@ -126,7 +135,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
     const v = selected.variants[variantIdx]
     if (!v) return
     const price = effectivePrice(v.price, selected)
-    addToCart(`${selected.title} ×${v.qty}`, price)
+    addToCart(`${selected.title} ×${v.qty}`, price, selected.id)
     await decrementStock(selected.id, 1)
     mutate()
     closeModal()
@@ -214,6 +223,11 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                       <span className="absolute left-2 top-2 z-20 rounded-full bg-sky-400/90 px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider text-black badge-blink">
                         À la une
                       </span>
+                    )}
+                    {ratings[product.id] && (
+                      <div className="absolute bottom-2 right-2 z-20">
+                        <RatingBadge summary={ratings[product.id]} productTitle={product.title} />
+                      </div>
                     )}
                   </div>
 
