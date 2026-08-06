@@ -33,7 +33,7 @@ const CRYSTAL_COUNT = 4
 export function LoginPage({
   onSuccess,
 }: {
-  onSuccess: (opts?: { openOrders?: boolean; openMessaging?: boolean; openKyc?: boolean }) => void
+  onSuccess: (opts?: { openOrders?: boolean; openMessaging?: boolean; openLatestMessaging?: boolean; openKyc?: boolean }) => void
 }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [showResultModal, setShowResultModal] = useState(false)
@@ -515,7 +515,7 @@ export function LoginPage({
       // Ouvre immédiatement le fil : le client voit la réponse automatique
       // et pourra lire les réponses admin sans dépendre d'un push ou WhatsApp.
       setShowLostKey(false)
-      onSuccess({ openMessaging: true })
+      onSuccess({ openLatestMessaging: true })
     } catch {
       setLostKeyError("Envoi impossible, réessaie dans un instant.")
     } finally {
@@ -1118,7 +1118,7 @@ export function LoginPage({
                       type="button"
                       onClick={() => {
                         setShowLostKey(false)
-                        onSuccess({ openMessaging: true })
+                        onSuccess({ openLatestMessaging: true })
                       }}
                       className="w-full rounded-2xl border border-border px-6 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary"
                     >

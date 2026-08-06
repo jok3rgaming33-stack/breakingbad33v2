@@ -210,7 +210,7 @@ export function MessagerieModal({ isOpen, onClose, userData, autoOpenLatest = fa
     try {
       for (const file of Array.from(files)) {
         const { url, type } = await uploadMessageMedia(file)
-        await addMessage(selected.id, "client", mediaTag(type, url))
+        await addMessage(selected.id, "client", mediaTag(type, url), token)
       }
       await refreshThreadAfterSend(selected.id)
     } catch (e) {

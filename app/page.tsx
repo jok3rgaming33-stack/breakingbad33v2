@@ -187,6 +187,10 @@ export default function Home() {
     setIsAdmin(localStorage.getItem("isAdmin") === "1")
     if (opts?.openOrders) setIsOrdersOpen(true)
     if (opts?.openMessaging) setIsMessagingOpen(true)
+    if (opts?.openLatestMessaging) {
+      setAutoOpenLatestMessaging(true)
+      setIsMessagingOpen(true)
+    }
     if (opts?.openKyc) {
       window.location.href = "/verification?from=recovery"
     }
@@ -287,9 +291,11 @@ export default function Home() {
         isOpen={isMessagingOpen}
         onClose={() => {
           setIsMessagingOpen(false)
+          setAutoOpenLatestMessaging(false)
           if (userData?.token) refreshUnread(userData.token)
         }}
         userData={userData}
+        autoOpenLatest={autoOpenLatestMessaging}
       />
 
       {/* Popup News à l'entrée du site (client connecté non admin) */}
