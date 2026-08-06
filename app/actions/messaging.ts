@@ -9,7 +9,8 @@ import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { notifyCustomer, notifyVendor } from "@/lib/push"
 import { adjustStock } from "@/app/actions/products"
 import { createXmrPaymentForOrder } from "@/app/actions/crypto-payment"
-import { getPaysafecardConfig, PAYSAFECARD_OFFICIAL } from "@/app/actions/settings"
+import { getPaysafecardConfig } from "@/app/actions/settings"
+import { PAYSAFECARD_OFFICIAL } from "@/lib/paysafecard"
 
 export type LockerPaymentMethod = "xmr" | "paysafecard"
 

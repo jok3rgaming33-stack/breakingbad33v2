@@ -11,8 +11,8 @@ import {
   getPaysafecardConfig,
   setPaysafecardConfig,
   type PaysafecardConfig,
-  PAYSAFECARD_OFFICIAL,
 } from "@/app/actions/settings"
+import { PAYSAFECARD_OFFICIAL } from "@/lib/paysafecard"
 
 /** Réglages paiement Monero (NOWPayments) + Paysafecard (Locker). */
 export function AdminCryptoSettings() {
