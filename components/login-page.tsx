@@ -512,6 +512,10 @@ export function LoginPage({
         pseudo: res.provisionalPseudo,
       })
       setLostKeySent(true)
+      // Ouvre immédiatement le fil : le client voit la réponse automatique
+      // et pourra lire les réponses admin sans dépendre d'un push ou WhatsApp.
+      setShowLostKey(false)
+      onSuccess({ openMessaging: true })
     } catch {
       setLostKeyError("Envoi impossible, réessaie dans un instant.")
     } finally {

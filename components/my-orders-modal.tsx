@@ -144,7 +144,10 @@ export function MyOrdersModal({ isOpen, onClose, userData }: MyOrdersModalProps)
       await loadLists()
       if (selectedRef.current != null) {
         const data = await getThread(selectedRef.current)
-        if (data) setMessages(data.messages as Message[])
+        if (data) {
+          setMessages(data.messages as Message[])
+          await markThreadRead(selectedRef.current)
+        }
       }
     }, 8000)
     return () => clearInterval(interval)

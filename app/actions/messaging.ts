@@ -151,7 +151,7 @@ export async function createGeneralInquiryThread(input: {
     body: body.length > 80 ? `${body.slice(0, 77)}…` : body,
     url: "/admin",
     tag: `thread-${thread.id}`,
-  })
+  }).catch(() => {})
 
   revalidatePath("/messagerie")
   revalidatePath("/admin")
@@ -280,21 +280,22 @@ export async function addMessage(threadId: number, sender: "client" | "vendeur",
       .trim()
     const preview = cleanPreview.length > 80 ? `${cleanPreview.slice(0, 77)}…` : cleanPreview
     if (sender === "vendeur") {
-      // Message du vendeur → on prévient le client.
+      // Message du vendeur → push facultatif : le message en base reste visible
+      // dans la messagerie même si le client n'a pas activé les notifications.
       await notifyCustomer(thread.customerToken, {
         title: "Nouveau message du vendeur",
         body: preview,
         url: "/",
         tag: `thread-${threadId}`,
-      })
+      }).catch(() => {})
     } else {
-      // Message du client → on prévient le vendeur.
+      // Message du client → push facultatif côté vendeur.
       await notifyVendor({
         title: `Message de ${thread.customerName}`,
         body: preview,
         url: "/admin",
         tag: `thread-${threadId}`,
-      })
+      }).catch(() => {})
     }
   }
 
@@ -387,7 +388,7 @@ export async function updateThreadStatus(
         body,
         url: "/",
         tag: `status-${threadId}`,
-      })
+      }).catch(() => {})
     }
   }
 
