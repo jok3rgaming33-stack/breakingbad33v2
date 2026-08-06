@@ -46,22 +46,6 @@ export function RecoveryBanner({ token, onOpenMessaging }: Props) {
     }
   }, [token])
 
-  // Auto-renvoi KYC une fois si le client arrive en boutique sans avoir fait le KYC
-  useEffect(() => {
-    if (!status?.active || !status.needsKyc) return
-    if (typeof window === "undefined") return
-    const key = "bb33_recovery_kyc_nudge"
-    if (sessionStorage.getItem(key) === "1") return
-    // Ne pas boucler si déjà sur /verification
-    if (window.location.pathname.startsWith("/verification")) return
-    sessionStorage.setItem(key, "1")
-    // léger délai pour laisser l'UI s'afficher
-    const t = setTimeout(() => {
-      window.location.href = "/verification?from=recovery"
-    }, 900)
-    return () => clearTimeout(t)
-  }, [status])
-
   if (loading || !status?.active) return null
 
   const waitingAdmin = status.status === "kyc_submitted"

@@ -107,6 +107,8 @@ export function MessagerieModal({ isOpen, onClose, userData }: MessagerieModalPr
           const data = await getThread(selectedRef.current)
           if (data) {
             setMessages(data.messages as Message[])
+            // Un fil ouvert signifie que les réponses reçues sont visibles.
+            await markThreadRead(selectedRef.current)
             // Sync heure d'activité du fil ouvert
             if (data.thread) {
               setThreads((prev) =>
