@@ -1,7 +1,7 @@
 "use server"
 
 import { db } from "@/lib/db"
-import { productRatings, orderThreads, products } from "@/lib/db/schema"
+import { productRatings, orderThreads, products, users } from "@/lib/db/schema"
 import { eq, and, avg, count, inArray, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 
@@ -25,6 +25,8 @@ export type ProductRatingSummary = {
 export type ProductRatingDetail = {
   id: number
   customerToken: string
+  // Pseudo du compte lié au token (null si compte non trouvé)
+  pseudo: string | null
   threadId: number
   quality: number
   quantity: number
@@ -218,13 +220,26 @@ export async function getProductRatingSummaries(productIds: number[]): Promise<R
 
 export async function getProductRatingDetails(productId: number): Promise<ProductRatingDetail[]> {
   const rows = await db
-    .select()
+    .select({
+      id: productRatings.id,
+      customerToken: productRatings.customerToken,
+      pseudo: users.pseudo,
+      threadId: productRatings.threadId,
+      quality: productRatings.quality,
+      quantity: productRatings.quantity,
+      packaging: productRatings.packaging,
+      delivery: productRatings.delivery,
+      comment: productRatings.comment,
+      createdAt: productRatings.createdAt,
+    })
     .from(productRatings)
+    .leftJoin(users, eq(users.token, productRatings.customerToken))
     .where(eq(productRatings.productId, productId))
     .orderBy(sql`${productRatings.createdAt} DESC`)
 
   return rows.map((r) => ({
     ...r,
+    pseudo: r.pseudo ?? null,
     avgScore: avgOfFour(r),
   }))
 }
