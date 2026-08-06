@@ -409,13 +409,12 @@ export async function updateThreadStatus(
           (points > 0 ? `\n${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités.` : "")
         // Second message séparé pour inviter à noter les produits.
         // Le tag [NOTER_PRODUITS] est détecté côté client pour afficher le bouton.
-        if (current.productIds?.length) {
-          await db.insert(threadMessages).values({
-            threadId,
-            sender: "vendeur",
-            body: `[NOTER_PRODUITS]\nTa satisfaction est importante. Prends 1 minute pour noter tes produits — ça aide vraiment !`,
-          })
-        }
+        // Envoyé systématiquement, même pour les commandes créées avant l'ajout de product_ids.
+        await db.insert(threadMessages).values({
+          threadId,
+          sender: "vendeur",
+          body: `[NOTER_PRODUITS]\nTa satisfaction est importante. Prends 1 minute pour noter tes produits — ça aide vraiment !`,
+        })
         break
       }
       case "annulee": {
