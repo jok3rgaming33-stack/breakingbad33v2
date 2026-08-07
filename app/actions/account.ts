@@ -14,6 +14,7 @@ import {
   computeLoyaltyPoints,
   computeTierPoints,
   resolveEffectiveTier,
+  replayLoyaltyOrders,
   maxTierId,
   buildReferralCode,
   FREE_DELIVERY_DAYS,
@@ -294,38 +295,6 @@ export type CustomerStats = {
 
 const VOUCHER_POLICY_HINT =
   "Les bons baissent les points de la commande (montant payé), mais ton palier ne redescend jamais. Le CA statut compte le panier avant remise fidélité."
-
-/** Calcule points + CA qualifiant en rejouant les livraisons (multi palier). */
-export function replayLoyaltyOrders(
-  livreeOrders: {
-    id: number
-    total: number | null
-    loyaltyDiscount?: number | null
-    loyaltyPointsAwarded?: number | null
-  }[],
-  peakTierId?: string | null,
-): { points: number; qualifyingSpend: number; netSpend: number } {
-  const sorted = [...livreeOrders].sort((a, b) => a.id - b.id)
-  let points = 0
-  let qualifyingSpend = 0
-  let netSpend = 0
-  let runningQualifying = 0
-  for (const o of sorted) {
-    const net = Math.max(0, o.total ?? 0)
-    const disc = Math.max(0, o.loyaltyDiscount ?? 0)
-    const gross = net + disc
-    const before = resolveEffectiveTier(runningQualifying, peakTierId)
-    const awarded =
-      o.loyaltyPointsAwarded != null && Number.isFinite(o.loyaltyPointsAwarded)
-        ? Math.max(0, o.loyaltyPointsAwarded)
-        : computeTierPoints(net, before.tier.pointsMultiplier)
-    points += awarded
-    netSpend += net
-    qualifyingSpend += gross
-    runningQualifying += gross
-  }
-  return { points, qualifyingSpend, netSpend }
-}
 
 // Statistiques réelles du client, calculées depuis ses commandes (clé secrète).
 export async function getCustomerStats(token: string): Promise<CustomerStats> {
