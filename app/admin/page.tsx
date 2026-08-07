@@ -50,6 +50,15 @@ export default async function AdminPage() {
 
   let data = empty
   try {
+    // Prépare le schéma AVANT les lectures parallèles (évite listes vides
+    // si une colonne optionnelle manque encore — données toujours en base).
+    try {
+      const { ensureFeatureSchema } = await import("@/lib/feature-schema")
+      await ensureFeatureSchema()
+    } catch (e) {
+      console.error("[admin] ensureFeatureSchema", e)
+    }
+
     const [
       activeOrders,
       lockerOrders,

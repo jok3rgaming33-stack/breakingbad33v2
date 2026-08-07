@@ -233,7 +233,9 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [nickSavingId, setNickSavingId] = useState<number | null>(null)
   const [profileUserId, setProfileUserId] = useState<number | null>(null)
 
-  const totalPoints = (u: AdminUserRow) => Math.max(0, computeLoyaltyPoints(u.totalSpent) + u.loyaltyAdjustment)
+  // Aligné sur getAccount : points = CA livré + ajustement − dépensés
+  const totalPoints = (u: AdminUserRow) =>
+    Math.max(0, computeLoyaltyPoints(u.totalSpent) + u.loyaltyAdjustment - (u.loyaltySpent ?? 0))
 
   const copyToken = async (u: AdminUserRow) => {
     let ok = false
@@ -282,12 +284,15 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const handleSavePoints = async (u: AdminUserRow) => {
     const desired = Number.parseInt(editValue, 10)
     if (!Number.isFinite(desired) || desired < 0) return
-    const adjustment = desired - computeLoyaltyPoints(u.totalSpent)
+    // desired = CA_livré + adjustment − spent  →  adjustment = desired − CA_livré + spent
+    const adjustment = desired - computeLoyaltyPoints(u.totalSpent) + (u.loyaltySpent ?? 0)
     setSavingId(u.id)
     try {
       const res = await setLoyaltyAdjustment(u.id, adjustment)
-      if (res.ok) {
-        setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, loyaltyAdjustment: res.loyaltyAdjustment } : x)))
+      if (res.ok && "loyaltyAdjustment" in res) {
+        setUsers((prev) =>
+          prev.map((x) => (x.id === u.id ? { ...x, loyaltyAdjustment: res.loyaltyAdjustment } : x)),
+        )
         setEditingId(null)
       }
     } finally {
@@ -502,25 +507,37 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                           min={0}
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
-                          className="w-16 rounded-lg border border-accent bg-background px-1.5 py-0.5 text-xs"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSavePoints(u)
+                            if (e.key === "Escape") setEditingId(null)
+                          }}
+                          autoFocus
+                          aria-label={`Points de ${u.pseudo}`}
+                          className="w-20 rounded-lg border border-accent bg-background px-1.5 py-0.5 text-xs"
                         />
-                        <button type="button" onClick={() => handleSavePoints(u)} className="rounded bg-accent p-1 text-accent-foreground">
+                        <button type="button" onClick={() => handleSavePoints(u)} className="rounded bg-accent p-1 text-accent-foreground" title="Enregistrer">
                           {savingId === u.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
                         </button>
-                        <button type="button" onClick={() => setEditingId(null)} className="rounded border border-border p-1">
+                        <button type="button" onClick={() => setEditingId(null)} className="rounded border border-border p-1" title="Annuler">
                           <X className="h-3 w-3" />
                         </button>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => startEdit(u)}
-                        className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent"
-                      >
-                        <Coins className="h-3 w-3" />
-                        {totalPoints(u)}
-                        <Pencil className="h-2.5 w-2.5 opacity-60" />
-                      </button>
+                      <div className="inline-flex items-center gap-1">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
+                          <Coins className="h-3 w-3" />
+                          {totalPoints(u)} pts
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => startEdit(u)}
+                          className="rounded-md border border-border p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                          title="Modifier les points fidélité"
+                          aria-label={`Modifier les points de ${u.pseudo}`}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      </div>
                     )}
                     {u.mustSetPassword && (
                       <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">
@@ -641,26 +658,43 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                               if (e.key === "Escape") setEditingId(null)
                             }}
                             autoFocus
-                            className="w-16 rounded-lg border border-accent bg-background px-2 py-1 text-xs outline-none"
+                            aria-label={`Points de ${u.pseudo}`}
+                            className="w-20 rounded-lg border border-accent bg-background px-2 py-1 text-xs outline-none"
                           />
-                          <button type="button" onClick={() => handleSavePoints(u)} className="rounded-md bg-accent p-1 text-accent-foreground">
+                          <button
+                            type="button"
+                            onClick={() => handleSavePoints(u)}
+                            className="rounded-md bg-accent p-1 text-accent-foreground"
+                            title="Enregistrer"
+                          >
                             {savingId === u.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                           </button>
-                          <button type="button" onClick={() => setEditingId(null)} className="rounded-md border border-border p-1">
+                          <button type="button" onClick={() => setEditingId(null)} className="rounded-md border border-border p-1" title="Annuler">
                             <X className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => startEdit(u)}
-                          className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/20"
-                          title="Modifier les points"
-                        >
-                          <Coins className="h-3 w-3" />
-                          {totalPoints(u)}
-                          <Pencil className="h-2.5 w-2.5 opacity-50" />
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">
+                            <Coins className="h-3 w-3" />
+                            {totalPoints(u)}
+                          </span>
+                          {u.loyaltyAdjustment !== 0 && (
+                            <span className="text-[10px] text-muted-foreground" title="Ajustement manuel">
+                              ({u.loyaltyAdjustment > 0 ? "+" : ""}
+                              {u.loyaltyAdjustment})
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => startEdit(u)}
+                            className="rounded-md border border-border p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                            title="Modifier les points fidélité manuellement"
+                            aria-label={`Modifier les points de ${u.pseudo}`}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       )}
                     </td>
                     <td className="sticky right-0 bg-card/95 px-3 py-3 text-right backdrop-blur group-hover:bg-secondary/40">

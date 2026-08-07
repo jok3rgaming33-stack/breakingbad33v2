@@ -334,8 +334,11 @@ export type AdminUserRow = {
   nickname: string | null
   createdAt: Date | string
   orderCount: number
+  /** CA des commandes livrées uniquement (base des points fidélité) */
   totalSpent: number
   loyaltyAdjustment: number
+  /** Points déjà échangés en codes */
+  loyaltySpent: number
   flags: string[]
   // true si un rétablissement d'accès est en attente (le client doit encore définir son mdp)
   mustSetPassword: boolean
@@ -352,14 +355,30 @@ export async function listUsers(): Promise<AdminUserRow[]> {
       nickname: users.nickname,
       createdAt: users.createdAt,
       loyaltyAdjustment: users.loyaltyAdjustment,
+      loyaltySpent: users.loyaltySpent,
       flags: users.flags,
       mustSetPassword: users.mustSetPassword,
-      orderCount: sql<number>`count(${orderThreads.id})::int`,
-      totalSpent: sql<number>`coalesce(sum(${orderThreads.total}), 0)::int`,
+      // Commandes réelles uniquement (hors discussions / notifs / trk)
+      orderCount: sql<number>`count(${orderThreads.id}) filter (
+        where ${orderThreads.status} is not null
+          and ${orderThreads.status} not in ('discussion','pris_en_charge','ouvert','ferme','notification','trk_token')
+      )::int`,
+      // Points fidélité = CA livré uniquement
+      totalSpent: sql<number>`coalesce(sum(case when ${orderThreads.status} = 'livree' then ${orderThreads.total} else 0 end), 0)::int`,
     })
     .from(users)
     .leftJoin(orderThreads, eq(orderThreads.customerToken, users.token))
-    .groupBy(users.id, users.pseudo, users.token, users.nickname, users.createdAt, users.loyaltyAdjustment, users.flags, users.mustSetPassword)
+    .groupBy(
+      users.id,
+      users.pseudo,
+      users.token,
+      users.nickname,
+      users.createdAt,
+      users.loyaltyAdjustment,
+      users.loyaltySpent,
+      users.flags,
+      users.mustSetPassword,
+    )
     .orderBy(desc(users.createdAt))
   return rows
 }
@@ -384,8 +403,10 @@ export async function setUserFlags(id: number, flags: string[]) {
 }
 
 // Définit l'ajustement manuel des points fidélité d'un compte (réservé admin).
+// adjustment = delta stocké en base ; l’UI calcule : points_affichés = CA_livré + adjustment − dépensés
 export async function setLoyaltyAdjustment(id: number, adjustment: number) {
   if (!id || !Number.isFinite(adjustment)) return { ok: false as const }
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
   const value = Math.trunc(adjustment)
   await db.update(users).set({ loyaltyAdjustment: value }).where(eq(users.id, id))
   revalidatePath("/admin")
