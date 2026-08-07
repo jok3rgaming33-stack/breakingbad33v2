@@ -8,8 +8,9 @@ import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { notifyCustomer } from "@/lib/push"
 import { clientThreadUrl } from "@/lib/deep-links"
 
-/** Tag détecté côté client pour afficher le bouton « Noter mes produits ». */
-export const RATING_INVITE_TAG = "[NOTER_PRODUITS]"
+/** Tag détecté côté client pour afficher le bouton « Noter mes produits ».
+ *  Non exporté : un fichier "use server" ne peut exporter que des async functions. */
+const RATING_INVITE_TAG = "[NOTER_PRODUITS]"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
