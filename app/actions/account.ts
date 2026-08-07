@@ -136,6 +136,14 @@ export async function createAccount(token: string, pseudo: string, referralCode?
     await db.insert(accountCreations).values({ ip })
   }
 
+  // Message de bienvenue + bon de réduction unique (discussion vendeur → client).
+  // Non bloquant : un échec n'empêche jamais la création du compte.
+  try {
+    await sendWelcomePackage({ pseudo: p, token: t })
+  } catch (e) {
+    console.error("[account] welcome package failed:", e)
+  }
+
   // Notifie le vendeur de l'arrivée d'un nouveau membre.
   await notifyVendor({
     title: "Nouveau membre",
@@ -157,6 +165,94 @@ export async function createAccount(token: string, pseudo: string, referralCode?
     referralIgnored,
     referralCode: ownReferralCode,
   }
+}
+
+/** Génère un code promo unique (10€ / min 80€) et l'envoie en messagerie « Discussion ». */
+async function sendWelcomePackage(opts: { pseudo: string; token: string }) {
+  const { pseudo, token } = opts
+
+  // 1) Bon à usage unique, lié au compte (même pipeline que les codes fidélité).
+  let promoCode = ""
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const random = Math.random().toString(36).slice(2, 8).toUpperCase()
+    const candidate = `BB33-W-${random}`
+    try {
+      await db.insert(loyaltyCodes).values({
+        userToken: token,
+        code: candidate,
+        discount: 10,
+        pointsCost: 0,
+        minAmount: 80,
+        used: false,
+      })
+      promoCode = candidate
+      break
+    } catch {
+      // collision de code unique → on réessaie
+    }
+  }
+  if (!promoCode) {
+    throw new Error("Impossible de générer un code de bienvenue unique")
+  }
+
+  // 2) Fil de discussion + message du chimiste.
+  const body = [
+    "Bienvenue chez BreakingBad33,",
+    "",
+    "Nous sommes heureux de t'accueillir.",
+    "",
+    'Contacte-nous si besoin, sinon tu trouveras toutes les infos utiles dans la section « Comment ça marche ».',
+    "",
+    "En guise de cadeau de bienvenue, voici un bon de réduction de 10€ à valoir sur ta 1ère commande (montant minimum 80€) :",
+    "",
+    `🎟 Code : ${promoCode}`,
+    "",
+    "Saisis-le dans ton panier au moment de la commande (usage unique).",
+    "",
+    "Au plaisir,",
+    "",
+    "Le chimiste",
+  ].join("\n")
+
+  const [thread] = await db
+    .insert(orderThreads)
+    .values({
+      customerName: pseudo,
+      customerToken: token,
+      trackingToken: `MSG_${crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`,
+      summary: "Bienvenue",
+      total: 0,
+      fulfillment: "livraison",
+      status: "discussion",
+    })
+    .returning({ id: orderThreads.id })
+
+  if (!thread) throw new Error("Fil de bienvenue non créé")
+
+  await db.insert(threadMessages).values({
+    threadId: thread.id,
+    sender: "vendeur",
+    body,
+  })
+
+  // Push optionnel (souvent pas encore d'abonnement à la création).
+  try {
+    const { notifyCustomer } = await import("@/lib/push")
+    const { clientThreadUrl } = await import("@/lib/deep-links")
+    await notifyCustomer(token, {
+      title: "Bienvenue chez BreakingBad33",
+      body: "Un message t'attend dans Messagerie — cadeau de bienvenue inclus.",
+      url: clientThreadUrl("messaging", thread.id),
+      tag: `welcome-${thread.id}`,
+      threadId: thread.id,
+      open: "messaging",
+    })
+  } catch {
+    /* soft */
+  }
+
+  revalidatePath("/messagerie")
+  revalidatePath("/")
 }
 
 /**
