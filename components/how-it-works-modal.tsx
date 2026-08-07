@@ -32,12 +32,16 @@ const SECTIONS: Section[] = [
     color: "text-blue-400 bg-blue-400/10 border-blue-400/20",
     steps: [
       {
-        label: "Choisis un pseudo anonyme",
-        desc: "Aucun email ni numéro de téléphone requis. Ton pseudo est ton seul identifiant visible.",
+        label: "Un pseudo et une clé secrète sont générés pour toi",
+        desc: "Aucun email ni numéro de téléphone requis. À la création, le site te génère automatiquement un pseudo anonyme (ton identifiant visible) et une clé secrète (token). Tu n'as rien à inventer.",
       },
       {
-        label: "Note ton token secret",
-        desc: "À la création, un token unique t'est attribué. C'est la clé de ta session — garde-le précieusement pour te reconnecter sur n'importe quel appareil.",
+        label: "Sauvegarde-les absolument — c'est primordial",
+        desc: "Pseudo + clé secrète = ton seul accès au compte. Note-les hors ligne (papier, gestionnaire de mots de passe) et conserve-les en lieu sûr. Si tu les perds, l'accès est définitivement perdu : il n'existe pas de récupération par email.",
+      },
+      {
+        label: "Biométrie après ta 1ʳᵉ connexion (mode appli)",
+        desc: "Une fois connecté pour la première fois en mode application (site ajouté à l'écran d'accueil), tu pourras activer Face ID / empreinte digitale. C'est optionnel et pratique pour te reconnecter plus vite — ta clé secrète reste toujours ta solution de secours.",
       },
     ],
   },
