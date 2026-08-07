@@ -466,6 +466,13 @@ export async function resolveClientLogin(token: string): Promise<
       user = { ...user, pseudo: staff.pseudo, flags: [] }
     }
     await reattachAccountThreads(t, staff.pseudo)
+    // Journaliser AUSSI les comptes whitelist (avant return — était manquant)
+    try {
+      const { recordLogin } = await import("@/app/actions/login-logs")
+      await recordLogin(t)
+    } catch {
+      /* ignore */
+    }
     return { ok: true, pseudo: staff.pseudo, token: t }
   }
 
@@ -486,10 +493,10 @@ export async function resolveClientLogin(token: string): Promise<
       )
   }
 
-  // Journalise la connexion (même chemin que getAccount)
+  // Journalise la connexion (await obligatoire sur serverless)
   try {
     const { recordLogin } = await import("@/app/actions/login-logs")
-    recordLogin(t).catch(() => {})
+    await recordLogin(t)
   } catch {
     /* ignore */
   }

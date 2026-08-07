@@ -493,6 +493,14 @@ export async function finishWebAuthnAuthentication(input: {
       }
     }
 
+    // Journal des connexions (biométrie ne passait pas par getAccount — logs figés)
+    try {
+      const { recordLogin } = await import("@/app/actions/login-logs")
+      await recordLogin(account[0].token)
+    } catch {
+      /* non bloquant */
+    }
+
     return {
       ok: true,
       token: account[0].token,
