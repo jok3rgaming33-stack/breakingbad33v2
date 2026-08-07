@@ -618,3 +618,485 @@ export async function sendRatingInvites(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin — rattachement rétroactif product_ids depuis le texte récap
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CatalogProductOption = { id: number; title: string }
+
+export type BackfillTermStatus = "matched" | "uncertain" | "unmatched"
+
+export type BackfillTermHit = {
+  /** Terme extrait du texte commande (tel qu'affiché admin) */
+  term: string
+  status: BackfillTermStatus
+  productId: number | null
+  productTitle: string | null
+  candidates: CatalogProductOption[]
+}
+
+export type BackfillOrderRow = {
+  threadId: number
+  customerName: string
+  productsText: string
+  status: string
+  ready: boolean
+  terms: BackfillTermHit[]
+  resolvedIds: number[]
+}
+
+export type BackfillUncertainTerm = {
+  term: string
+  count: number
+  orderIds: number[]
+  candidates: CatalogProductOption[]
+}
+
+export type ProductIdBackfillAnalysis = {
+  orders: BackfillOrderRow[]
+  uncertainTerms: BackfillUncertainTerm[]
+  catalog: CatalogProductOption[]
+  stats: {
+    ordersWithoutIds: number
+    fullyResolvable: number
+    blockedByUncertain: number
+    uniqueUncertainTerms: number
+  }
+}
+
+function normalizeProductLabel(raw: string): string {
+  return raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/['’]/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+/** Extrait les noms produits depuis `products` ou `summary` (format panier / récap). */
+function parseOrderProductTermsSync(products: string | null, summary: string | null): string[] {
+  const terms: string[] = []
+
+  const pushClean = (raw: string) => {
+    let s = raw.trim()
+    if (!s) return
+    // Préfixe puces / lignes summary
+    s = s.replace(/^[•\-\*]\s*/, "")
+    // Préfixe quantité panier : "1x ", "2 x "
+    s = s.replace(/^\d+\s*[x×]\s*/i, "")
+    // Suffixe prix : " — 50€" / "- 50€"
+    s = s.replace(/\s*[—–-]\s*\d+(?:[.,]\d+)?\s*€?\s*$/i, "")
+    // Suffixe variante / qty compacte : " ×3" " x10"
+    s = s.replace(/\s*[×x]\s*\d+\s*$/i, "")
+    s = s.trim()
+    if (s.length >= 1) terms.push(s)
+  }
+
+  if (products?.trim()) {
+    // "1x Coke ×2, 1x La MD ×3" ou "Coke ×1, 3m ×1"
+    for (const part of products.split(",")) pushClean(part)
+  } else if (summary?.trim()) {
+    // Lignes "• 1x Coke — 50€"
+    for (const line of summary.split(/\r?\n/)) {
+      const t = line.trim()
+      if (!t) continue
+      if (/^[•\-\*]/.test(t) || /^\d+\s*[x×]/i.test(t) || /—.*€/.test(t)) {
+        pushClean(t)
+      }
+    }
+  }
+
+  // Déduplique en gardant l'ordre (insensible à la casse)
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const t of terms) {
+    const key = normalizeProductLabel(t)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(t)
+  }
+  return out
+}
+
+function matchTermToCatalog(
+  term: string,
+  catalog: { id: number; title: string; norm: string }[],
+): BackfillTermHit {
+  const norm = normalizeProductLabel(term)
+  if (!norm) {
+    return { term, status: "unmatched", productId: null, productTitle: null, candidates: [] }
+  }
+
+  // 1) Exact
+  const exact = catalog.filter((p) => p.norm === norm)
+  if (exact.length === 1) {
+    return {
+      term,
+      status: "matched",
+      productId: exact[0]!.id,
+      productTitle: exact[0]!.title,
+      candidates: [],
+    }
+  }
+  if (exact.length > 1) {
+    return {
+      term,
+      status: "uncertain",
+      productId: null,
+      productTitle: null,
+      candidates: exact.map((p) => ({ id: p.id, title: p.title })),
+    }
+  }
+
+  // 2) Contient / est contenu (longueur mini pour éviter "k" / "3m" trop courts sauf égalité déjà gérée)
+  const contains = catalog.filter((p) => {
+    if (norm.length < 2 || p.norm.length < 2) return false
+    // "bai" dans "baida", "la md" exact partiel
+    return (
+      (norm.length >= 3 && p.norm.includes(norm)) ||
+      (p.norm.length >= 3 && norm.includes(p.norm))
+    )
+  })
+
+  if (contains.length === 1) {
+    // Match unique par inclusion → encore "matched" mais plus faible ;
+    // on le traite comme matched pour le flux auto (souvent bai→Baïda, 3m, etc.)
+    // Sauf si le ratio de longueur est trop faible (trop risqué)
+    const p = contains[0]!
+    const ratio = Math.min(norm.length, p.norm.length) / Math.max(norm.length, p.norm.length)
+    if (ratio >= 0.45 || norm.length >= 4) {
+      return {
+        term,
+        status: "matched",
+        productId: p.id,
+        productTitle: p.title,
+        candidates: [],
+      }
+    }
+  }
+
+  if (contains.length >= 1) {
+    return {
+      term,
+      status: "uncertain",
+      productId: null,
+      productTitle: null,
+      candidates: contains.slice(0, 8).map((p) => ({ id: p.id, title: p.title })),
+    }
+  }
+
+  // 3) Tokens en commun (ex. "lsd buvard" vs "LSD - Buvard 240ug")
+  const termTokens = new Set(norm.split(" ").filter((t) => t.length >= 2))
+  if (termTokens.size > 0) {
+    const scored = catalog
+      .map((p) => {
+        const pt = p.norm.split(" ").filter((t) => t.length >= 2)
+        const common = pt.filter((t) => termTokens.has(t)).length
+        return { p, common, score: common / Math.max(termTokens.size, pt.length) }
+      })
+      .filter((x) => x.common >= 1 && x.score >= 0.4)
+      .sort((a, b) => b.score - a.score || b.common - a.common)
+
+    if (scored.length === 1 && scored[0]!.score >= 0.55) {
+      const p = scored[0]!.p
+      return {
+        term,
+        status: "matched",
+        productId: p.id,
+        productTitle: p.title,
+        candidates: [],
+      }
+    }
+    if (scored.length >= 1) {
+      return {
+        term,
+        status: "uncertain",
+        productId: null,
+        productTitle: null,
+        candidates: scored.slice(0, 8).map((x) => ({ id: x.p.id, title: x.p.title })),
+      }
+    }
+  }
+
+  return { term, status: "unmatched", productId: null, productTitle: null, candidates: [] }
+}
+
+function resolveTermWithMappings(
+  term: string,
+  catalog: { id: number; title: string; norm: string }[],
+  mappings: Record<string, number>,
+): BackfillTermHit {
+  const key = normalizeProductLabel(term)
+  const mappedId = mappings[key] ?? mappings[term]
+  if (mappedId && Number.isFinite(mappedId)) {
+    const p = catalog.find((c) => c.id === mappedId)
+    if (p) {
+      return {
+        term,
+        status: "matched",
+        productId: p.id,
+        productTitle: p.title,
+        candidates: [],
+      }
+    }
+  }
+  return matchTermToCatalog(term, catalog)
+}
+
+/**
+ * Analyse les commandes livrées sans product_ids et propose des rattachements.
+ * Liste les termes incertains pour association manuelle.
+ */
+export async function analyzeProductIdBackfill(): Promise<ProductIdBackfillAnalysis> {
+  const empty: ProductIdBackfillAnalysis = {
+    orders: [],
+    uncertainTerms: [],
+    catalog: [],
+    stats: {
+      ordersWithoutIds: 0,
+      fullyResolvable: 0,
+      blockedByUncertain: 0,
+      uniqueUncertainTerms: 0,
+    },
+  }
+
+  try {
+    if (!(await isAdminAuthenticated())) return empty
+
+    const catalogRows = await db
+      .select({ id: products.id, title: products.title })
+      .from(products)
+      .orderBy(products.title)
+
+    const catalog = catalogRows.map((p) => ({
+      id: p.id,
+      title: p.title,
+      norm: normalizeProductLabel(p.title),
+    }))
+    const catalogOpts: CatalogProductOption[] = catalogRows.map((p) => ({
+      id: p.id,
+      title: p.title,
+    }))
+
+    const delivered = await db
+      .select({
+        id: orderThreads.id,
+        customerName: orderThreads.customerName,
+        products: orderThreads.products,
+        summary: orderThreads.summary,
+        productIds: orderThreads.productIds,
+        status: orderThreads.status,
+      })
+      .from(orderThreads)
+      .where(eq(orderThreads.status, "livree"))
+      .orderBy(desc(orderThreads.updatedAt))
+      .limit(500)
+
+    const withoutIds = delivered.filter((o) => {
+      const ids = Array.isArray(o.productIds) ? o.productIds : []
+      return ids.length === 0
+    })
+
+    const uncertainMap = new Map<
+      string,
+      { term: string; count: number; orderIds: number[]; candidates: CatalogProductOption[] }
+    >()
+
+    const orders: BackfillOrderRow[] = []
+
+    for (const o of withoutIds) {
+      const rawTerms = parseOrderProductTermsSync(o.products, o.summary)
+      const productsText = (o.products?.trim() || o.summary?.slice(0, 120) || "—").trim()
+
+      if (!rawTerms.length) {
+        orders.push({
+          threadId: o.id,
+          customerName: o.customerName,
+          productsText,
+          status: o.status,
+          ready: false,
+          terms: [],
+          resolvedIds: [],
+        })
+        continue
+      }
+
+      const terms = rawTerms.map((t) => matchTermToCatalog(t, catalog))
+      const resolvedIds: number[] = []
+      let ready = true
+      for (const hit of terms) {
+        if (hit.status === "matched" && hit.productId) {
+          if (!resolvedIds.includes(hit.productId)) resolvedIds.push(hit.productId)
+        } else {
+          ready = false
+          const key = normalizeProductLabel(hit.term)
+          const prev = uncertainMap.get(key)
+          if (prev) {
+            prev.count++
+            if (!prev.orderIds.includes(o.id)) prev.orderIds.push(o.id)
+            // enrichir candidats
+            for (const c of hit.candidates) {
+              if (!prev.candidates.some((x) => x.id === c.id)) prev.candidates.push(c)
+            }
+          } else {
+            uncertainMap.set(key, {
+              term: hit.term,
+              count: 1,
+              orderIds: [o.id],
+              candidates: [...hit.candidates],
+            })
+          }
+        }
+      }
+
+      orders.push({
+        threadId: o.id,
+        customerName: o.customerName,
+        productsText,
+        status: o.status,
+        ready: ready && resolvedIds.length > 0,
+        terms,
+        resolvedIds,
+      })
+    }
+
+    const uncertainTerms: BackfillUncertainTerm[] = [...uncertainMap.values()]
+      .map((u) => ({
+        term: u.term,
+        count: u.count,
+        orderIds: u.orderIds,
+        candidates: u.candidates.slice(0, 8),
+      }))
+      .sort((a, b) => b.count - a.count || a.term.localeCompare(b.term))
+
+    const fullyResolvable = orders.filter((o) => o.ready).length
+    const blockedByUncertain = orders.filter((o) => !o.ready && o.terms.length > 0).length
+
+    return {
+      orders,
+      uncertainTerms,
+      catalog: catalogOpts,
+      stats: {
+        ordersWithoutIds: withoutIds.length,
+        fullyResolvable,
+        blockedByUncertain,
+        uniqueUncertainTerms: uncertainTerms.length,
+      },
+    }
+  } catch (e) {
+    console.error("[ratings-admin] analyzeProductIdBackfill failed:", e)
+    return empty
+  }
+}
+
+/**
+ * Applique le rattachement product_ids.
+ * @param mappings  terme normalisé ou brut → productId (associations manuelles admin)
+ * @param onlyReady  si true, n'écrit que les commandes 100% résolues
+ */
+export async function applyProductIdBackfill(input: {
+  mappings?: Record<string, number>
+  onlyThreadIds?: number[]
+}): Promise<
+  | { ok: true; updated: number; skipped: number; stillBlocked: string[] }
+  | { ok: false; error: string }
+> {
+  try {
+    if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
+
+    const mappingsRaw = input.mappings ?? {}
+    // Indexe les mappings par forme normalisée
+    const mappings: Record<string, number> = {}
+    for (const [k, v] of Object.entries(mappingsRaw)) {
+      const id = Math.trunc(Number(v))
+      if (!k || !Number.isFinite(id) || id <= 0) continue
+      mappings[k] = id
+      mappings[normalizeProductLabel(k)] = id
+    }
+
+    const catalogRows = await db
+      .select({ id: products.id, title: products.title })
+      .from(products)
+    const catalog = catalogRows.map((p) => ({
+      id: p.id,
+      title: p.title,
+      norm: normalizeProductLabel(p.title),
+    }))
+
+    const delivered = await db
+      .select({
+        id: orderThreads.id,
+        products: orderThreads.products,
+        summary: orderThreads.summary,
+        productIds: orderThreads.productIds,
+        status: orderThreads.status,
+      })
+      .from(orderThreads)
+      .where(eq(orderThreads.status, "livree"))
+      .limit(500)
+
+    const filterIds = input.onlyThreadIds?.length
+      ? new Set(input.onlyThreadIds.map((n) => Math.trunc(Number(n))))
+      : null
+
+    let updated = 0
+    let skipped = 0
+    const stillBlocked: string[] = []
+
+    for (const o of delivered) {
+      if (filterIds && !filterIds.has(o.id)) continue
+      const existing = Array.isArray(o.productIds) ? o.productIds : []
+      if (existing.length > 0) {
+        skipped++
+        continue
+      }
+
+      const rawTerms = parseOrderProductTermsSync(o.products, o.summary)
+      if (!rawTerms.length) {
+        skipped++
+        stillBlocked.push(`#${o.id} : aucun produit lisible`)
+        continue
+      }
+
+      const hits = rawTerms.map((t) => resolveTermWithMappings(t, catalog, mappings))
+      const ids: number[] = []
+      let ok = true
+      const missing: string[] = []
+      for (const h of hits) {
+        if (h.status === "matched" && h.productId) {
+          if (!ids.includes(h.productId)) ids.push(h.productId)
+        } else {
+          ok = false
+          missing.push(h.term)
+        }
+      }
+
+      if (!ok || !ids.length) {
+        skipped++
+        stillBlocked.push(`#${o.id} : ${missing.join(", ") || "non résolu"}`)
+        continue
+      }
+
+      try {
+        await db
+          .update(orderThreads)
+          .set({ productIds: ids })
+          .where(eq(orderThreads.id, o.id))
+        updated++
+      } catch (e) {
+        skipped++
+        stillBlocked.push(`#${o.id} : erreur écriture`)
+        console.error("[ratings-admin] backfill write failed", o.id, e)
+      }
+    }
+
+    revalidatePath("/admin")
+    return { ok: true, updated, skipped, stillBlocked: stillBlocked.slice(0, 40) }
+  } catch (e) {
+    console.error("[ratings-admin] applyProductIdBackfill failed:", e)
+    return { ok: false, error: "Erreur serveur." }
+  }
+}
+
