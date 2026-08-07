@@ -42,6 +42,7 @@ export function LoginPage({
   const [loginInput, setLoginInput] = useState("")
   const [error, setError] = useState("")         // erreur formulaire login (connexion avec clé)
   const [errorCreate, setErrorCreate] = useState("") // erreur formulaire création
+  const [referralInput, setReferralInput] = useState("")
   const [creating, setCreating] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [stats, setStats] = useState<{ points: number; active: number; past: number } | null>(null)
@@ -221,7 +222,7 @@ export function LoginPage({
         return
       }
       // Persiste le compte en base : la clé secrète devient l'identifiant durable.
-      const res = await createAccount(key, pseudo)
+      const res = await createAccount(key, pseudo, referralInput.trim() || undefined)
       // Blocage VPN / limite mensuelle par IP : on affiche le motif et on s'arrête.
       if (!res.ok) {
         setErrorCreate(res.error ?? "Impossible de créer le compte. Réessaie dans un instant.")
@@ -878,6 +879,20 @@ export function LoginPage({
                     )}
                   </div>
                 )}
+                <div className="w-full">
+                  <label className="mb-1.5 block text-center text-xs text-muted-foreground">
+                    Code parrain <span className="opacity-70">(optionnel)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={referralInput}
+                    onChange={(e) => setReferralInput(e.target.value.toUpperCase())}
+                    placeholder="EX: HEIS-A3F9"
+                    maxLength={16}
+                    className="mb-3 w-full rounded-xl border border-border bg-card px-4 py-2.5 text-center font-mono text-sm tracking-wider outline-none focus:border-accent"
+                    autoComplete="off"
+                  />
+                </div>
                 <button
                   onClick={createAnonymousAccess}
                   disabled={creating || !createCaptchaReady}

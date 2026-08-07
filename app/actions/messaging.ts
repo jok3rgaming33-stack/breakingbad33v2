@@ -604,9 +604,21 @@ export async function updateThreadStatus(
       case "livree": {
         const mode = current.fulfillment === "meetup" ? "en meet-up" : current.fulfillment === "locker" ? "en Locker Mondial Relay" : "en livraison"
         const points = computeLoyaltyPoints(current.total ?? 0)
+        // Bonus parrainage : uniquement à la 1ʳᵉ livraison du filleul
+        let referralLine = ""
+        try {
+          const { grantReferralBonusOnFirstDelivery } = await import("@/app/actions/account")
+          const ref = await grantReferralBonusOnFirstDelivery(current.customerToken)
+          if (ref.granted && ref.refereeBonus) {
+            referralLine = `\n🎁 Bonus parrainage : +${ref.refereeBonus} points (1ʳᵉ livraison).`
+          }
+        } catch {
+          /* non bloquant */
+        }
         body =
           `✨ Ta commande t'a bien été livrée (${mode}). Merci pour ta confiance !` +
-          (points > 0 ? `\n${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités.` : "")
+          (points > 0 ? `\n${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités.` : "") +
+          referralLine
         // Second message séparé pour inviter à noter les produits.
         // Le tag [NOTER_PRODUITS] est détecté côté client pour afficher le bouton.
         // Envoyé systématiquement, même pour les commandes créées avant l'ajout de product_ids.

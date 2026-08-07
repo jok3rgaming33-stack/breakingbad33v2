@@ -10,20 +10,31 @@ import { eq, desc, sql, and, gte, inArray } from "drizzle-orm"
 import { del } from "@vercel/blob"
 import { revalidatePath } from "next/cache"
 import { isClosedStatus, normalizeStatus } from "@/lib/order-status"
-import { computeLoyaltyPoints } from "@/lib/loyalty"
+import {
+  computeLoyaltyPoints,
+  getLoyaltyTier,
+  buildReferralCode,
+  REFERRAL_BONUS_REFEREE,
+  REFERRAL_BONUS_REFERRER,
+  REFERRAL_BONUS_PLATINUM_EXTRA,
+} from "@/lib/loyalty"
 import { notifyVendor } from "@/lib/push"
 import { getClientIp, isVpnOrProxy } from "@/lib/ip-check"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { USER_FLAGS } from "@/lib/user-flags"
 import { recordLogin, deleteLoginLogsByToken } from "@/app/actions/login-logs"
+import { ensureFeatureSchema } from "@/lib/feature-schema"
 
 // Crée (ou réenregistre) un compte anonyme : associe une clé secrète à un pseudo.
 // Idempotent : si la clé existe déjà, on conserve le pseudo d'origine.
 // Applique une limite d'1 création par mois et par IP, et bloque les VPN/proxies.
-export async function createAccount(token: string, pseudo: string) {
+// referralCode optionnel : code parrain d'un membre existant.
+export async function createAccount(token: string, pseudo: string, referralCode?: string) {
   const t = token?.trim()
   const p = pseudo?.trim()
   if (!t || t.length < 20 || !p) return { ok: false as const, error: "Paramètres invalides." }
+
+  await ensureFeatureSchema()
 
   const existing = await db.select().from(users).where(eq(users.token, t)).limit(1)
   if (existing.length > 0) {
@@ -66,9 +77,38 @@ export async function createAccount(token: string, pseudo: string) {
     }
   }
 
+  // Parrain optionnel (lien stocké ; bonus versé à la 1ʳᵉ livraison — voir grantReferralBonusOnFirstDelivery)
+  let referrer: typeof users.$inferSelect | null = null
+  const refCode = referralCode?.trim().toUpperCase()
+  if (refCode) {
+    const refRows = await db.select().from(users).where(eq(users.referralCode, refCode)).limit(1)
+    if (refRows[0] && refRows[0].token !== t) {
+      referrer = refRows[0]
+    }
+  }
+
   // Réserve le pseudo de façon permanente (même si le compte est supprimé plus tard).
   await db.insert(reservedPseudos).values({ pseudo: p }).onConflictDoNothing()
-  await db.insert(users).values({ token: t, pseudo: p })
+
+  const inserted = await db
+    .insert(users)
+    .values({
+      token: t,
+      pseudo: p,
+      referredBy: referrer?.token ?? null,
+      referralBonusGranted: false,
+    })
+    .returning({ id: users.id })
+
+  const newId = inserted[0]?.id
+  if (newId) {
+    const code = buildReferralCode(p, newId)
+    try {
+      await db.update(users).set({ referralCode: code }).where(eq(users.id, newId))
+    } catch {
+      /* ignore */
+    }
+  }
 
   // Journalise l'IP pour faire respecter la limite mensuelle.
   if (ip) {
@@ -78,7 +118,9 @@ export async function createAccount(token: string, pseudo: string) {
   // Notifie le vendeur de l'arrivée d'un nouveau membre.
   await notifyVendor({
     title: "Nouveau membre",
-    body: `${p} vient de créer un compte.`,
+    body: referrer
+      ? `${p} vient de créer un compte (parrainé par ${referrer.pseudo} — bonus à la 1ʳᵉ livraison).`
+      : `${p} vient de créer un compte.`,
     url: "/admin",
     tag: "new-member",
   })
@@ -86,7 +128,106 @@ export async function createAccount(token: string, pseudo: string) {
   // Première connexion = création de compte (getAccount n'est pas appelé ici)
   await recordLogin(t)
 
-  return { ok: true as const, pseudo: p }
+  return {
+    ok: true as const,
+    pseudo: p,
+    referralLinked: !!referrer,
+  }
+}
+
+/**
+ * Crédite le bonus parrainage à la 1ʳᵉ commande livrée du filleul.
+ * - Filleul : +REFERRAL_BONUS_REFEREE
+ * - Parrain : +REFERRAL_BONUS_REFERRER (+ extra Platine si CA livré ≥ 600€)
+ * Idempotent via users.referral_bonus_granted.
+ */
+export async function grantReferralBonusOnFirstDelivery(customerToken: string | null | undefined): Promise<{
+  granted: boolean
+  refereeBonus?: number
+  referrerBonus?: number
+}> {
+  const t = customerToken?.trim()
+  if (!t) return { granted: false }
+
+  try {
+    await ensureFeatureSchema()
+
+    const urows = await db.select().from(users).where(eq(users.token, t)).limit(1)
+    const u = urows[0]
+    if (!u?.referredBy || u.referralBonusGranted) return { granted: false }
+
+    // 1ʳᵉ livraison uniquement (statut déjà mis à jour en "livree")
+    const livreeCount = await db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(orderThreads)
+      .where(and(eq(orderThreads.customerToken, t), eq(orderThreads.status, "livree")))
+    if ((livreeCount[0]?.c ?? 0) !== 1) return { granted: false }
+
+    const refRows = await db.select().from(users).where(eq(users.token, u.referredBy)).limit(1)
+    const referrer = refRows[0]
+    if (!referrer) {
+      // Lien cassé : on marque quand même pour ne pas retenter indéfiniment
+      await db.update(users).set({ referralBonusGranted: true }).where(eq(users.id, u.id))
+      return { granted: false }
+    }
+
+    let referrerBonus = REFERRAL_BONUS_REFERRER
+    try {
+      const spentRows = await db
+        .select({ s: sql<number>`coalesce(sum(${orderThreads.total}), 0)::int` })
+        .from(orderThreads)
+        .where(and(eq(orderThreads.customerToken, referrer.token), eq(orderThreads.status, "livree")))
+      if ((spentRows[0]?.s ?? 0) >= 600) referrerBonus += REFERRAL_BONUS_PLATINUM_EXTRA
+    } catch {
+      /* ignore */
+    }
+
+    const refereeBonus = REFERRAL_BONUS_REFEREE
+
+    await db
+      .update(users)
+      .set({
+        loyaltyAdjustment: (u.loyaltyAdjustment ?? 0) + refereeBonus,
+        referralBonusGranted: true,
+      })
+      .where(eq(users.id, u.id))
+
+    await db
+      .update(users)
+      .set({ loyaltyAdjustment: (referrer.loyaltyAdjustment ?? 0) + referrerBonus })
+      .where(eq(users.id, referrer.id))
+
+    await notifyVendor({
+      title: "Bonus parrainage",
+      body: `${u.pseudo} a validé sa 1ʳᵉ livraison — +${refereeBonus} pts filleul, +${referrerBonus} pts parrain (${referrer.pseudo}).`,
+      url: "/admin",
+      tag: `referral-${u.id}`,
+    }).catch(() => {})
+
+    // Push filleul + parrain (best-effort)
+    try {
+      const { notifyCustomer } = await import("@/lib/push")
+      await notifyCustomer(u.token, {
+        title: "Bonus parrainage",
+        body: `+${refereeBonus} points pour ta 1ʳᵉ livraison ! Merci d'avoir rejoint via un parrain.`,
+        url: "/",
+        tag: `referral-referee-${u.id}`,
+      })
+      await notifyCustomer(referrer.token, {
+        title: "Bonus parrainage",
+        body: `${u.pseudo} a reçu sa 1ʳᵉ commande — +${referrerBonus} points pour toi !`,
+        url: "/",
+        tag: `referral-referrer-${u.id}`,
+      })
+    } catch {
+      /* ignore */
+    }
+
+    return { granted: true, refereeBonus, referrerBonus }
+  } catch (e) {
+    console.error("[referral] grant on first delivery failed:", e)
+    return { granted: false }
+  }
 }
 
 // Récupère le compte associé à une clé secrète (connexion d'un client existant).
@@ -96,6 +237,7 @@ export async function getAccount(token: string) {
   const { normalizeSecretKey } = await import("@/lib/normalize-token")
   const t = normalizeSecretKey(token)
   if (!t) return null
+  await ensureFeatureSchema()
   const rows = await db.select().from(users).where(eq(users.token, t)).limit(1)
   const account = rows[0] ?? null
   if (account) {
@@ -117,17 +259,34 @@ export async function ensureAccount(token: string, fallbackPseudo: string) {
 // Statistiques réelles du client, calculées depuis ses commandes (clé secrète).
 export async function getCustomerStats(token: string) {
   const t = token?.trim()
-  if (!t) return { points: 0, active: 0, past: 0 }
+  if (!t) {
+    return {
+      points: 0,
+      active: 0,
+      past: 0,
+      totalSpentDelivered: 0,
+      tierId: "bronze" as const,
+      tierLabel: "Bronze",
+      referralCode: null as string | null,
+      nextTierLabel: "Argent" as string | null,
+      spentToNext: 100,
+      progress: 0,
+    }
+  }
+
+  await ensureFeatureSchema()
 
   const rows = await db.select().from(orderThreads).where(eq(orderThreads.customerToken, t))
 
   let points = 0
   let active = 0
   let past = 0
+  let totalSpentDelivered = 0
   for (const row of rows) {
     // Les points ne sont crédités QU'À la livraison (statut "livree").
     if (normalizeStatus(row.status) === "livree") {
       points += computeLoyaltyPoints(row.total ?? 0)
+      totalSpentDelivered += row.total ?? 0
     }
     if (isClosedStatus(row.status)) past += 1
     else active += 1
@@ -136,9 +295,33 @@ export async function getCustomerStats(token: string) {
   // Ajustement manuel du vendeur, moins les points déjà dépensés en codes.
   // Les points ne descendent jamais sous 0.
   const account = await db.select().from(users).where(eq(users.token, t)).limit(1)
-  points = Math.max(0, points + (account[0]?.loyaltyAdjustment ?? 0) - (account[0]?.loyaltySpent ?? 0))
+  const u = account[0]
+  points = Math.max(0, points + (u?.loyaltyAdjustment ?? 0) - (u?.loyaltySpent ?? 0))
 
-  return { points, active, past }
+  let referralCode = u?.referralCode ?? null
+  if (u && !referralCode) {
+    referralCode = buildReferralCode(u.pseudo, u.id)
+    try {
+      await db.update(users).set({ referralCode }).where(eq(users.id, u.id))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const { tier, next, progress, spentToNext } = getLoyaltyTier(totalSpentDelivered)
+
+  return {
+    points,
+    active,
+    past,
+    totalSpentDelivered,
+    tierId: tier.id,
+    tierLabel: tier.label,
+    referralCode,
+    nextTierLabel: next?.label ?? null,
+    spentToNext,
+    progress,
+  }
 }
 
 // --- Administration des comptes (réservé au panel admin) ---
@@ -160,6 +343,7 @@ export type AdminUserRow = {
 
 // Répertoire de tous les comptes enregistrés, avec nombre de commandes et total dépensé.
 export async function listUsers(): Promise<AdminUserRow[]> {
+  await ensureFeatureSchema()
   const rows = await db
     .select({
       id: users.id,

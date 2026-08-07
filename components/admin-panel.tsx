@@ -28,14 +28,16 @@ import type { BroadcastNotificationRow } from "@/app/actions/notifications"
 import { adminLogout } from "@/app/actions/admin-auth"
 import { getAdminBadgeCounts } from "@/app/actions/messaging"
 import { AdminAppBadgeSync } from "@/components/app-badge-sync"
-import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox, Activity, Bell, CheckCheck, KeyRound, Wallet, Gift } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox, Activity, Bell, CheckCheck, KeyRound, Wallet, Gift, LayoutDashboard } from "lucide-react"
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 import { AdminLoyalty } from "@/components/admin-loyalty"
+import { AdminDashboard } from "@/components/admin-dashboard"
 
-type TabId = "commandes-en-cours" | "locker" | "cloturees" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "recuperations" | "produits" | "promos" | "logistique" | "crypto" | "news" | "admins" | "profits" | "connexions" | "notifications" | "staff" | "fidelite"
+type TabId = "dashboard" | "commandes-en-cours" | "locker" | "cloturees" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "recuperations" | "produits" | "promos" | "logistique" | "crypto" | "news" | "admins" | "profits" | "connexions" | "notifications" | "staff" | "fidelite"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "commandes-en-cours", label: "Commandes en cours", icon: Inbox },
   { id: "locker", label: "Locker MR", icon: Package },
   { id: "cloturees", label: "Clôturées", icon: CheckCheck },
@@ -87,7 +89,7 @@ export function AdminPanel({
   initialNotificationsHistory: BroadcastNotificationRow[]
   initialStaff: StaffRow[]
 }) {
-  const [tab, setTab] = useState<TabId>("commandes-en-cours")
+  const [tab, setTab] = useState<TabId>("dashboard")
   const [focusThreadId, setFocusThreadId] = useState<number | null>(null)
   const [badges, setBadges] = useState({
     orders: 0,
@@ -269,7 +271,9 @@ export function AdminPanel({
         </nav>
 
         {/* Content */}
-        {tab === "commandes-en-cours" ? (
+        {tab === "dashboard" ? (
+          <AdminDashboard onNavigate={(t) => setTab(t as TabId)} />
+        ) : tab === "commandes-en-cours" ? (
           <VendorInbox
             initialThreads={initialActiveOrders}
             mode="orders"

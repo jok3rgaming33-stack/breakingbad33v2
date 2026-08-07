@@ -404,6 +404,13 @@ export async function resolveClientLogin(token: string): Promise<
     return { ok: false, code: "short", error: "Clé trop courte. Colle la clé secrète complète." }
   }
 
+  try {
+    const { ensureFeatureSchema } = await import("@/lib/feature-schema")
+    await ensureFeatureSchema()
+  } catch {
+    /* non bloquant */
+  }
+
   // 1) Compte users classique
   let userRows = await db.select().from(users).where(eq(users.token, t)).limit(1)
   let user = userRows[0]

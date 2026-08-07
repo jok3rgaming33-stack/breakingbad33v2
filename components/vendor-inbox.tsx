@@ -9,6 +9,7 @@ import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, Ale
 import { VoiceNoteButton } from "@/components/voice-note-button"
 import { grantRestoreAccess, getRestoreStatus } from "@/app/actions/restore-access"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
+import { OrderStatusTimeline } from "@/components/order-status-timeline"
 import { MessageBody } from "@/components/message-body"
 import { AdminCreateOrderModal } from "@/components/admin-create-order-modal"
 import {
@@ -663,6 +664,16 @@ export function VendorInbox({
                 </div>
               </div>
             </div>
+
+            {mode !== "messages" && (
+              <div className="border-b border-border px-4 py-2">
+                <OrderStatusTimeline
+                  status={selected.status}
+                  fulfillment={selected.fulfillment}
+                  compact
+                />
+              </div>
+            )}
 
             {/* Bandeau statut rétablissement d'accès */}
             {mode === "messages" && restoreStatus && !restoreStatus.done && (

@@ -23,6 +23,10 @@ export const users = pgTable("users", {
   accessRestoreToken: text("access_restore_token"),
   accessRestoreExpires: timestamp("access_restore_expires", { withTimezone: true }),
   mustSetPassword: boolean("must_set_password").notNull().default(false),
+  // Parrainage : code unique du membre + token du parrain (si filleul)
+  referralCode: text("referral_code"),
+  referredBy: text("referred_by"),
+  referralBonusGranted: boolean("referral_bonus_granted").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -197,6 +201,9 @@ export const orderThreads = pgTable("order_threads", {
   paymentAmountEur: integer("payment_amount_eur"),
   paymentPayUrl: text("payment_pay_url"),
   paymentPayAddress: text("payment_pay_address"),
+  // Rappels auto Locker (retrait en attente)
+  lockerReminderCount: integer("locker_reminder_count").notNull().default(0),
+  lockerLastReminderAt: timestamp("locker_last_reminder_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
