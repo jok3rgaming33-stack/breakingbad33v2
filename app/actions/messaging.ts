@@ -44,8 +44,10 @@ export type NewOrderInput = {
   paymentMethod?: LockerPaymentMethod | "wiro" | null
 }
 
-/** Colonnes order_threads potentiellement absentes sur anciennes bases. */
+/** Colonnes order_threads / thread_messages potentiellement absentes sur anciennes bases. */
+let orderSchemaReady = false
 async function ensureOrderSchema() {
+  if (orderSchemaReady) return
   try {
     await db.execute(sql`
       ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS product_ids JSONB NOT NULL DEFAULT '[]'::jsonb
@@ -53,6 +55,8 @@ async function ensureOrderSchema() {
     await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_method TEXT`)
     await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS wiro_identifier TEXT`)
     await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS xmr_wallet TEXT`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS colissimo_number TEXT`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS client_last_seen TIMESTAMPTZ`)
     await db.execute(sql`
       ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS deposit_notified BOOLEAN NOT NULL DEFAULT false
     `)
@@ -67,6 +71,14 @@ async function ensureOrderSchema() {
     await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_amount_eur INTEGER`)
     await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_pay_url TEXT`)
     await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_pay_address TEXT`)
+    // Top5 / rappels locker
+    await db.execute(sql`
+      ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS locker_reminder_count INTEGER NOT NULL DEFAULT 0
+    `)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS locker_last_reminder_at TIMESTAMPTZ`)
+    // Lecture messages côté client
+    await db.execute(sql`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS client_read_at TIMESTAMPTZ`)
+    orderSchemaReady = true
   } catch (e) {
     console.error("[messaging] ensureOrderSchema:", e)
   }
@@ -356,6 +368,7 @@ export async function createGeneralInquiryThread(input: {
 // - exclut les discussions directes (status discussion/pris_en_charge/ouvert/ferme)
 // - exclut les fils sans article (total = 0 ou null) → ils vont dans Messagerie
 export async function getThreads() {
+  await ensureOrderSchema()
   const threads = await db
     .select()
     .from(orderThreads)
@@ -375,12 +388,13 @@ const DISCUSSION_STATUSES = ["discussion", "pris_en_charge", "ouvert", "ferme"] 
 
 // Commandes actives hors locker : tout sauf "livree", "annulee", discussions et fulfillment locker
 export async function getActiveOrders() {
+  await ensureOrderSchema()
   const threads = await db
     .select()
     .from(orderThreads)
     .where(
       and(
-        notInArray(orderThreads.status, ["livree", "annulee", "notification", ...DISCUSSION_STATUSES]),
+        notInArray(orderThreads.status, ["livree", "annulee", "notification", "trk_token", ...DISCUSSION_STATUSES]),
         ne(orderThreads.fulfillment, "locker"),
       )
     )
@@ -390,6 +404,7 @@ export async function getActiveOrders() {
 
 // Commandes Locker Mondial Relay actives (non livrees, non annulees, hors fils TRK et discussions)
 export async function getLockerOrders() {
+  await ensureOrderSchema()
   const threads = await db
     .select()
     .from(orderThreads)
@@ -405,6 +420,7 @@ export async function getLockerOrders() {
 
 // Commandes clôturées (livree ou annulee), toutes livraisons confondues, sans discussions
 export async function getPastOrders() {
+  await ensureOrderSchema()
   return db
     .select()
     .from(orderThreads)
@@ -422,6 +438,7 @@ export async function getPastOrders() {
 
 // Discussions directes — tous les statuts discussion (discussion, pris_en_charge, ouvert, ferme)
 export async function getDiscussions() {
+  await ensureOrderSchema()
   const threads = await db
     .select()
     .from(orderThreads)
@@ -432,13 +449,36 @@ export async function getDiscussions() {
 
 // Détail d'un fil avec tous ses messages (ordre chronologique)
 export async function getThread(id: number) {
+  await ensureOrderSchema()
   const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, id))
   if (!thread) return null
-  const messages = await db
-    .select()
-    .from(threadMessages)
-    .where(eq(threadMessages.threadId, id))
-    .orderBy(threadMessages.createdAt)
+  let messages: (typeof threadMessages.$inferSelect)[]
+  try {
+    messages = await db
+      .select()
+      .from(threadMessages)
+      .where(eq(threadMessages.threadId, id))
+      .orderBy(threadMessages.createdAt)
+  } catch (e) {
+    // Fallback minimal (id, thread, sender, body, created_at) si schéma partiel
+    console.error("[messaging] getThread messages select failed, raw fallback:", e)
+    const raw = await db.execute(sql`
+      SELECT id, thread_id AS "threadId", sender, body, created_at AS "createdAt"
+      FROM thread_messages
+      WHERE thread_id = ${id}
+      ORDER BY created_at ASC
+    `)
+    const rows = (raw as unknown as { rows?: Record<string, unknown>[] })?.rows
+      ?? (Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [])
+    messages = rows.map((r) => ({
+      id: Number(r.id),
+      threadId: Number(r.threadId ?? r.thread_id),
+      sender: String(r.sender ?? ""),
+      body: String(r.body ?? ""),
+      createdAt: (r.createdAt ?? r.created_at) as Date,
+      clientReadAt: null,
+    }))
+  }
   return { thread, messages }
 }
 
@@ -446,17 +486,39 @@ export async function getThread(id: number) {
 export async function getThreadForToken(id: number, customerToken: string) {
   const token = customerToken?.trim()
   if (!id || !token) return null
+  await ensureOrderSchema()
   const [thread] = await db
     .select()
     .from(orderThreads)
     .where(and(eq(orderThreads.id, id), eq(orderThreads.customerToken, token)))
   if (!thread) return null
-  const messages = await db
-    .select()
-    .from(threadMessages)
-    .where(eq(threadMessages.threadId, id))
-    .orderBy(threadMessages.createdAt)
-  return { thread, messages }
+  try {
+    const messages = await db
+      .select()
+      .from(threadMessages)
+      .where(eq(threadMessages.threadId, id))
+      .orderBy(threadMessages.createdAt)
+    return { thread, messages }
+  } catch (e) {
+    console.error("[messaging] getThreadForToken messages:", e)
+    const raw = await db.execute(sql`
+      SELECT id, thread_id AS "threadId", sender, body, created_at AS "createdAt"
+      FROM thread_messages
+      WHERE thread_id = ${id}
+      ORDER BY created_at ASC
+    `)
+    const rows = (raw as unknown as { rows?: Record<string, unknown>[] })?.rows
+      ?? (Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [])
+    const messages = rows.map((r) => ({
+      id: Number(r.id),
+      threadId: Number(r.threadId ?? r.thread_id),
+      sender: String(r.sender ?? ""),
+      body: String(r.body ?? ""),
+      createdAt: (r.createdAt ?? r.created_at) as Date,
+      clientReadAt: null as Date | null,
+    }))
+    return { thread, messages }
+  }
 }
 
 // Supprime un message unique d'un fil (admin uniquement, sans impact sur le statut ou le total).
@@ -664,6 +726,7 @@ export async function updateThreadStatus(
 export async function getThreadsForCustomer(customerName: string) {
   const name = customerName?.trim()
   if (!name) return []
+  await ensureOrderSchema()
   return db
     .select()
     .from(orderThreads)
@@ -675,6 +738,7 @@ export async function getThreadsForCustomer(customerName: string) {
 export async function getLockerOrdersForToken(customerToken: string) {
   const token = customerToken?.trim()
   if (!token) return []
+  await ensureOrderSchema()
   return db
     .select()
     .from(orderThreads)
@@ -694,6 +758,7 @@ export async function getLockerOrdersForToken(customerToken: string) {
 // - fils status "notification" : broadcast admin → onglet Discussions (pas Commandes côté UI)
 // Les vraies commandes locker (non-trk) sont dans getLockerOrdersForToken.
 export async function getThreadsForToken(customerToken: string) {
+  await ensureOrderSchema()
   const token = customerToken?.trim()
   if (!token) return []
   return db
