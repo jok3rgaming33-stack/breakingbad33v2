@@ -25,6 +25,9 @@ export async function ensureFeatureSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS locker_reminder_count INTEGER NOT NULL DEFAULT 0`)
     await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS locker_last_reminder_at TIMESTAMPTZ`)
 
+    // Lecture client des messages vendeur (fiche 360 + messagerie)
+    await db.execute(sql`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS client_read_at TIMESTAMPTZ`)
+
     ready = true
   } catch (e) {
     console.error("[feature-schema] ensure failed:", e)

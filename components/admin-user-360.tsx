@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { getUser360, type User360Data } from "@/app/actions/user-360"
 import { OrderStatusTimeline } from "@/components/order-status-timeline"
 import { statusMeta } from "@/lib/order-status"
-import { X, Loader2, MapPin, Package, Gift, Shield, Activity, MessageSquare } from "lucide-react"
+import { X, Loader2, MapPin, Package, Gift, Shield, Activity, MessageSquare, Copy, Check } from "lucide-react"
 
 function formatDate(d: Date | string) {
   return new Date(d).toLocaleString("fr-FR", {
@@ -25,16 +25,21 @@ export function AdminUser360({ userId, onClose }: Props) {
   const [data, setData] = useState<User360Data | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError("")
+    setData(null)
     getUser360(userId)
-      .then((d) => {
+      .then((res) => {
         if (cancelled) return
-        if (!d) setError("Profil introuvable ou non autorisé.")
-        else setData(d)
+        if (!res.ok) {
+          setError(res.error || "Erreur de chargement.")
+          return
+        }
+        setData(res.data)
       })
       .catch(() => {
         if (!cancelled) setError("Erreur de chargement.")
@@ -47,47 +52,93 @@ export function AdminUser360({ userId, onClose }: Props) {
     }
   }, [userId])
 
+  const copyToken = async () => {
+    if (!data?.token) return
+    try {
+      await navigator.clipboard.writeText(data.token)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-[200] flex items-end justify-center bg-background/80 p-0 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Fiche client 360"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
     >
       <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-xl sm:rounded-3xl">
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div>
-            <h2 className="text-lg font-bold">Fiche client 360°</h2>
-            <p className="text-xs text-muted-foreground">Vue consolidée compte · commandes · connexions</p>
+        <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-5 sm:py-4">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold sm:text-lg">Fiche client 360°</h2>
+            <p className="truncate text-xs text-muted-foreground">
+              Compte · commandes · connexions
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-secondary hover:bg-muted"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-secondary hover:bg-muted"
             aria-label="Fermer"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5">
           {loading ? (
             <div className="flex justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
             </div>
           ) : error || !data ? (
-            <p className="py-12 text-center text-sm text-destructive">{error || "Erreur"}</p>
+            <div className="space-y-3 py-10 text-center">
+              <p className="text-sm text-destructive">{error || "Erreur"}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoading(true)
+                  setError("")
+                  getUser360(userId)
+                    .then((res) => {
+                      if (!res.ok) setError(res.error)
+                      else setData(res.data)
+                    })
+                    .catch(() => setError("Erreur de chargement."))
+                    .finally(() => setLoading(false))
+                }}
+                className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-secondary"
+              >
+                Réessayer
+              </button>
+            </div>
           ) : (
-            <div className="space-y-6">
-              {/* Identité */}
+            <div className="space-y-5">
               <section className="rounded-2xl border border-border bg-background/50 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xl font-bold">{data.pseudo}</p>
                     {data.nickname && (
                       <p className="text-sm text-muted-foreground">Surnom : {data.nickname}</p>
                     )}
-                    <p className="mt-1 font-mono text-[11px] text-muted-foreground break-all">{data.token}</p>
+                    <button
+                      type="button"
+                      onClick={copyToken}
+                      className="mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-card px-2 py-1 font-mono text-[11px] text-muted-foreground hover:bg-secondary"
+                      title="Copier le token"
+                    >
+                      <span className="truncate">{data.token.slice(0, 16)}…</span>
+                      {copied ? (
+                        <Check className="h-3 w-3 shrink-0 text-accent" />
+                      ) : (
+                        <Copy className="h-3 w-3 shrink-0" />
+                      )}
+                    </button>
                     <p className="mt-1 text-xs text-muted-foreground">Inscrit le {formatDate(data.createdAt)}</p>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -122,24 +173,22 @@ export function AdminUser360({ userId, onClose }: Props) {
                     </div>
                   ))}
                 </div>
-                <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                <div className="mt-3 flex flex-col gap-1.5 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:gap-3">
                   <span className="inline-flex items-center gap-1">
-                    <Gift className="h-3.5 w-3.5" /> Code parrain :{" "}
+                    <Gift className="h-3.5 w-3.5 shrink-0" /> Code parrain :{" "}
                     <span className="font-mono font-semibold text-foreground">{data.referralCode || "—"}</span>
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    <MessageSquare className="h-3.5 w-3.5" /> {data.discussionCount} discussion
-                    {data.discussionCount !== 1 ? "s" : ""} · {data.unreadVendorMessages} msg non lu
-                    {data.unreadVendorMessages !== 1 ? "s" : ""} (client)
+                    <MessageSquare className="h-3.5 w-3.5 shrink-0" /> {data.discussionCount} disc. ·{" "}
+                    {data.unreadVendorMessages} non lu(s)
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    <Shield className="h-3.5 w-3.5" /> KYC :{" "}
+                    <Shield className="h-3.5 w-3.5 shrink-0" /> KYC :{" "}
                     {data.verification ? data.verification.status : "aucune"}
                   </span>
                 </div>
               </section>
 
-              {/* Commandes */}
               <section>
                 <h3 className="mb-2 flex items-center gap-2 text-sm font-bold">
                   <Package className="h-4 w-4 text-accent" aria-hidden="true" />
@@ -149,12 +198,12 @@ export function AdminUser360({ userId, onClose }: Props) {
                   <p className="text-xs text-muted-foreground">Aucune commande.</p>
                 ) : (
                   <ul className="space-y-3">
-                    {data.orders.slice(0, 8).map((o) => {
+                    {data.orders.slice(0, 6).map((o) => {
                       const meta = statusMeta(o.status)
                       return (
                         <li key={o.id} className="rounded-2xl border border-border bg-background/40 p-3">
-                          <div className="mb-2 flex items-center justify-between gap-2">
-                            <div>
+                          <div className="mb-2 flex items-start justify-between gap-2">
+                            <div className="min-w-0">
                               <p className="text-sm font-semibold">
                                 #{o.id} · {o.total}€ · {o.fulfillment}
                               </p>
@@ -172,7 +221,6 @@ export function AdminUser360({ userId, onClose }: Props) {
                 )}
               </section>
 
-              {/* Connexions */}
               <section>
                 <h3 className="mb-2 flex items-center gap-2 text-sm font-bold">
                   <Activity className="h-4 w-4 text-accent" aria-hidden="true" />
@@ -182,20 +230,21 @@ export function AdminUser360({ userId, onClose }: Props) {
                   <p className="text-xs text-muted-foreground">Aucune connexion journalisée.</p>
                 ) : (
                   <ul className="divide-y divide-border rounded-2xl border border-border">
-                    {data.recentLogins.map((l) => (
+                    {data.recentLogins.slice(0, 8).map((l) => (
                       <li key={l.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
-                        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                          <MapPin className="h-3 w-3" aria-hidden="true" />
-                          {[l.city, l.country].filter(Boolean).join(", ") || l.ip || "—"}
+                        <span className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                          <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
+                          <span className="truncate">
+                            {[l.city, l.country].filter(Boolean).join(", ") || l.ip || "—"}
+                          </span>
                         </span>
-                        <span className="font-mono text-muted-foreground">{formatDate(l.createdAt)}</span>
+                        <span className="shrink-0 font-mono text-muted-foreground">{formatDate(l.createdAt)}</span>
                       </li>
                     ))}
                   </ul>
                 )}
               </section>
 
-              {/* Codes fidélité */}
               {data.loyaltyCodes.length > 0 && (
                 <section>
                   <h3 className="mb-2 flex items-center gap-2 text-sm font-bold">
@@ -210,8 +259,8 @@ export function AdminUser360({ userId, onClose }: Props) {
                           c.used ? "border-border opacity-50" : "border-accent/30 bg-accent/5"
                         }`}
                       >
-                        <span>{c.code}</span>
-                        <span>
+                        <span className="truncate">{c.code}</span>
+                        <span className="shrink-0">
                           -{c.discount}€ {c.used ? "· utilisé" : ""}
                         </span>
                       </li>
