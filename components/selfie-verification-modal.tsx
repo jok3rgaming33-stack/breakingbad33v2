@@ -12,6 +12,8 @@ import {
   Loader2,
   AlertTriangle,
   CircleDot,
+  SwitchCamera,
+  FlipHorizontal2,
 } from "lucide-react"
 
 export type VerificationMetadata = { siteName: string; recordedAt: string }
@@ -27,6 +29,8 @@ const SITE_NAME = "BreakingBad33"
 const MIN_SECONDS = 5
 const MAX_SECONDS = 10
 
+type CamDevice = { deviceId: string; label: string }
+
 function nowLabel() {
   return new Date().toLocaleString("fr-FR", {
     day: "2-digit",
@@ -37,6 +41,23 @@ function nowLabel() {
   })
 }
 
+function stopStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((t) => {
+    try {
+      t.stop()
+    } catch {
+      /* ignore */
+    }
+  })
+}
+
+function labelForDevice(d: MediaDeviceInfo, index: number): string {
+  const raw = (d.label || "").trim()
+  if (raw) return raw
+  // Labels vides tant que l'utilisateur n'a pas autorisé la caméra
+  return `Caméra ${index + 1}`
+}
+
 export function SelfieVerificationModal({ onComplete, submitting = false, submitError = null }: Props) {
   // Médias
   const [photoFile, setPhotoFile] = useState<File | null>(null)
@@ -45,8 +66,13 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
 
   // Caméra
+  const [stream, setStream] = useState<MediaStream | null>(null)
   const [cameraReady, setCameraReady] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [cameraBusy, setCameraBusy] = useState(false)
+  const [devices, setDevices] = useState<CamDevice[]>([])
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user")
 
   // Enregistrement vidéo
   const [recording, setRecording] = useState(false)
@@ -65,46 +91,203 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<BlobPart[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const selectedDeviceIdRef = useRef<string | null>(null)
+  const facingModeRef = useRef<"user" | "environment">("user")
 
-  // Démarre la caméra frontale (avec audio pour la consigne orale).
-  const startCamera = useCallback(async () => {
-    setCameraError(null)
+  useEffect(() => {
+    selectedDeviceIdRef.current = selectedDeviceId
+  }, [selectedDeviceId])
+  useEffect(() => {
+    facingModeRef.current = facingMode
+  }, [facingMode])
+
+  const refreshDevices = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
-      })
-      streamRef.current = stream
-      if (liveVideoRef.current) {
-        liveVideoRef.current.srcObject = stream
-        await liveVideoRef.current.play().catch(() => {})
-      }
-      setCameraReady(true)
-    } catch (err) {
-      console.log("[v0] camera error:", err)
-      setCameraError(
-        "Impossible d'accéder à la caméra. Autorise l'accès caméra/micro dans ton navigateur, ou utilise l'option d'import de fichier.",
-      )
-      setCameraReady(false)
+      if (!navigator.mediaDevices?.enumerateDevices) return
+      const list = await navigator.mediaDevices.enumerateDevices()
+      const cams = list
+        .filter((d) => d.kind === "videoinput")
+        .map((d, i) => ({ deviceId: d.deviceId, label: labelForDevice(d, i) }))
+      setDevices(cams)
+      return cams
+    } catch (e) {
+      console.error("[kyc] enumerateDevices:", e)
+      return [] as CamDevice[]
     }
   }, [])
 
+  /**
+   * Démarre un flux caméra.
+   * - deviceId prioritaire si fourni
+   * - sinon facingMode (user / environment)
+   * - fallback large si la caméra demandée échoue
+   */
+  const startCamera = useCallback(
+    async (opts?: { deviceId?: string | null; facing?: "user" | "environment" }) => {
+      if (recording) return
+      setCameraBusy(true)
+      setCameraError(null)
+
+      // Stoppe l'ancien flux avant d'en ouvrir un nouveau
+      stopStream(streamRef.current)
+      streamRef.current = null
+      setStream(null)
+      setCameraReady(false)
+
+      const wantDeviceId = opts?.deviceId !== undefined ? opts.deviceId : selectedDeviceIdRef.current
+      const wantFacing = opts?.facing ?? facingModeRef.current
+
+      const tryGet = async (constraints: MediaStreamConstraints) => {
+        return navigator.mediaDevices.getUserMedia(constraints)
+      }
+
+      const attempts: MediaStreamConstraints[] = []
+
+      if (wantDeviceId) {
+        attempts.push({
+          video: {
+            deviceId: { exact: wantDeviceId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: true,
+        })
+        // Fallback sans exact si le device a disparu
+        attempts.push({
+          video: {
+            deviceId: { ideal: wantDeviceId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: true,
+        })
+      }
+
+      attempts.push({
+        video: {
+          facingMode: { ideal: wantFacing },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: true,
+      })
+      // Autre face si la première échoue (selfie HS → caméra arrière)
+      attempts.push({
+        video: {
+          facingMode: { ideal: wantFacing === "user" ? "environment" : "user" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: true,
+      })
+      // Dernier recours : n'importe quelle caméra + micro optionnel
+      attempts.push({
+        video: true,
+        audio: true,
+      })
+      attempts.push({
+        video: true,
+        audio: false,
+      })
+
+      let lastErr: unknown = null
+      let got: MediaStream | null = null
+
+      for (const c of attempts) {
+        try {
+          got = await tryGet(c)
+          break
+        } catch (err) {
+          lastErr = err
+        }
+      }
+
+      if (!got) {
+        console.error("[kyc] camera error:", lastErr)
+        setCameraError(
+          "Impossible d'accéder à la caméra. Autorise caméra/micro dans le navigateur, change de caméra, ou importe des fichiers.",
+        )
+        setCameraReady(false)
+        setCameraBusy(false)
+        return
+      }
+
+      streamRef.current = got
+      setStream(got)
+      setCameraReady(true)
+      setCameraBusy(false)
+
+      // Déduit deviceId / facing du track actif
+      const vTrack = got.getVideoTracks()[0]
+      const settings = vTrack?.getSettings?.() ?? {}
+      if (settings.deviceId) {
+        setSelectedDeviceId(settings.deviceId)
+        selectedDeviceIdRef.current = settings.deviceId
+      }
+      if (settings.facingMode === "user" || settings.facingMode === "environment") {
+        setFacingMode(settings.facingMode)
+        facingModeRef.current = settings.facingMode
+      }
+
+      // Re-scan des labels (disponibles après permission)
+      await refreshDevices()
+    },
+    [recording, refreshDevices],
+  )
+
+  // Montage initial
   useEffect(() => {
-    startCamera()
+    void startCamera({ facing: "user" })
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
-      streamRef.current?.getTracks().forEach((t) => t.stop())
+      stopStream(streamRef.current)
+      streamRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Nettoyage des object URLs.
+  // Attache le stream au video caché (capture photo)
+  useEffect(() => {
+    if (liveVideoRef.current && stream) {
+      liveVideoRef.current.srcObject = stream
+      liveVideoRef.current.play().catch(() => {})
+    }
+  }, [stream])
+
+  // Nettoyage des object URLs
   useEffect(() => {
     return () => {
       if (photoUrl) URL.revokeObjectURL(photoUrl)
       if (videoUrl) URL.revokeObjectURL(videoUrl)
     }
   }, [photoUrl, videoUrl])
+
+  const switchToDevice = async (deviceId: string) => {
+    if (recording || cameraBusy) return
+    setSelectedDeviceId(deviceId)
+    selectedDeviceIdRef.current = deviceId
+    await startCamera({ deviceId })
+  }
+
+  const flipFacing = async () => {
+    if (recording || cameraBusy) return
+    const next = facingMode === "user" ? "environment" : "user"
+    setFacingMode(next)
+    facingModeRef.current = next
+    // Si plusieurs devices, bascule vers le suivant
+    if (devices.length > 1 && selectedDeviceId) {
+      const idx = devices.findIndex((d) => d.deviceId === selectedDeviceId)
+      const nextDev = devices[(idx + 1) % devices.length]
+      if (nextDev) {
+        await switchToDevice(nextDev.deviceId)
+        return
+      }
+    }
+    // Sinon facingMode seul (mobile)
+    setSelectedDeviceId(null)
+    selectedDeviceIdRef.current = null
+    await startCamera({ deviceId: null, facing: next })
+  }
 
   // --- Photo ---
   const capturePhoto = () => {
@@ -135,6 +318,7 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
     if (photoUrl) URL.revokeObjectURL(photoUrl)
     setPhotoFile(file)
     setPhotoUrl(URL.createObjectURL(file))
+    e.target.value = ""
   }
 
   const retakePhoto = () => {
@@ -145,21 +329,21 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
 
   // --- Vidéo ---
   const startRecording = () => {
-    const stream = streamRef.current
-    if (!stream || recording) return
+    const s = streamRef.current
+    if (!s || recording) return
     chunksRef.current = []
     const mime =
       typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
         ? "video/webm;codecs=vp9,opus"
-        : MediaRecorder.isTypeSupported("video/webm")
+        : typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("video/webm")
           ? "video/webm"
           : ""
     let recorder: MediaRecorder
     try {
-      recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
+      recorder = mime ? new MediaRecorder(s, { mimeType: mime }) : new MediaRecorder(s)
     } catch (err) {
-      console.log("[v0] recorder error:", err)
-      setCameraError("L'enregistrement vidéo n'est pas supporté sur ce navigateur.")
+      console.error("[kyc] recorder error:", err)
+      setCameraError("L'enregistrement vidéo n'est pas supporté sur ce navigateur. Importe une vidéo.")
       return
     }
     recorderRef.current = recorder
@@ -179,9 +363,20 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
     setRecording(true)
     setSeconds(0)
     timerRef.current = setInterval(() => {
-      setSeconds((s) => {
-        const next = s + 1
-        if (next >= MAX_SECONDS) stopRecording()
+      setSeconds((s0) => {
+        const next = s0 + 1
+        if (next >= MAX_SECONDS) {
+          // Arrêt auto à MAX_SECONDS (via timeout pour éviter setState imbriqué)
+          window.setTimeout(() => {
+            if (timerRef.current) {
+              clearInterval(timerRef.current)
+              timerRef.current = null
+            }
+            const r = recorderRef.current
+            if (r && r.state !== "inactive") r.stop()
+            setRecording(false)
+          }, 0)
+        }
         return next
       })
     }, 1000)
@@ -204,15 +399,34 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
     setSeconds(0)
   }
 
+  const onVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (videoUrl) URL.revokeObjectURL(videoUrl)
+    setVideoFile(file)
+    setVideoUrl(URL.createObjectURL(file))
+    setRecordedAt(nowLabel())
+    setSiteName(SITE_NAME)
+    e.target.value = ""
+  }
+
   // --- Validation ---
   const mathOk = mathAnswer.trim() !== "" && Number(mathAnswer) === mathA + mathB
   const canSubmit =
-    !!photoFile && !!videoFile && mathOk && confirmed && siteName.trim() !== "" && recordedAt.trim() !== "" && !submitting
+    !!photoFile &&
+    !!videoFile &&
+    mathOk &&
+    confirmed &&
+    siteName.trim() !== "" &&
+    recordedAt.trim() !== "" &&
+    !submitting
 
   const handleSubmit = async () => {
     if (!canSubmit || !photoFile || !videoFile) return
     await onComplete(photoFile, videoFile, { siteName: siteName.trim(), recordedAt: recordedAt.trim() })
   }
+
+  const canSwitchCamera = !recording && !cameraBusy && (devices.length > 1 || cameraReady)
 
   return (
     <div
@@ -228,19 +442,94 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
             <ShieldCheck className="h-6 w-6" aria-hidden="true" />
           </span>
           <div>
-            <h2 className="text-xl font-bold leading-tight text-balance">Vérification d&apos;identité obligatoire</h2>
+            <h2 className="text-xl font-bold leading-tight text-balance">
+              Vérification d&apos;identité obligatoire
+            </h2>
             <p className="text-xs text-muted-foreground">Requise pour ta première commande</p>
           </div>
         </div>
 
-        <p className="mb-6 rounded-2xl border border-accent/20 bg-accent/5 p-4 text-sm leading-relaxed text-pretty text-muted-foreground">
+        <p className="mb-5 rounded-2xl border border-accent/20 bg-accent/5 p-4 text-sm leading-relaxed text-pretty text-muted-foreground">
           Cette vérification d&apos;identité est obligatoire pour ta première commande. Elle permet de garantir la
           sécurité de nos livreurs et de nous protéger contre les tentatives d&apos;agression, de vol ou tout autre
           incident. Tes données ne seront conservées que le temps de valider ta première livraison et seront ensuite
           supprimées.
         </p>
 
-        {/* Caméra live (cachée si non utile) */}
+        {/* Sélecteur de caméra */}
+        <div className="mb-5 rounded-2xl border border-border bg-background/40 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-foreground">Caméra</p>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void flipFacing()}
+                disabled={!canSwitchCamera}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-[11px] font-semibold text-secondary-foreground transition-colors hover:bg-muted disabled:opacity-40"
+                title="Changer de caméra (avant / arrière ou suivante)"
+              >
+                <SwitchCamera className="h-3.5 w-3.5" aria-hidden="true" />
+                Changer
+              </button>
+              <button
+                type="button"
+                onClick={() => void startCamera()}
+                disabled={recording || cameraBusy}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-[11px] font-semibold text-secondary-foreground transition-colors hover:bg-muted disabled:opacity-40"
+                title="Relancer la caméra"
+              >
+                {cameraBusy ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                Relancer
+              </button>
+            </div>
+          </div>
+
+          {devices.length > 0 ? (
+            <label className="block">
+              <span className="mb-1 block text-[10px] text-muted-foreground">
+                Choisis une caméra (utile si la selfie est HS)
+              </span>
+              <select
+                value={selectedDeviceId ?? ""}
+                disabled={recording || cameraBusy}
+                onChange={(e) => {
+                  const id = e.target.value
+                  if (id) void switchToDevice(id)
+                }}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-xs outline-none focus:border-accent disabled:opacity-50"
+              >
+                {devices.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {d.label}
+                    {d.deviceId === selectedDeviceId ? " · active" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              Mode actuel :{" "}
+              <span className="font-semibold text-foreground">
+                {facingMode === "user" ? "caméra avant (selfie)" : "caméra arrière"}
+              </span>
+              . Utilise « Changer » si l&apos;une des caméras ne fonctionne pas.
+            </p>
+          )}
+
+          {cameraReady && (
+            <p className="mt-2 flex items-center gap-1.5 text-[10px] text-emerald-400">
+              <Check className="h-3 w-3" aria-hidden="true" />
+              Caméra prête
+              {facingMode === "environment" ? " · arrière" : " · avant"}
+            </p>
+          )}
+        </div>
+
+        {/* Video element pour capture photo (miroir optionnel géré sur preview) */}
         <video ref={liveVideoRef} muted playsInline className="hidden" />
 
         {cameraError && (
@@ -248,13 +537,29 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
             <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
             <div className="flex flex-col gap-2">
               <span>{cameraError}</span>
-              <button
-                type="button"
-                onClick={startCamera}
-                className="self-start rounded-lg border border-destructive/40 px-3 py-1 text-xs font-medium hover:bg-destructive/20"
-              >
-                Réessayer la caméra
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void startCamera({ facing: "environment" })}
+                  className="self-start rounded-lg border border-destructive/40 px-3 py-1 text-xs font-medium hover:bg-destructive/20"
+                >
+                  Essayer caméra arrière
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void startCamera({ facing: "user" })}
+                  className="self-start rounded-lg border border-destructive/40 px-3 py-1 text-xs font-medium hover:bg-destructive/20"
+                >
+                  Essayer caméra avant
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void startCamera()}
+                  className="self-start rounded-lg border border-destructive/40 px-3 py-1 text-xs font-medium hover:bg-destructive/20"
+                >
+                  Réessayer
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -270,7 +575,11 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
           {photoUrl ? (
             <div className="overflow-hidden rounded-2xl border border-border">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photoUrl || "/placeholder.svg"} alt="Aperçu du selfie" className="aspect-[3/4] w-full object-cover" />
+              <img
+                src={photoUrl || "/placeholder.svg"}
+                alt="Aperçu du selfie"
+                className="aspect-[3/4] w-full object-cover"
+              />
               <button
                 type="button"
                 onClick={retakePhoto}
@@ -283,9 +592,9 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
           ) : (
             <div className="rounded-2xl border border-border bg-background/40 p-4">
               <div className="mb-3 aspect-[3/4] w-full overflow-hidden rounded-xl bg-black/40">
-                <LivePreview stream={streamRef.current} ready={cameraReady} />
+                <LivePreview stream={stream} ready={cameraReady} mirror={facingMode === "user"} />
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={capturePhoto}
@@ -298,9 +607,13 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
                 <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-secondary px-3 py-2.5 text-sm font-medium text-secondary-foreground hover:bg-muted">
                   <Upload className="h-4 w-4" aria-hidden="true" />
                   Importer
-                  <input type="file" accept="image/*" capture="user" onChange={onPhotoUpload} className="hidden" />
+                  {/* Pas de capture="user" forcé : laisse le choix de la caméra système */}
+                  <input type="file" accept="image/*" onChange={onPhotoUpload} className="hidden" />
                 </label>
               </div>
+              <p className="mt-2 text-[10px] text-muted-foreground">
+                Caméra selfie HS ? Clique « Changer » ci-dessus, ou importe une photo depuis ta galerie.
+              </p>
             </div>
           )}
         </section>
@@ -314,8 +627,9 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
             Vidéo selfie ({MIN_SECONDS}-{MAX_SECONDS}s)
           </h3>
           <p className="mb-3 rounded-xl border border-border bg-background/40 p-3 text-xs leading-relaxed text-muted-foreground">
-            Pendant l&apos;enregistrement, dis à voix haute&nbsp;: le nom du site (<strong className="text-foreground">{SITE_NAME}</strong>) ainsi
-            que <strong className="text-foreground">la date et l&apos;heure</strong> actuelles.
+            Pendant l&apos;enregistrement, dis à voix haute&nbsp;: le nom du site (
+            <strong className="text-foreground">{SITE_NAME}</strong>) ainsi que{" "}
+            <strong className="text-foreground">la date et l&apos;heure</strong> actuelles.
           </p>
 
           {videoUrl ? (
@@ -333,7 +647,7 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
           ) : (
             <div className="rounded-2xl border border-border bg-background/40 p-4">
               <div className="relative mb-3 aspect-[3/4] w-full overflow-hidden rounded-xl bg-black/40">
-                <LivePreview stream={streamRef.current} ready={cameraReady} />
+                <LivePreview stream={stream} ready={cameraReady} mirror={facingMode === "user"} />
                 {recording && (
                   <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-destructive px-2.5 py-1 text-xs font-bold text-destructive-foreground">
                     <CircleDot className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
@@ -352,24 +666,32 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
                   {seconds < MIN_SECONDS ? `Encore ${MIN_SECONDS - seconds}s…` : "Arrêter"}
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={startRecording}
-                  disabled={!cameraReady}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-                >
-                  <Video className="h-4 w-4" aria-hidden="true" />
-                  Démarrer l&apos;enregistrement
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={startRecording}
+                    disabled={!cameraReady}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                  >
+                    <Video className="h-4 w-4" aria-hidden="true" />
+                    Démarrer l&apos;enregistrement
+                  </button>
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-secondary px-3 py-2.5 text-sm font-medium text-secondary-foreground hover:bg-muted">
+                    <Upload className="h-4 w-4" aria-hidden="true" />
+                    Importer
+                    <input type="file" accept="video/*" onChange={onVideoUpload} className="hidden" />
+                  </label>
+                </div>
               )}
             </div>
           )}
 
-          {/* Champs pré-remplis après enregistrement */}
           {videoFile && (
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-muted-foreground">Nom du site prononcé</span>
+                <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  Nom du site prononcé
+                </span>
                 <input
                   value={siteName}
                   onChange={(e) => setSiteName(e.target.value)}
@@ -377,7 +699,9 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
                 />
               </label>
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-muted-foreground">Date et heure prononcées</span>
+                <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  Date et heure prononcées
+                </span>
                 <input
                   value={recordedAt}
                   onChange={(e) => setRecordedAt(e.target.value)}
@@ -458,8 +782,15 @@ export function SelfieVerificationModal({ onComplete, submitting = false, submit
   )
 }
 
-// Petit composant d'aperçu live : rattache le flux caméra à un <video>.
-function LivePreview({ stream, ready }: { stream: MediaStream | null; ready: boolean }) {
+function LivePreview({
+  stream,
+  ready,
+  mirror = true,
+}: {
+  stream: MediaStream | null
+  ready: boolean
+  mirror?: boolean
+}) {
   const ref = useRef<HTMLVideoElement | null>(null)
   useEffect(() => {
     if (ref.current && stream) {
@@ -467,5 +798,22 @@ function LivePreview({ stream, ready }: { stream: MediaStream | null; ready: boo
       ref.current.play().catch(() => {})
     }
   }, [stream, ready])
-  return <video ref={ref} muted playsInline className="h-full w-full -scale-x-100 object-cover" />
+
+  if (!ready || !stream) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-zinc-500">
+        <FlipHorizontal2 className="h-8 w-8 opacity-40" aria-hidden="true" />
+        <span className="text-xs">Caméra en attente…</span>
+      </div>
+    )
+  }
+
+  return (
+    <video
+      ref={ref}
+      muted
+      playsInline
+      className={`h-full w-full object-cover ${mirror ? "-scale-x-100" : ""}`}
+    />
+  )
 }
