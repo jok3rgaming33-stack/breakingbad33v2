@@ -3,7 +3,8 @@
 import { useMemo, useState, useRef, useEffect } from "react"
 import type { AdminUserRow } from "@/app/actions/account"
 import { deleteUserAccount, setLoyaltyAdjustment, setUserFlags, setUserNickname } from "@/app/actions/account"
-import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle, Pencil, Check, X, Copy, Tag, ChevronDown, MessageSquare, Send, KeyRound } from "lucide-react"
+import { Users, Search, Trash2, Loader2, ShoppingBag, Coins, AlertTriangle, Pencil, Check, X, Copy, Tag, ChevronDown, MessageSquare, Send, KeyRound, UserRoundSearch } from "lucide-react"
+import { AdminUser360 } from "@/components/admin-user-360"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { createGeneralInquiryThread } from "@/app/actions/messaging"
 import { grantRestoreAccess } from "@/app/actions/restore-access"
@@ -128,6 +129,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [nickEditId, setNickEditId] = useState<number | null>(null)
   const [nickValue, setNickValue] = useState("")
   const [nickSavingId, setNickSavingId] = useState<number | null>(null)
+  const [profileUserId, setProfileUserId] = useState<number | null>(null)
 
   const totalPoints = (u: AdminUserRow) => Math.max(0, computeLoyaltyPoints(u.totalSpent) + u.loyaltyAdjustment)
 
@@ -507,6 +509,15 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
+                          onClick={() => setProfileUserId(u.id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background/60 px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-secondary"
+                          title="Fiche client 360°"
+                        >
+                          <UserRoundSearch className="h-3.5 w-3.5" aria-hidden="true" />
+                          360°
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleRestoreAccess(u)}
                           disabled={restoreSending}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
@@ -739,6 +750,10 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
             </div>
           </div>
         </div>
+      )}
+
+      {profileUserId != null && (
+        <AdminUser360 userId={profileUserId} onClose={() => setProfileUserId(null)} />
       )}
     </div>
   )

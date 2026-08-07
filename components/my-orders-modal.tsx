@@ -13,6 +13,7 @@ import {
   markThreadReadForToken,
 } from "@/app/actions/messaging"
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
+import { OrderStatusTimeline } from "@/components/order-status-timeline"
 import { MessageBody } from "@/components/message-body"
 import { BlobMedia } from "@/components/blob-media"
 import { ProductRatingModal } from "@/components/product-rating-modal"
@@ -593,6 +594,13 @@ export function MyOrdersModal({
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
+                  {!isTrkSelected && selected.status !== "notification" && selected.status !== "trk_token" && (
+                    <OrderStatusTimeline
+                      status={selected.status}
+                      fulfillment={selected.fulfillment}
+                      className="mb-2"
+                    />
+                  )}
                   {messages.map((m) => {
                     const isClient = m.sender === "client"
                     return (
