@@ -43,6 +43,7 @@ export function LoginPage({
   const [error, setError] = useState("")         // erreur formulaire login (connexion avec clé)
   const [errorCreate, setErrorCreate] = useState("") // erreur formulaire création
   const [referralInput, setReferralInput] = useState("")
+  const [referralCreateNote, setReferralCreateNote] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [stats, setStats] = useState<{ points: number; active: number; past: number } | null>(null)
@@ -222,6 +223,7 @@ export function LoginPage({
         return
       }
       // Persiste le compte en base : la clé secrète devient l'identifiant durable.
+      // Code parrain optionnel — ne bloque jamais la création s'il est vide ou invalide.
       const res = await createAccount(key, pseudo, referralInput.trim() || undefined)
       // Blocage VPN / limite mensuelle par IP : on affiche le motif et on s'arrête.
       if (!res.ok) {
@@ -232,6 +234,15 @@ export function LoginPage({
       const finalPseudo = res.pseudo ?? pseudo
       setGeneratedPseudo(finalPseudo)
       setGeneratedKey(key)
+      if (res.referralLinked) {
+        setReferralCreateNote("Code parrain enregistré — bonus à ta 1ʳᵉ livraison.")
+      } else if (res.referralIgnored && referralInput.trim()) {
+        setReferralCreateNote(
+          "Code parrain non reconnu : compte créé sans parrain. Tu pourras toujours commander normalement.",
+        )
+      } else {
+        setReferralCreateNote(null)
+      }
       localStorage.setItem("authToken", key)
       localStorage.setItem("userPseudo", finalPseudo)
       localStorage.removeItem("isAdmin")
@@ -879,19 +890,24 @@ export function LoginPage({
                     )}
                   </div>
                 )}
-                <div className="w-full">
-                  <label className="mb-1.5 block text-center text-xs text-muted-foreground">
-                    Code parrain <span className="opacity-70">(optionnel)</span>
+                <div className="w-full rounded-2xl border border-accent/30 bg-accent/5 p-3">
+                  <label className="mb-1.5 block text-center text-xs font-medium text-muted-foreground">
+                    Code parrain <span className="font-normal opacity-70">(optionnel)</span>
                   </label>
                   <input
                     type="text"
                     value={referralInput}
-                    onChange={(e) => setReferralInput(e.target.value.toUpperCase())}
+                    onChange={(e) => setReferralInput(e.target.value.toUpperCase().replace(/\s/g, ""))}
                     placeholder="EX: HEIS-A3F9"
-                    maxLength={16}
-                    className="mb-3 w-full rounded-xl border border-border bg-card px-4 py-2.5 text-center font-mono text-sm tracking-wider outline-none focus:border-accent"
+                    maxLength={20}
+                    className="mb-1.5 w-full rounded-xl border border-border bg-card px-4 py-2.5 text-center font-mono text-sm tracking-wider outline-none focus:border-accent"
                     autoComplete="off"
+                    aria-describedby="referral-hint"
                   />
+                  <p id="referral-hint" className="text-center text-[11px] text-muted-foreground">
+                    Tu as un code d&apos;un ami ? Saisis-le ici. Sinon laisse vide — la création
+                    fonctionne sans.
+                  </p>
                 </div>
                 <button
                   onClick={createAnonymousAccess}
@@ -1280,6 +1296,12 @@ export function LoginPage({
                 Si tu la perds, ton compte est irrécupérable.
               </p>
             </div>
+
+            {referralCreateNote && (
+              <p className="mb-5 rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 text-center text-sm text-foreground">
+                {referralCreateNote}
+              </p>
+            )}
 
             <button
               onClick={closeResultModal}
