@@ -746,6 +746,10 @@ export type AdminUserRow = {
   flags: string[]
   // true si un rétablissement d'accès est en attente (le client doit encore définir son mdp)
   mustSetPassword: boolean
+  /** Statut KYC : pending | validated | null si aucune soumission */
+  kycStatus: string | null
+  /** ID user_verifications pour validation rapide depuis le répertoire */
+  kycId: number | null
 }
 
 // Répertoire de tous les comptes enregistrés, avec nombre de commandes et total dépensé.
@@ -784,7 +788,30 @@ export async function listUsers(): Promise<AdminUserRow[]> {
       users.mustSetPassword,
     )
     .orderBy(desc(users.createdAt))
-  return rows
+
+  // Enrichissement KYC (hors groupBy pour rester simple / robuste)
+  let kycByToken = new Map<string, { id: number; status: string }>()
+  try {
+    const kycRows = await db
+      .select({
+        id: userVerifications.id,
+        userToken: userVerifications.userToken,
+        status: userVerifications.status,
+      })
+      .from(userVerifications)
+    kycByToken = new Map(kycRows.map((k) => [k.userToken, { id: k.id, status: k.status }]))
+  } catch (e) {
+    console.error("[listUsers] kyc enrich failed:", e)
+  }
+
+  return rows.map((r) => {
+    const kyc = kycByToken.get(r.token)
+    return {
+      ...r,
+      kycStatus: kyc?.status ?? null,
+      kycId: kyc?.id ?? null,
+    }
+  })
 }
 
 // Définit le surnom interne d'un compte (visible uniquement de l'admin).
