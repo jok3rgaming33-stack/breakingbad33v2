@@ -2,9 +2,10 @@
 
 import { db } from "@/lib/db"
 import { loginLogs, users } from "@/lib/db/schema"
-import { eq, desc, and, gte } from "drizzle-orm"
+import { eq, desc, and, gte, isNull } from "drizzle-orm"
 import { headers } from "next/headers"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
+import { ensureFeatureSchema } from "@/lib/feature-schema"
 
 // Géolocalise une IP (HTTPS gratuit — ip-api.com free n'accepte que HTTP,
 // souvent bloqué en sortie serverless). Best-effort uniquement.
@@ -67,6 +68,7 @@ const DEDUPE_MS = 2 * 60 * 1000
  */
 export async function recordLogin(token: string) {
   try {
+    await ensureFeatureSchema()
     const t = token?.trim()
     if (!t) return
 
@@ -88,12 +90,19 @@ export async function recordLogin(token: string) {
       .limit(1)
     const pseudo = row[0]?.pseudo ?? "Inconnu"
 
-    // Dédupliquer les rechargements de page (session restore) : max 1 log / 2 min / token
+    // Dédupliquer les rechargements (session encore ouverte) : max 1 log / 2 min / token
+    // Une session déjà clôturée (loggedOutAt) ne bloque pas une nouvelle connexion.
     const since = new Date(Date.now() - DEDUPE_MS)
     const recent = await db
       .select({ id: loginLogs.id })
       .from(loginLogs)
-      .where(and(eq(loginLogs.userToken, t), gte(loginLogs.createdAt, since)))
+      .where(
+        and(
+          eq(loginLogs.userToken, t),
+          gte(loginLogs.createdAt, since),
+          isNull(loginLogs.loggedOutAt),
+        ),
+      )
       .limit(1)
     if (recent[0]) return
 
@@ -136,6 +145,34 @@ export async function recordLogin(token: string) {
   }
 }
 
+/**
+ * Enregistre l'heure de déconnexion sur la dernière session encore ouverte.
+ * À appeler avant de purger le token côté client (await obligatoire en serverless).
+ */
+export async function recordLogout(token: string) {
+  try {
+    await ensureFeatureSchema()
+    const t = token?.trim()
+    if (!t) return
+
+    const open = await db
+      .select({ id: loginLogs.id })
+      .from(loginLogs)
+      .where(and(eq(loginLogs.userToken, t), isNull(loginLogs.loggedOutAt)))
+      .orderBy(desc(loginLogs.createdAt))
+      .limit(1)
+
+    if (!open[0]) return
+
+    await db
+      .update(loginLogs)
+      .set({ loggedOutAt: new Date() })
+      .where(eq(loginLogs.id, open[0].id))
+  } catch (e) {
+    console.error("[login-logs] recordLogout failed:", e)
+  }
+}
+
 export type LoginLogRow = {
   id: number
   userToken: string
@@ -148,17 +185,26 @@ export type LoginLogRow = {
   lng: number | null
   userAgent: string | null
   createdAt: Date | string
+  loggedOutAt: Date | string | null
 }
 
 // Retourne les N dernières connexions pour le panel admin.
 export async function listLoginLogs(limit = 200): Promise<LoginLogRow[]> {
   if (!(await isAdminAuthenticated())) return []
+  try {
+    await ensureFeatureSchema()
+  } catch {
+    /* soft */
+  }
   const rows = await db
     .select()
     .from(loginLogs)
     .orderBy(desc(loginLogs.createdAt))
     .limit(limit)
-  return rows
+  return rows.map((r) => ({
+    ...r,
+    loggedOutAt: (r as LoginLogRow).loggedOutAt ?? null,
+  }))
 }
 
 // Supprime tous les logs d'un token donné (purge cascade, appelé par purgeUserData).

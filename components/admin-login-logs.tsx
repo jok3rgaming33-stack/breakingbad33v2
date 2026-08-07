@@ -127,7 +127,8 @@ export function AdminLoginLogs({ initialLogs }: { initialLogs: LoginLogRow[] }) 
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-card">
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Date / Heure</th>
+                <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Connexion</th>
+                <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Déconnexion</th>
                 <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Membre</th>
                 <th className="px-4 py-3 text-left font-semibold text-muted-foreground">IP</th>
                 <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Localisation</th>
@@ -145,6 +146,15 @@ export function AdminLoginLogs({ initialLogs }: { initialLogs: LoginLogRow[] }) 
                   >
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted-foreground">
                       {formatDate(log.createdAt)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
+                      {log.loggedOutAt ? (
+                        <span className="text-muted-foreground">{formatDate(log.loggedOutAt)}</span>
+                      ) : (
+                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
+                          En ligne
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-semibold">{log.pseudo}</div>

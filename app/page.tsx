@@ -260,7 +260,19 @@ export default function Home() {
     window.history.replaceState({}, "", window.location.pathname)
   }, [applyClientDeepLink])
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    const token = userData?.token ?? (typeof window !== "undefined" ? localStorage.getItem("authToken") : null)
+    const adminLocal =
+      isAdmin || (typeof window !== "undefined" && localStorage.getItem("isAdmin") === "1")
+    // Journalise la déconnexion client avant de purger la session (await serverless).
+    if (token && !adminLocal) {
+      try {
+        const { recordLogout } = await import("@/app/actions/login-logs")
+        await recordLogout(token)
+      } catch {
+        /* soft */
+      }
+    }
     setIsAuthenticated(false)
     setIsDashboardOpen(false)
     setIsAdmin(false)

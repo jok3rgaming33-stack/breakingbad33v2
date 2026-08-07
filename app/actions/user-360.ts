@@ -32,6 +32,7 @@ export type User360Login = {
   country: string | null
   userAgent: string | null
   createdAt: Date | string
+  loggedOutAt: Date | string | null
 }
 
 export type User360Data = {
@@ -181,6 +182,7 @@ export async function getUser360(userId: number): Promise<GetUser360Result> {
           country: loginLogs.country,
           userAgent: loginLogs.userAgent,
           createdAt: loginLogs.createdAt,
+          loggedOutAt: loginLogs.loggedOutAt,
         })
         .from(loginLogs)
         .where(eq(loginLogs.userToken, u.token))

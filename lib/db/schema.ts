@@ -369,6 +369,7 @@ export const productCosts = pgTable("product_costs", {
 export type ProductCost = typeof productCosts.$inferSelect
 
 // Journal des connexions client (enregistré à chaque getAccount validé).
+// loggedOutAt renseigné à la déconnexion explicite (bouton Déconnexion).
 export const loginLogs = pgTable("login_logs", {
   id: serial("id").primaryKey(),
   userToken: text("user_token").notNull(),
@@ -381,6 +382,7 @@ export const loginLogs = pgTable("login_logs", {
   lng: doublePrecision("lng"),
   userAgent: text("user_agent"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  loggedOutAt: timestamp("logged_out_at", { withTimezone: true }),
 })
 
 export type LoginLog = typeof loginLogs.$inferSelect
