@@ -12,8 +12,13 @@ import { revalidatePath } from "next/cache"
 import { isClosedStatus, normalizeStatus } from "@/lib/order-status"
 import {
   computeLoyaltyPoints,
-  getLoyaltyTier,
+  computeTierPoints,
+  resolveEffectiveTier,
+  maxTierId,
   buildReferralCode,
+  FREE_DELIVERY_DAYS,
+  PLATINUM_FREE_DELIVERY_MIN,
+  type LoyaltyTierId,
   REFERRAL_BONUS_REFEREE,
   REFERRAL_BONUS_REFERRER,
   REFERRAL_BONUS_PLATINUM_EXTRA,
@@ -173,11 +178,16 @@ export async function grantReferralBonusOnFirstDelivery(customerToken: string | 
 
     let referrerBonus = REFERRAL_BONUS_REFERRER
     try {
-      const spentRows = await db
-        .select({ s: sql<number>`coalesce(sum(${orderThreads.total}), 0)::int` })
-        .from(orderThreads)
-        .where(and(eq(orderThreads.customerToken, referrer.token), eq(orderThreads.status, "livree")))
-      if ((spentRows[0]?.s ?? 0) >= 600) referrerBonus += REFERRAL_BONUS_PLATINUM_EXTRA
+      // Platine = peak_tier ou CA ≥ 600€
+      if ((referrer.peakTier as string) === "platinum") {
+        referrerBonus += REFERRAL_BONUS_PLATINUM_EXTRA
+      } else {
+        const spentRows = await db
+          .select({ s: sql<number>`coalesce(sum(${orderThreads.total}), 0)::int` })
+          .from(orderThreads)
+          .where(and(eq(orderThreads.customerToken, referrer.token), eq(orderThreads.status, "livree")))
+        if ((spentRows[0]?.s ?? 0) >= 600) referrerBonus += REFERRAL_BONUS_PLATINUM_EXTRA
+      }
     } catch {
       /* ignore */
     }
@@ -256,47 +266,125 @@ export async function ensureAccount(token: string, fallbackPseudo: string) {
   return { ok: true as const, pseudo: res.pseudo, created: true }
 }
 
-// Statistiques réelles du client, calculées depuis ses commandes (clé secrète).
-export async function getCustomerStats(token: string) {
-  const t = token?.trim()
-  if (!t) {
-    return {
-      points: 0,
-      active: 0,
-      past: 0,
-      totalSpentDelivered: 0,
-      tierId: "bronze" as const,
-      tierLabel: "Bronze",
-      referralCode: null as string | null,
-      nextTierLabel: "Argent" as string | null,
-      spentToNext: 100,
-      progress: 0,
-    }
+export type CustomerStats = {
+  points: number
+  active: number
+  past: number
+  /** CA net livré (payé) */
+  totalSpentDelivered: number
+  /** CA qualifiant palier = net + remises fidélité (les bons n'effacent pas le statut) */
+  qualifyingSpend: number
+  tierId: LoyaltyTierId
+  tierLabel: string
+  tierEmoji: string
+  pointsMultiplier: number
+  priorityMessaging: boolean
+  canReserve: boolean
+  freeDeliveryActive: boolean
+  freeDeliveryUntil: string | null
+  freeDeliveryMinOrder: number
+  fromPeak: boolean
+  referralCode: string | null
+  nextTierLabel: string | null
+  spentToNext: number
+  progress: number
+  /** Texte court sur l'impact des bons */
+  voucherPolicyHint: string
+}
+
+const VOUCHER_POLICY_HINT =
+  "Les bons baissent les points de la commande (montant payé), mais ton palier ne redescend jamais. Le CA statut compte le panier avant remise fidélité."
+
+/** Calcule points + CA qualifiant en rejouant les livraisons (multi palier). */
+export function replayLoyaltyOrders(
+  livreeOrders: {
+    id: number
+    total: number | null
+    loyaltyDiscount?: number | null
+    loyaltyPointsAwarded?: number | null
+  }[],
+  peakTierId?: string | null,
+): { points: number; qualifyingSpend: number; netSpend: number } {
+  const sorted = [...livreeOrders].sort((a, b) => a.id - b.id)
+  let points = 0
+  let qualifyingSpend = 0
+  let netSpend = 0
+  let runningQualifying = 0
+  for (const o of sorted) {
+    const net = Math.max(0, o.total ?? 0)
+    const disc = Math.max(0, o.loyaltyDiscount ?? 0)
+    const gross = net + disc
+    const before = resolveEffectiveTier(runningQualifying, peakTierId)
+    const awarded =
+      o.loyaltyPointsAwarded != null && Number.isFinite(o.loyaltyPointsAwarded)
+        ? Math.max(0, o.loyaltyPointsAwarded)
+        : computeTierPoints(net, before.tier.pointsMultiplier)
+    points += awarded
+    netSpend += net
+    qualifyingSpend += gross
+    runningQualifying += gross
   }
+  return { points, qualifyingSpend, netSpend }
+}
+
+// Statistiques réelles du client, calculées depuis ses commandes (clé secrète).
+export async function getCustomerStats(token: string): Promise<CustomerStats> {
+  const empty: CustomerStats = {
+    points: 0,
+    active: 0,
+    past: 0,
+    totalSpentDelivered: 0,
+    qualifyingSpend: 0,
+    tierId: "bronze",
+    tierLabel: "Bronze",
+    tierEmoji: "",
+    pointsMultiplier: 1,
+    priorityMessaging: false,
+    canReserve: false,
+    freeDeliveryActive: false,
+    freeDeliveryUntil: null,
+    freeDeliveryMinOrder: PLATINUM_FREE_DELIVERY_MIN,
+    fromPeak: false,
+    referralCode: null,
+    nextTierLabel: "Argent",
+    spentToNext: 100,
+    progress: 0,
+    voucherPolicyHint: VOUCHER_POLICY_HINT,
+  }
+  const t = token?.trim()
+  if (!t) return empty
 
   await ensureFeatureSchema()
 
   const rows = await db.select().from(orderThreads).where(eq(orderThreads.customerToken, t))
 
-  let points = 0
   let active = 0
   let past = 0
-  let totalSpentDelivered = 0
+  const livree: {
+    id: number
+    total: number | null
+    loyaltyDiscount?: number | null
+    loyaltyPointsAwarded?: number | null
+  }[] = []
   for (const row of rows) {
-    // Les points ne sont crédités QU'À la livraison (statut "livree").
     if (normalizeStatus(row.status) === "livree") {
-      points += computeLoyaltyPoints(row.total ?? 0)
-      totalSpentDelivered += row.total ?? 0
+      livree.push({
+        id: row.id,
+        total: row.total,
+        loyaltyDiscount: (row as { loyaltyDiscount?: number | null }).loyaltyDiscount ?? 0,
+        loyaltyPointsAwarded: (row as { loyaltyPointsAwarded?: number | null }).loyaltyPointsAwarded ?? null,
+      })
     }
     if (isClosedStatus(row.status)) past += 1
     else active += 1
   }
 
-  // Ajustement manuel du vendeur, moins les points déjà dépensés en codes.
-  // Les points ne descendent jamais sous 0.
   const account = await db.select().from(users).where(eq(users.token, t)).limit(1)
   const u = account[0]
-  points = Math.max(0, points + (u?.loyaltyAdjustment ?? 0) - (u?.loyaltySpent ?? 0))
+  const peakTier = (u?.peakTier as LoyaltyTierId) || "bronze"
+
+  const replay = replayLoyaltyOrders(livree, peakTier)
+  let points = Math.max(0, replay.points + (u?.loyaltyAdjustment ?? 0) - (u?.loyaltySpent ?? 0))
 
   let referralCode = u?.referralCode ?? null
   if (u && !referralCode) {
@@ -308,20 +396,125 @@ export async function getCustomerStats(token: string) {
     }
   }
 
-  const { tier, next, progress, spentToNext } = getLoyaltyTier(totalSpentDelivered)
+  const resolved = resolveEffectiveTier(replay.qualifyingSpend, peakTier)
+
+  // Maintient peak_tier + fenêtre livraison Platine
+  if (u) {
+    const newPeak = maxTierId(peakTier, resolved.tier.id)
+    const patch: Partial<typeof users.$inferInsert> = {}
+    if (newPeak !== peakTier) patch.peakTier = newPeak
+
+    if (resolved.tier.id === "platinum" || newPeak === "platinum") {
+      const until = u.freeDeliveryUntil ? new Date(u.freeDeliveryUntil) : null
+      const now = new Date()
+      if (!until || until.getTime() < now.getTime()) {
+        const next = new Date(now.getTime() + FREE_DELIVERY_DAYS * 86400000)
+        patch.freeDeliveryUntil = next
+      }
+    }
+    if (Object.keys(patch).length > 0) {
+      try {
+        await db.update(users).set(patch).where(eq(users.id, u.id))
+        if (patch.peakTier) (u as { peakTier: string }).peakTier = patch.peakTier as string
+        if (patch.freeDeliveryUntil) (u as { freeDeliveryUntil: Date }).freeDeliveryUntil = patch.freeDeliveryUntil as Date
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  const freeUntil = u?.freeDeliveryUntil ? new Date(u.freeDeliveryUntil) : null
+  const freeDeliveryActive =
+    resolved.tier.freeDelivery && !!freeUntil && freeUntil.getTime() > Date.now()
 
   return {
     points,
     active,
     past,
-    totalSpentDelivered,
-    tierId: tier.id,
-    tierLabel: tier.label,
+    totalSpentDelivered: replay.netSpend,
+    qualifyingSpend: replay.qualifyingSpend,
+    tierId: resolved.tier.id,
+    tierLabel: resolved.tier.label,
+    tierEmoji: resolved.tier.emoji,
+    pointsMultiplier: resolved.tier.pointsMultiplier,
+    priorityMessaging: resolved.tier.priorityMessaging,
+    canReserve: resolved.tier.canReserve,
+    freeDeliveryActive,
+    freeDeliveryUntil: freeUntil && freeDeliveryActive ? freeUntil.toISOString() : null,
+    freeDeliveryMinOrder: resolved.tier.freeDeliveryMinOrder || PLATINUM_FREE_DELIVERY_MIN,
+    fromPeak: resolved.fromPeak,
     referralCode,
-    nextTierLabel: next?.label ?? null,
-    spentToNext,
-    progress,
+    nextTierLabel: resolved.next?.label ?? null,
+    spentToNext: resolved.spentToNext,
+    progress: resolved.progress,
+    voucherPolicyHint: VOUCHER_POLICY_HINT,
   }
+}
+
+/** Crédite les points d'une commande à la livraison (multi palier) + met à jour peak. */
+export async function awardLoyaltyOnDelivery(opts: {
+  customerToken: string | null | undefined
+  orderId: number
+  orderTotal: number
+  loyaltyDiscount?: number
+}): Promise<{ points: number; multiplier: number; tierLabel: string }> {
+  const t = opts.customerToken?.trim()
+  if (!t || !opts.orderId) return { points: 0, multiplier: 1, tierLabel: "Bronze" }
+  await ensureFeatureSchema()
+
+  const [u] = await db.select().from(users).where(eq(users.token, t)).limit(1)
+  const peakTier = (u?.peakTier as LoyaltyTierId) || "bronze"
+
+  // CA qualifiant AVANT cette commande
+  const prevLivree = await db
+    .select({
+      id: orderThreads.id,
+      total: orderThreads.total,
+      loyaltyDiscount: orderThreads.loyaltyDiscount,
+      loyaltyPointsAwarded: orderThreads.loyaltyPointsAwarded,
+      status: orderThreads.status,
+    })
+    .from(orderThreads)
+    .where(and(eq(orderThreads.customerToken, t), eq(orderThreads.status, "livree")))
+
+  const others = prevLivree.filter((o) => o.id !== opts.orderId)
+  const before = replayLoyaltyOrders(others, peakTier)
+  const eff = resolveEffectiveTier(before.qualifyingSpend, peakTier)
+  const points = computeTierPoints(opts.orderTotal, eff.tier.pointsMultiplier)
+
+  try {
+    await db
+      .update(orderThreads)
+      .set({ loyaltyPointsAwarded: points })
+      .where(eq(orderThreads.id, opts.orderId))
+  } catch {
+    /* colonne absente : ignore */
+  }
+
+  const afterSpend =
+    before.qualifyingSpend + Math.max(0, opts.orderTotal) + Math.max(0, opts.loyaltyDiscount ?? 0)
+  const afterTier = resolveEffectiveTier(afterSpend, peakTier)
+  const newPeak = maxTierId(peakTier, afterTier.tier.id)
+
+  if (u) {
+    const patch: Record<string, unknown> = {}
+    if (newPeak !== peakTier) patch.peakTier = newPeak
+    if (afterTier.tier.id === "platinum" || newPeak === "platinum") {
+      const until = u.freeDeliveryUntil ? new Date(u.freeDeliveryUntil) : null
+      if (!until || until.getTime() < Date.now()) {
+        patch.freeDeliveryUntil = new Date(Date.now() + FREE_DELIVERY_DAYS * 86400000)
+      }
+    }
+    if (Object.keys(patch).length > 0) {
+      try {
+        await db.update(users).set(patch).where(eq(users.id, u.id))
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  return { points, multiplier: eff.tier.pointsMultiplier, tierLabel: eff.tier.label }
 }
 
 // --- Administration des comptes (réservé au panel admin) ---

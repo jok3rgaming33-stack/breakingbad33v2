@@ -535,6 +535,17 @@ export function VendorInbox({
                       <span className="truncate text-sm font-medium">{t.customerName}</span>
                     </span>
                     <div className="flex shrink-0 items-center gap-1">
+                      {/* File prioritaire Or / Platine */}
+                      {mode === "messages" &&
+                        typeof (t as { _priority?: number })._priority === "number" &&
+                        ((t as { _priority?: number })._priority ?? 0) > 0 && (
+                          <span
+                            className="rounded-full border border-yellow-500/40 bg-yellow-500/15 px-2 py-0.5 text-[10px] font-bold text-yellow-300"
+                            title="Client prioritaire (Or / Platine)"
+                          >
+                            ★ Prio
+                          </span>
+                        )}
                       {mode === "messages" && (
                         <span className="rounded-full bg-teal-500/15 px-2 py-0.5 text-[10px] font-semibold text-teal-300 border border-teal-500/30">
                           Discussion

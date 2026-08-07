@@ -143,7 +143,9 @@ export function AdminUser360({ userId, onClose }: Props) {
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${data.tier.tier.color}`}>
+                      {data.tier.tier.emoji ? `${data.tier.tier.emoji} ` : ""}
                       {data.tier.tier.label}
+                      {data.tier.tier.pointsMultiplier > 1 ? ` · ×${data.tier.tier.pointsMultiplier}` : ""}
                     </span>
                     {data.flags.map((f) => (
                       <span

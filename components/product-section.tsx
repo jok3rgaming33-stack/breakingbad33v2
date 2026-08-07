@@ -13,6 +13,8 @@ import {
 import { BlobMedia } from "@/components/blob-media"
 import { getProductsBySection, decrementStock } from "@/app/actions/products"
 import { requestRestockAlert, hasRestockAlert } from "@/app/actions/restock"
+import { reserveProduct, getMyReservation } from "@/app/actions/product-reservations"
+import { getCustomerStats } from "@/app/actions/account"
 import { getProductRatingSummaries, type ProductRatingSummary } from "@/app/actions/ratings"
 import { RatingBadge } from "@/components/product-rating-badge"
 import type { Product, ProductVariant } from "@/lib/db/schema"
@@ -78,6 +80,37 @@ export function ProductSection({ config }: { config: SectionConfig }) {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isAnimating, setIsAnimating] = useState(false)
   const [alerted, setAlerted] = useState<Record<number, boolean>>({})
+  const [canReserve, setCanReserve] = useState(false)
+  const [reserveBusy, setReserveBusy] = useState(false)
+  const [reserveMsg, setReserveMsg] = useState<string | null>(null)
+  const [reservedUntil, setReservedUntil] = useState<string | null>(null)
+
+  useEffect(() => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null
+    if (!token) {
+      setCanReserve(false)
+      return
+    }
+    getCustomerStats(token)
+      .then((s) => setCanReserve(!!s.canReserve))
+      .catch(() => setCanReserve(false))
+  }, [])
+
+  useEffect(() => {
+    if (!selected || !canReserve) {
+      setReservedUntil(null)
+      setReserveMsg(null)
+      return
+    }
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null
+    if (!token) return
+    getMyReservation(selected.id, token)
+      .then((r) => {
+        if (r?.expiresAt) setReservedUntil(new Date(r.expiresAt).toISOString())
+        else setReservedUntil(null)
+      })
+      .catch(() => setReservedUntil(null))
+  }, [selected, canReserve])
   const [alerting, setAlerting] = useState<number | null>(null)
   const [ratings, setRatings] = useState<Record<number, ProductRatingSummary>>({})
 
@@ -481,6 +514,51 @@ export function ProductSection({ config }: { config: SectionConfig }) {
               >
                 Ajouter au Laboratoire
               </button>
+
+              {/* Réservation Platine : sécurise 1 unité 48 h */}
+              {canReserve && selected.stock > 0 && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    disabled={reserveBusy || !!reservedUntil}
+                    onClick={async () => {
+                      const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null
+                      if (!token) {
+                        setReserveMsg("Connecte-toi pour réserver.")
+                        return
+                      }
+                      setReserveBusy(true)
+                      setReserveMsg(null)
+                      try {
+                        const res = await reserveProduct(selected.id, token)
+                        if (!res.ok) {
+                          setReserveMsg(res.error)
+                          return
+                        }
+                        const exp = res.expiresAt ? new Date(res.expiresAt) : null
+                        setReservedUntil(exp?.toISOString() ?? null)
+                        setReserveMsg(
+                          res.already
+                            ? "Déjà réservé pour toi."
+                            : `💎 Réservé 48 h${exp ? ` jusqu’au ${exp.toLocaleString("fr-FR")}` : ""}.`,
+                        )
+                      } finally {
+                        setReserveBusy(false)
+                      }
+                    }}
+                    className="w-full rounded-full border border-cyan-400/40 bg-cyan-500/10 py-3 text-xs font-bold uppercase tracking-widest text-cyan-300 transition-all hover:bg-cyan-500/20 disabled:opacity-50"
+                  >
+                    {reservedUntil
+                      ? `💎 Réservé jusqu’au ${new Date(reservedUntil).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
+                      : reserveBusy
+                        ? "Réservation…"
+                        : "💎 Réserver (Platine · 48 h)"}
+                  </button>
+                  {reserveMsg && (
+                    <p className="mt-1.5 text-center text-[11px] text-cyan-200/80">{reserveMsg}</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -28,6 +28,32 @@ export async function ensureFeatureSchema(): Promise<void> {
     // Lecture client des messages vendeur (fiche 360 + messagerie)
     await db.execute(sql`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS client_read_at TIMESTAMPTZ`)
 
+    // Paliers fidélité avancés
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS peak_tier TEXT NOT NULL DEFAULT 'bronze'`)
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS free_delivery_until TIMESTAMPTZ`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_discount INTEGER NOT NULL DEFAULT 0`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_points_awarded INTEGER`)
+
+    // Réservations Platine
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS product_reservations (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER NOT NULL,
+        user_token TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS product_reservations_user_idx
+      ON product_reservations (user_token)
+    `)
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS product_reservations_product_idx
+      ON product_reservations (product_id, status)
+    `)
+
     ready = true
   } catch (e) {
     console.error("[feature-schema] ensure failed:", e)

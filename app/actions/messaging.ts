@@ -6,6 +6,7 @@ import { and, desc, eq, gt, inArray, isNull, ne, notInArray, or, sql } from "dri
 import { revalidatePath } from "next/cache"
 import { normalizeStatus, statusMeta } from "@/lib/order-status"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
+// computeLoyaltyPoints encore utilisé ailleurs ; award multi via account
 import { notifyCustomer, notifyVendor } from "@/lib/push"
 import { adjustStock } from "@/app/actions/products"
 import { createXmrPaymentForOrder } from "@/app/actions/crypto-payment"
@@ -31,9 +32,10 @@ export type NewOrderInput = {
   // IDs numériques des produits commandés — utilisés pour la notation post-livraison.
   productIds?: number[]
   total: number
-  // Montant de la remise appliquée (promo ou fidélité). Stocké pour calculer
-  // les points sur le total net et informer le client dans le message de livraison.
+  /** Remise promo globale (€) — info panier */
   promoDiscount?: number
+  /** Remise code fidélité (€) — pour CA statut sans rétrograder le palier */
+  loyaltyDiscount?: number
   fulfillment: "livraison" | "meetup" | "locker"
   address?: string
   lat?: number | null
@@ -76,6 +78,8 @@ async function ensureOrderSchema() {
       ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS locker_reminder_count INTEGER NOT NULL DEFAULT 0
     `)
     await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS locker_last_reminder_at TIMESTAMPTZ`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_discount INTEGER NOT NULL DEFAULT 0`)
+    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_points_awarded INTEGER`)
     // Lecture messages côté client
     await db.execute(sql`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS client_read_at TIMESTAMPTZ`)
     orderSchemaReady = true
@@ -147,6 +151,8 @@ export async function createOrderThread(input: NewOrderInput) {
       ? normalizeLockerPay(input.paymentMethod) ?? "xmr"
       : null
 
+    const loyaltyDiscount = Math.max(0, Math.trunc(Number(input.loyaltyDiscount) || 0))
+
     const [thread] = await db
       .insert(orderThreads)
       .values({
@@ -165,6 +171,7 @@ export async function createOrderThread(input: NewOrderInput) {
         scheduledSlot: input.scheduledSlot ?? null,
         status: "en_attente",
         paymentMethod,
+        loyaltyDiscount,
       })
       .returning()
 
@@ -436,7 +443,7 @@ export async function getPastOrders() {
     .orderBy(desc(orderThreads.updatedAt))
 }
 
-// Discussions directes — tous les statuts discussion (discussion, pris_en_charge, ouvert, ferme)
+// Discussions directes — Or/Platine en tête (file prioritaire), puis activité récente
 export async function getDiscussions() {
   await ensureOrderSchema()
   const threads = await db
@@ -444,7 +451,46 @@ export async function getDiscussions() {
     .from(orderThreads)
     .where(inArray(orderThreads.status, ["discussion", "pris_en_charge", "ouvert", "ferme"]))
     .orderBy(desc(orderThreads.updatedAt))
-  return threads
+
+  // Enrichit avec priorité palier (peak_tier utilisateur)
+  try {
+    const { users } = await import("@/lib/db/schema")
+    const { tierRank, getTierById, formatPseudoWithTier } = await import("@/lib/loyalty")
+    const tokens = [...new Set(threads.map((t) => t.customerToken).filter(Boolean) as string[])]
+    if (tokens.length === 0) return threads
+
+    const userRows = await db
+      .select({ token: users.token, peakTier: users.peakTier, pseudo: users.pseudo })
+      .from(users)
+      .where(inArray(users.token, tokens))
+
+    const byToken = new Map(userRows.map((u) => [u.token, u]))
+
+    const enriched = threads.map((t) => {
+      const u = t.customerToken ? byToken.get(t.customerToken) : undefined
+      const tier = getTierById(u?.peakTier)
+      return {
+        ...t,
+        // pseudo affiché avec emoji pour Or/Platine
+        customerName: formatPseudoWithTier(t.customerName, tier.id),
+        _priority: tier.priorityMessaging ? tierRank(tier.id) : 0,
+        _tierId: tier.id as string,
+      }
+    })
+
+    enriched.sort((a, b) => {
+      if (b._priority !== a._priority) return b._priority - a._priority
+      const ta = new Date(a.updatedAt).getTime()
+      const tb = new Date(b.updatedAt).getTime()
+      return tb - ta
+    })
+
+    // Retire les champs internes avant envoi client (sérialisation OK si on les laisse — mieux les garder pour l'UI)
+    return enriched
+  } catch (e) {
+    console.error("[messaging] getDiscussions priority enrich:", e)
+    return threads
+  }
 }
 
 // Détail d'un fil avec tous ses messages (ordre chronologique)
@@ -665,7 +711,23 @@ export async function updateThreadStatus(
       }
       case "livree": {
         const mode = current.fulfillment === "meetup" ? "en meet-up" : current.fulfillment === "locker" ? "en Locker Mondial Relay" : "en livraison"
-        const points = computeLoyaltyPoints(current.total ?? 0)
+        let points = computeLoyaltyPoints(current.total ?? 0)
+        let multiLine = ""
+        try {
+          const { awardLoyaltyOnDelivery } = await import("@/app/actions/account")
+          const award = await awardLoyaltyOnDelivery({
+            customerToken: current.customerToken,
+            orderId: threadId,
+            orderTotal: current.total ?? 0,
+            loyaltyDiscount: (current as { loyaltyDiscount?: number }).loyaltyDiscount ?? 0,
+          })
+          points = award.points
+          if (award.multiplier > 1) {
+            multiLine = ` (palier ${award.tierLabel} ×${award.multiplier})`
+          }
+        } catch {
+          /* multi non bloquant — base 1€=1pt */
+        }
         // Bonus parrainage : uniquement à la 1ʳᵉ livraison du filleul
         let referralLine = ""
         try {
@@ -679,7 +741,9 @@ export async function updateThreadStatus(
         }
         body =
           `✨ Ta commande t'a bien été livrée (${mode}). Merci pour ta confiance !` +
-          (points > 0 ? `\n${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités.` : "") +
+          (points > 0
+            ? `\n${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités${multiLine}.`
+            : "") +
           referralLine
         // Second message séparé pour inviter à noter les produits.
         // Le tag [NOTER_PRODUITS] est détecté côté client pour afficher le bouton.

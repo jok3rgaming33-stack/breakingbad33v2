@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { X, Gift, Check, Copy, Loader2, Ticket, AlertCircle } from "lucide-react"
-import { getCustomerStats } from "@/app/actions/account"
+import { X, Gift, Check, Copy, Loader2, Ticket, AlertCircle, Crown, Truck } from "lucide-react"
+import { getCustomerStats, type CustomerStats } from "@/app/actions/account"
 import { generateLoyaltyCode, listLoyaltyCodes } from "@/app/actions/promo"
 import type { LoyaltyCode } from "@/lib/db/schema"
 import { LOYALTY_REWARDS, LOYALTY_TIERS, type LoyaltyReward } from "@/lib/loyalty"
@@ -17,14 +17,8 @@ type LoyaltyModalProps = {
 
 export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
   const token = userData?.token ?? ""
-  const [points, setPoints] = useState<number | null>(null)
-  const [tierLabel, setTierLabel] = useState("Bronze")
-  const [tierId, setTierId] = useState("bronze")
-  const [nextTierLabel, setNextTierLabel] = useState<string | null>("Argent")
-  const [spentToNext, setSpentToNext] = useState(100)
-  const [progress, setProgress] = useState(0)
-  const [referralCode, setReferralCode] = useState<string | null>(null)
-  const [view, setView] = useState<"rewards" | "codes" | "parrainage">("rewards")
+  const [stats, setStats] = useState<CustomerStats | null>(null)
+  const [view, setView] = useState<"rewards" | "codes" | "parrainage" | "paliers">("rewards")
   const [myCodes, setMyCodes] = useState<LoyaltyCode[]>([])
   const [generating, setGenerating] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -33,16 +27,8 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
   const refresh = () => {
     if (!token) return
     getCustomerStats(token)
-      .then((s) => {
-        setPoints(s.points)
-        setTierLabel(s.tierLabel)
-        setTierId(s.tierId)
-        setNextTierLabel(s.nextTierLabel)
-        setSpentToNext(s.spentToNext)
-        setProgress(s.progress)
-        setReferralCode(s.referralCode)
-      })
-      .catch(() => setPoints(0))
+      .then(setStats)
+      .catch(() => setStats(null))
     listLoyaltyCodes(token)
       .then(setMyCodes)
       .catch(() => setMyCodes([]))
@@ -50,7 +36,7 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
 
   useEffect(() => {
     if (!isOpen || !token) return
-    setPoints(null)
+    setStats(null)
     setView("rewards")
     setError(null)
     refresh()
@@ -60,7 +46,11 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
   if (!isOpen) return null
 
   const name = userData?.pseudo ?? "Invité"
-  const balance = points ?? 0
+  const balance = stats?.points ?? 0
+  const tierId = stats?.tierId ?? "bronze"
+  const tierLabel = stats?.tierLabel ?? "Bronze"
+  const tierEmoji = stats?.tierEmoji ?? ""
+  const multi = stats?.pointsMultiplier ?? 1
 
   const handleClose = () => {
     setError(null)
@@ -77,7 +67,6 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
       setError(res.error)
       return
     }
-    setPoints(res.remaining)
     refresh()
     setView("codes")
   }
@@ -99,9 +88,9 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
       aria-modal="true"
       aria-label="Espace fidélité"
     >
-      <div className="flex max-h-[90vh] w-full max-w-md flex-col rounded-3xl border border-accent/40 bg-card p-6">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-balance">Espace fidélité</h2>
+      <div className="flex max-h-[90vh] w-full max-w-md flex-col rounded-3xl border border-accent/40 bg-card p-5 sm:p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xl font-bold text-balance sm:text-2xl">Espace fidélité</h2>
           <button
             type="button"
             onClick={handleClose}
@@ -113,71 +102,88 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
         </div>
 
         {/* Membre + solde + palier */}
-        <div className="mb-4 rounded-2xl border border-border bg-background/60 p-4">
-          <div className="flex items-center justify-between">
-            <div>
+        <div className="mb-3 rounded-2xl border border-border bg-background/60 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
               <div className="text-xs text-muted-foreground">Membre</div>
-              <div className="font-mono text-lg font-bold">{name}</div>
+              <div className="truncate font-mono text-lg font-bold">
+                {tierEmoji ? `${tierEmoji} ` : ""}
+                {name}
+              </div>
               <span
-                className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                className={`mt-1 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                   LOYALTY_TIERS.find((t) => t.id === tierId)?.color ?? ""
                 }`}
               >
-                Palier {tierLabel}
+                <Crown className="h-3 w-3" aria-hidden="true" />
+                {tierLabel}
+                {multi > 1 ? ` · ×${multi} pts` : ""}
               </span>
+              {stats?.fromPeak && (
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Palier conservé (les bons ne te font pas redescendre)
+                </p>
+              )}
             </div>
-            <div className="text-right">
+            <div className="shrink-0 text-right">
               <div className="text-2xl font-bold text-accent">
-                {points === null ? <Loader2 className="ml-auto h-6 w-6 animate-spin" aria-hidden="true" /> : balance}
+                {stats === null ? <Loader2 className="ml-auto h-6 w-6 animate-spin" aria-hidden="true" /> : balance}
               </div>
-              <div className="text-xs text-muted-foreground">points (1€ = 1 pt)</div>
+              <div className="text-xs text-muted-foreground">
+                points
+                {multi > 1 ? ` (base ×${multi})` : " (1€ = 1 pt)"}
+              </div>
             </div>
           </div>
-          {nextTierLabel && (
+          {stats?.nextTierLabel && (
             <div className="mt-3">
               <div className="mb-1 flex justify-between text-[10px] text-muted-foreground">
-                <span>Progression vers {nextTierLabel}</span>
-                <span>{spentToNext}€ restants</span>
+                <span>Progression vers {stats.nextTierLabel}</span>
+                <span>{stats.spentToNext}€ restants</span>
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
                 <div
                   className="h-full rounded-full bg-accent transition-all"
-                  style={{ width: `${Math.round(progress * 100)}%` }}
+                  style={{ width: `${Math.round((stats.progress ?? 0) * 100)}%` }}
                 />
               </div>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                CA statut : {stats.qualifyingSpend}€ · payé : {stats.totalSpentDelivered}€
+              </p>
+            </div>
+          )}
+          {stats?.freeDeliveryActive && (
+            <div className="mt-2 flex items-center gap-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5 text-[11px] text-cyan-300">
+              <Truck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Livraison offerte sur commandes ≥ {stats.freeDeliveryMinOrder}€
+              {stats.freeDeliveryUntil
+                ? ` · jusqu’au ${new Date(stats.freeDeliveryUntil).toLocaleDateString("fr-FR")}`
+                : ""}
             </div>
           )}
         </div>
 
         {/* Onglets */}
-        <div className="mb-4 grid grid-cols-3 gap-2">
-          <button
-            onClick={() => setView("rewards")}
-            className={`flex items-center justify-center gap-1 rounded-xl py-2.5 text-xs font-medium transition-colors sm:text-sm ${
-              view === "rewards" ? "bg-accent text-accent-foreground" : "bg-secondary text-muted-foreground"
-            }`}
-          >
-            <Gift className="h-4 w-4" aria-hidden="true" /> Récompenses
-          </button>
-          <button
-            onClick={() => setView("codes")}
-            className={`flex items-center justify-center gap-1 rounded-xl py-2.5 text-xs font-medium transition-colors sm:text-sm ${
-              view === "codes" ? "bg-accent text-accent-foreground" : "bg-secondary text-muted-foreground"
-            }`}
-          >
-            <Ticket className="h-4 w-4" aria-hidden="true" /> Codes
-            {myCodes.length > 0 && (
-              <span className="rounded-full bg-background/40 px-1.5 text-xs">{myCodes.length}</span>
-            )}
-          </button>
-          <button
-            onClick={() => setView("parrainage")}
-            className={`flex items-center justify-center gap-1 rounded-xl py-2.5 text-xs font-medium transition-colors sm:text-sm ${
-              view === "parrainage" ? "bg-accent text-accent-foreground" : "bg-secondary text-muted-foreground"
-            }`}
-          >
-            Parrainage
-          </button>
+        <div className="mb-3 grid grid-cols-4 gap-1.5">
+          {(
+            [
+              ["rewards", "Récomp."],
+              ["paliers", "Paliers"],
+              ["codes", "Codes"],
+              ["parrainage", "Parrain"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setView(id)}
+              className={`rounded-xl py-2 text-[11px] font-medium transition-colors sm:text-xs ${
+                view === id ? "bg-accent text-accent-foreground" : "bg-secondary text-muted-foreground"
+              }`}
+            >
+              {label}
+              {id === "codes" && myCodes.length > 0 ? ` (${myCodes.length})` : ""}
+            </button>
+          ))}
         </div>
 
         {error && (
@@ -188,7 +194,45 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
         )}
 
         <div className="flex-1 overflow-y-auto">
-          {view === "rewards" ? (
+          {view === "paliers" ? (
+            <div className="flex flex-col gap-2.5">
+              <p className="text-xs text-muted-foreground">
+                Les paliers se basent sur ton <strong className="text-foreground">CA statut</strong> (panier
+                avant remise fidélité). Utiliser un bon réduit les <em>points</em> de la commande, jamais ton
+                palier déjà atteint.
+              </p>
+              {LOYALTY_TIERS.map((t) => {
+                const active = t.id === tierId
+                return (
+                  <div
+                    key={t.id}
+                    className={`rounded-2xl border p-3 ${
+                      active ? "border-accent/50 bg-accent/10" : "border-border bg-background/40"
+                    }`}
+                  >
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${t.color}`}>
+                        {t.emoji ? `${t.emoji} ` : ""}
+                        {t.label}
+                        {active ? " · toi" : ""}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        dès {t.minSpent}€ · ×{t.pointsMultiplier} pts
+                      </span>
+                    </div>
+                    <ul className="space-y-0.5 text-[11px] text-muted-foreground">
+                      {t.perks.map((p) => (
+                        <li key={p} className="flex gap-1.5">
+                          <Check className="mt-0.5 h-3 w-3 shrink-0 text-accent" aria-hidden="true" />
+                          <span className="text-foreground/90">{p}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )
+              })}
+            </div>
+          ) : view === "rewards" ? (
             <div className="flex flex-col gap-3">
               <div className="rounded-2xl border border-border bg-background/40 p-3">
                 <p className="mb-2 text-xs font-semibold text-muted-foreground">Avantages de ton palier</p>
@@ -201,6 +245,10 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
                   ))}
                 </ul>
               </div>
+              <p className="text-[11px] text-muted-foreground">
+                💡 {stats?.voucherPolicyHint ??
+                  "Les bons baissent les points de la commande, pas ton palier déjà gagné."}
+              </p>
               {LOYALTY_REWARDS.map((reward) => {
                 const affordable = balance >= reward.points
                 const busy = generating === reward.points
@@ -214,7 +262,7 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent">
-                        <Gift className="h-5 w-5" aria-hidden="true" />
+                        {view === "rewards" ? <Gift className="h-5 w-5" aria-hidden="true" /> : <Ticket className="h-5 w-5" />}
                       </div>
                       <div>
                         <div className="font-semibold">{reward.label} de réduction</div>
@@ -283,28 +331,22 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4">
                 <div>
                   <p className="text-xs text-muted-foreground">Ton code parrain</p>
-                  <p className="font-mono text-xl font-bold tracking-wider">
-                    {referralCode || "—"}
-                  </p>
+                  <p className="font-mono text-xl font-bold tracking-wider">{stats?.referralCode || "—"}</p>
                 </div>
-                {referralCode && (
+                {stats?.referralCode && (
                   <button
                     type="button"
-                    onClick={() => handleCopy(referralCode)}
+                    onClick={() => handleCopy(stats.referralCode!)}
                     className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary hover:bg-muted"
                     aria-label="Copier le code parrain"
                   >
-                    {copied === referralCode ? (
+                    {copied === stats.referralCode ? (
                       <Check className="h-4 w-4 text-accent" aria-hidden="true" />
                     ) : (
                       <Copy className="h-4 w-4" aria-hidden="true" />
                     )}
                   </button>
                 )}
-              </div>
-              <div className="rounded-2xl border border-border bg-background/40 p-3 text-xs text-muted-foreground">
-                Les paliers : Bronze (0€) · Argent (100€) · Or (300€) · Platine (600€) de commandes{" "}
-                <em>livrées</em>.
               </div>
             </div>
           )}

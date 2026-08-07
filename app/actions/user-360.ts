@@ -11,7 +11,7 @@ import {
 } from "@/lib/db/schema"
 import { eq, desc, and, sql, inArray } from "drizzle-orm"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
-import { computeLoyaltyPoints, getLoyaltyTier, buildReferralCode } from "@/lib/loyalty"
+import { computeLoyaltyPoints, resolveEffectiveTier, buildReferralCode, type LoyaltyTierId } from "@/lib/loyalty"
 import { normalizeStatus, isClosedStatus, isDiscussionStatus } from "@/lib/order-status"
 import { ensureFeatureSchema } from "@/lib/feature-schema"
 
@@ -49,7 +49,7 @@ export type User360Data = {
   orderCount: number
   activeOrders: number
   pastOrders: number
-  tier: ReturnType<typeof getLoyaltyTier>
+  tier: ReturnType<typeof resolveEffectiveTier>
   referralCode: string
   referredBy: string | null
   verification: { status: string; createdAt: Date | string; validatedAt: Date | string | null } | null
@@ -97,6 +97,7 @@ export async function getUser360(userId: number): Promise<GetUser360Result> {
         loyaltySpent: users.loyaltySpent,
         referralCode: users.referralCode,
         referredBy: users.referredBy,
+        peakTier: users.peakTier,
       })
       .from(users)
       .where(eq(users.id, userId))
@@ -163,7 +164,7 @@ export async function getUser360(userId: number): Promise<GetUser360Result> {
       0,
       pointsFromOrders + (u.loyaltyAdjustment ?? 0) - (u.loyaltySpent ?? 0),
     )
-    const tier = getLoyaltyTier(totalSpentDelivered)
+    const tier = resolveEffectiveTier(totalSpentDelivered, (u.peakTier as LoyaltyTierId) || "bronze")
 
     // Secondaires : une erreur ne doit pas casser toute la fiche
     let logs: User360Login[] = []
