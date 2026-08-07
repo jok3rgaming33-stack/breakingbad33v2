@@ -1,9 +1,10 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 import { DemoShop } from "@/app/demo/_components/demo-shop"
 import { DemoAdmin } from "@/app/demo/_components/demo-admin"
-import { Store, Settings2 } from "lucide-react"
+import { Store, Settings2, Layers2 } from "lucide-react"
 
 type View = "boutique" | "admin"
 
@@ -33,6 +34,13 @@ export default function DemoPage() {
             <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
             Vue Admin
           </button>
+          <Link
+            href="/demo/dual-catalog"
+            className="flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold text-muted-foreground transition-all hover:text-foreground"
+          >
+            <Layers2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Labo / Fumoir
+          </Link>
         </div>
       </div>
 
