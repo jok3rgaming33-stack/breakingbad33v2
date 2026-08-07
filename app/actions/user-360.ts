@@ -53,7 +53,14 @@ export type User360Data = {
   tier: ReturnType<typeof resolveEffectiveTier>
   referralCode: string
   referredBy: string | null
-  verification: { status: string; createdAt: Date | string; validatedAt: Date | string | null } | null
+  verification: {
+    id: number
+    status: string
+    createdAt: Date | string
+    validatedAt: Date | string | null
+    photoPathname: string | null
+    videoPathname: string | null
+  } | null
   recentLogins: User360Login[]
   orders: User360Order[]
   loyaltyCodes: { code: string; discount: number; used: boolean; createdAt: Date | string }[]
@@ -195,18 +202,24 @@ export async function getUser360(userId: number): Promise<GetUser360Result> {
     try {
       const vrows = await db
         .select({
+          id: userVerifications.id,
           status: userVerifications.status,
           createdAt: userVerifications.createdAt,
           validatedAt: userVerifications.validatedAt,
+          photoPathname: userVerifications.photoPathname,
+          videoPathname: userVerifications.videoPathname,
         })
         .from(userVerifications)
         .where(eq(userVerifications.userToken, u.token))
         .limit(1)
       if (vrows[0]) {
         verif = {
+          id: vrows[0].id,
           status: vrows[0].status,
           createdAt: vrows[0].createdAt,
           validatedAt: vrows[0].validatedAt,
+          photoPathname: vrows[0].photoPathname,
+          videoPathname: vrows[0].videoPathname,
         }
       }
     } catch (e) {

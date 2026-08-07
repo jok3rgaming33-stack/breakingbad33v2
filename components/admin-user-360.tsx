@@ -2,9 +2,29 @@
 
 import { useEffect, useState } from "react"
 import { getUser360, type User360Data } from "@/app/actions/user-360"
+import { validateAndPurge, rejectVerification } from "@/app/actions/verification"
 import { OrderStatusTimeline } from "@/components/order-status-timeline"
 import { statusMeta } from "@/lib/order-status"
-import { X, Loader2, MapPin, Package, Gift, Shield, Activity, MessageSquare, Copy, Check } from "lucide-react"
+import {
+  X,
+  Loader2,
+  MapPin,
+  Package,
+  Gift,
+  Shield,
+  Activity,
+  MessageSquare,
+  Copy,
+  Check,
+  ShieldCheck,
+  XCircle,
+  Image as ImageIcon,
+  Video,
+} from "lucide-react"
+
+function verificationFileUrl(pathname: string) {
+  return `/api/verification/file?pathname=${encodeURIComponent(pathname)}`
+}
 
 function formatDate(d: Date | string) {
   return new Date(d).toLocaleString("fr-FR", {
@@ -26,12 +46,32 @@ export function AdminUser360({ userId, onClose }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [copied, setCopied] = useState(false)
+  const [kycBusy, setKycBusy] = useState(false)
+  const [kycMsg, setKycMsg] = useState<string | null>(null)
+  const [kycErr, setKycErr] = useState<string | null>(null)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState("")
+
+  const reload = () => {
+    setLoading(true)
+    setError("")
+    getUser360(userId)
+      .then((res) => {
+        if (!res.ok) setError(res.error || "Erreur de chargement.")
+        else setData(res.data)
+      })
+      .catch(() => setError("Erreur de chargement."))
+      .finally(() => setLoading(false))
+  }
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError("")
     setData(null)
+    setKycMsg(null)
+    setKycErr(null)
+    setRejectOpen(false)
     getUser360(userId)
       .then((res) => {
         if (cancelled) return
@@ -51,6 +91,66 @@ export function AdminUser360({ userId, onClose }: Props) {
       cancelled = true
     }
   }, [userId])
+
+  const handleValidateKyc = async () => {
+    if (!data?.verification || data.verification.status !== "pending" || kycBusy) return
+    if (!window.confirm(`Valider le KYC de ${data.pseudo} ? La vidéo sera purgée, la photo conservée.`)) return
+    setKycBusy(true)
+    setKycMsg(null)
+    setKycErr(null)
+    try {
+      const res = await validateAndPurge(data.verification.id)
+      if (!res.ok) {
+        setKycErr(res.error ?? "Échec validation.")
+        return
+      }
+      setKycMsg("Vérification validée.")
+      setData((prev) =>
+        prev && prev.verification
+          ? {
+              ...prev,
+              verification: {
+                ...prev.verification,
+                status: "validated",
+                validatedAt: new Date().toISOString(),
+                videoPathname: null,
+              },
+            }
+          : prev,
+      )
+    } catch {
+      setKycErr("Erreur réseau.")
+    } finally {
+      setKycBusy(false)
+    }
+  }
+
+  const handleRejectKyc = async () => {
+    if (!data?.verification || data.verification.status !== "pending" || kycBusy) return
+    const reason = rejectReason.trim()
+    if (!reason) {
+      setKycErr("Justification requise pour le refus.")
+      return
+    }
+    setKycBusy(true)
+    setKycMsg(null)
+    setKycErr(null)
+    try {
+      const res = await rejectVerification(data.verification.id, reason)
+      if (!res.ok) {
+        setKycErr("Échec du refus.")
+        return
+      }
+      setKycMsg("Vérification refusée — le client peut resoumettre.")
+      setRejectOpen(false)
+      setRejectReason("")
+      setData((prev) => (prev ? { ...prev, verification: null } : prev))
+    } catch {
+      setKycErr("Erreur réseau.")
+    } finally {
+      setKycBusy(false)
+    }
+  }
 
   const copyToken = async () => {
     if (!data?.token) return
@@ -101,17 +201,7 @@ export function AdminUser360({ userId, onClose }: Props) {
               <p className="text-sm text-destructive">{error || "Erreur"}</p>
               <button
                 type="button"
-                onClick={() => {
-                  setLoading(true)
-                  setError("")
-                  getUser360(userId)
-                    .then((res) => {
-                      if (!res.ok) setError(res.error)
-                      else setData(res.data)
-                    })
-                    .catch(() => setError("Erreur de chargement."))
-                    .finally(() => setLoading(false))
-                }}
+                onClick={reload}
                 className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-secondary"
               >
                 Réessayer
@@ -189,6 +279,141 @@ export function AdminUser360({ userId, onClose }: Props) {
                     {data.verification ? data.verification.status : "aucune"}
                   </span>
                 </div>
+              </section>
+
+              {/* Vérification d'identité — validation directe */}
+              <section className="rounded-2xl border border-border bg-background/50 p-4">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-bold">
+                  <ShieldCheck className="h-4 w-4 text-accent" aria-hidden="true" />
+                  Vérification d&apos;identité
+                </h3>
+
+                {!data.verification ? (
+                  <p className="text-xs text-muted-foreground">
+                    Aucune vérification soumise pour ce compte.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span
+                        className={`rounded-full px-2.5 py-1 font-semibold ${
+                          data.verification.status === "validated"
+                            ? "bg-emerald-500/15 text-emerald-400"
+                            : data.verification.status === "pending"
+                              ? "bg-amber-500/15 text-amber-300"
+                              : "bg-secondary text-muted-foreground"
+                        }`}
+                      >
+                        {data.verification.status === "pending"
+                          ? "En attente"
+                          : data.verification.status === "validated"
+                            ? "Validée"
+                            : data.verification.status}
+                      </span>
+                      <span className="text-muted-foreground">
+                        Soumise le {formatDate(data.verification.createdAt)}
+                      </span>
+                      {data.verification.validatedAt && (
+                        <span className="text-muted-foreground">
+                          · validée le {formatDate(data.verification.validatedAt)}
+                        </span>
+                      )}
+                    </div>
+
+                    {(data.verification.photoPathname || data.verification.videoPathname) && (
+                      <div className="flex flex-wrap gap-2">
+                        {data.verification.photoPathname && (
+                          <a
+                            href={verificationFileUrl(data.verification.photoPathname)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium hover:border-accent/40"
+                          >
+                            <ImageIcon className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+                            Voir la photo
+                          </a>
+                        )}
+                        {data.verification.videoPathname && (
+                          <a
+                            href={verificationFileUrl(data.verification.videoPathname)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium hover:border-accent/40"
+                          >
+                            <Video className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+                            Voir la vidéo
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    {kycMsg && (
+                      <p className="rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+                        {kycMsg}
+                      </p>
+                    )}
+                    {kycErr && (
+                      <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                        {kycErr}
+                      </p>
+                    )}
+
+                    {data.verification.status === "pending" && (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={kycBusy}
+                            onClick={() => void handleValidateKyc()}
+                            className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {kycBusy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                            )}
+                            Valider la vérification
+                          </button>
+                          <button
+                            type="button"
+                            disabled={kycBusy}
+                            onClick={() => {
+                              setRejectOpen((v) => !v)
+                              setKycErr(null)
+                            }}
+                            className="inline-flex items-center gap-2 rounded-xl border border-destructive/40 px-4 py-2.5 text-xs font-bold text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                          >
+                            <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                            Refuser
+                          </button>
+                        </div>
+
+                        {rejectOpen && (
+                          <div className="rounded-xl border border-border bg-card p-3">
+                            <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+                              Justification (envoyée au client)
+                            </label>
+                            <textarea
+                              value={rejectReason}
+                              onChange={(e) => setRejectReason(e.target.value)}
+                              rows={3}
+                              placeholder="Ex. photo floue, site non visible…"
+                              className="mb-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-accent"
+                            />
+                            <button
+                              type="button"
+                              disabled={kycBusy || !rejectReason.trim()}
+                              onClick={() => void handleRejectKyc()}
+                              className="rounded-lg bg-destructive px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
+                            >
+                              Confirmer le refus
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </section>
 
               <section>
