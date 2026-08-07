@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/cron/locker-reminders",
-      "schedule": "0 * * * *"
+      "schedule": "0 10 * * *"
     }
   ]
 }
