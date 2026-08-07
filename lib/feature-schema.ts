@@ -34,6 +34,9 @@ export async function ensureFeatureSchema(): Promise<void> {
     await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_discount INTEGER NOT NULL DEFAULT 0`)
     await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_points_awarded INTEGER`)
 
+    // Journal connexions : heure de déconnexion
+    await db.execute(sql`ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS logged_out_at TIMESTAMPTZ`)
+
     // Réservations Platine
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS product_reservations (

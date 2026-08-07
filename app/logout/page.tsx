@@ -2,6 +2,7 @@
 
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { recordLogout } from "@/app/actions/login-logs"
 
 /**
  * Page de déconnexion globale.
@@ -12,12 +13,27 @@ export default function LogoutPage() {
   const router = useRouter()
 
   useEffect(() => {
-    // Nettoyage session client — on garde bb33_webauthn* pour le déverrouillage rapide
-    localStorage.removeItem("authToken")
-    localStorage.removeItem("userPseudo")
-    localStorage.removeItem("isAdmin")
-    // Retour à l'accueil
-    router.replace("/")
+    let cancelled = false
+    ;(async () => {
+      const token = localStorage.getItem("authToken")
+      const isAdminLocal = localStorage.getItem("isAdmin") === "1"
+      if (token && !isAdminLocal) {
+        try {
+          await recordLogout(token)
+        } catch {
+          /* soft */
+        }
+      }
+      if (cancelled) return
+      // Nettoyage session client — on garde bb33_webauthn* pour le déverrouillage rapide
+      localStorage.removeItem("authToken")
+      localStorage.removeItem("userPseudo")
+      localStorage.removeItem("isAdmin")
+      router.replace("/")
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [router])
 
   return null

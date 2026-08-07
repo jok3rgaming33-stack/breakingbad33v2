@@ -233,14 +233,22 @@ export function AdminUser360({ userId, onClose }: Props) {
                 ) : (
                   <ul className="divide-y divide-border rounded-2xl border border-border">
                     {data.recentLogins.slice(0, 8).map((l) => (
-                      <li key={l.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
+                      <li key={l.id} className="flex flex-col gap-0.5 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-2">
                         <span className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground">
                           <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
                           <span className="truncate">
                             {[l.city, l.country].filter(Boolean).join(", ") || l.ip || "—"}
                           </span>
                         </span>
-                        <span className="shrink-0 font-mono text-muted-foreground">{formatDate(l.createdAt)}</span>
+                        <span className="shrink-0 font-mono text-muted-foreground">
+                          <span title="Connexion">{formatDate(l.createdAt)}</span>
+                          <span className="mx-1 text-border">→</span>
+                          {l.loggedOutAt ? (
+                            <span title="Déconnexion">{formatDate(l.loggedOutAt)}</span>
+                          ) : (
+                            <span className="text-emerald-400">en ligne</span>
+                          )}
+                        </span>
                       </li>
                     ))}
                   </ul>
