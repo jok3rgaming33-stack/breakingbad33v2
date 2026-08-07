@@ -310,52 +310,153 @@ export function AdminRatings() {
               </p>
             )}
 
-            {/* Aperçu commandes prêtes / bloquées */}
+            {/* Aperçu commandes — détail produit par produit (sans troncature) */}
             {backfill.orders.length > 0 && (
-              <div className="max-h-56 overflow-y-auto rounded-xl border border-border">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-card">
-                    <tr className="border-b border-border text-left text-muted-foreground">
-                      <th className="px-3 py-2">#</th>
-                      <th className="px-3 py-2">Client</th>
-                      <th className="px-3 py-2">Texte</th>
-                      <th className="px-3 py-2">État</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {backfill.orders.slice(0, 80).map((o) => {
-                      // ready en tenant compte des mappings manuels
-                      const termsOk = o.terms.every((t) => {
-                        if (t.status === "matched") return true
-                        return !!manualMap[t.term]
-                      })
-                      const readyNow = o.terms.length > 0 && termsOk
-                      return (
-                        <tr key={o.threadId} className="border-b border-border/60 last:border-0">
-                          <td className="px-3 py-1.5 font-mono text-muted-foreground">#{o.threadId}</td>
-                          <td className="px-3 py-1.5">{o.customerName}</td>
-                          <td className="max-w-[220px] truncate px-3 py-1.5 text-muted-foreground">
-                            {o.productsText}
-                          </td>
-                          <td className="px-3 py-1.5">
-                            {readyNow ? (
-                              <span className="text-emerald-400">Prêt</span>
-                            ) : o.terms.length === 0 ? (
-                              <span className="text-zinc-500">Illisible</span>
-                            ) : (
-                              <span className="text-amber-300">
-                                {o.terms
-                                  .filter((t) => t.status !== "matched" && !manualMap[t.term])
-                                  .map((t) => t.term)
-                                  .join(", ") || "—"}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    Détail des commandes ({backfill.orders.length})
+                  </p>
+                  <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400" /> Match auto
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full bg-sky-400" /> Associé par toi
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full bg-amber-400" /> À valider
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full bg-zinc-500" /> Introuvable
+                    </span>
+                  </div>
+                </div>
+
+                <div className="max-h-[28rem] space-y-2 overflow-y-auto rounded-xl border border-border p-2 sm:p-3">
+                  {backfill.orders.map((o) => {
+                    const termsOk =
+                      o.terms.length > 0 &&
+                      o.terms.every((t) => t.status === "matched" || !!manualMap[t.term])
+                    const pendingTerms = o.terms.filter(
+                      (t) => t.status !== "matched" && !manualMap[t.term],
+                    )
+
+                    return (
+                      <article
+                        key={o.threadId}
+                        className={`rounded-xl border px-3 py-2.5 ${
+                          termsOk
+                            ? "border-emerald-500/25 bg-emerald-500/5"
+                            : o.terms.length === 0
+                              ? "border-border bg-background/40"
+                              : "border-amber-500/20 bg-amber-500/[0.04]"
+                        }`}
+                      >
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <span className="font-mono text-xs text-muted-foreground">
+                              #{o.threadId}
+                            </span>
+                            <span className="text-sm font-semibold">{o.customerName}</span>
+                            <span className="text-[11px] text-muted-foreground">
+                              {o.terms.length} produit{o.terms.length > 1 ? "s" : ""} détecté
+                              {o.terms.length > 1 ? "s" : ""}
+                            </span>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                              termsOk
+                                ? "bg-emerald-500/15 text-emerald-400"
+                                : o.terms.length === 0
+                                  ? "bg-zinc-500/15 text-zinc-400"
+                                  : "bg-amber-500/15 text-amber-300"
+                            }`}
+                          >
+                            {termsOk
+                              ? "Prêt"
+                              : o.terms.length === 0
+                                ? "Illisible"
+                                : `${pendingTerms.length} à valider`}
+                          </span>
+                        </div>
+
+                        {/* Texte brut récap (wrap complet) */}
+                        <p className="mb-2 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-muted-foreground">
+                          {o.productsText}
+                        </p>
+
+                        {/* Pastilles produit par produit */}
+                        {o.terms.length > 0 ? (
+                          <ul className="flex flex-wrap gap-1.5">
+                            {o.terms.map((t, idx) => {
+                              const manualId = manualMap[t.term]
+                              const isManual = !!manualId
+                              const isAuto = t.status === "matched" && !isManual
+                              const isPending = t.status !== "matched" && !isManual
+                              const isUnmatched = t.status === "unmatched" && !isManual
+
+                              const catalogTitle =
+                                isManual
+                                  ? backfill.catalog.find((c) => c.id === manualId)?.title
+                                  : t.productTitle
+
+                              let chipClass =
+                                "border-zinc-500/40 bg-zinc-500/10 text-zinc-300"
+                              if (isAuto)
+                                chipClass =
+                                  "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                              else if (isManual)
+                                chipClass = "border-sky-500/40 bg-sky-500/10 text-sky-200"
+                              else if (isPending && !isUnmatched)
+                                chipClass =
+                                  "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                              else if (isUnmatched)
+                                chipClass = "border-zinc-500/40 bg-zinc-600/20 text-zinc-400"
+
+                              return (
+                                <li
+                                  key={`${o.threadId}-${idx}-${t.term}`}
+                                  className={`inline-flex max-w-full flex-col rounded-lg border px-2 py-1 ${chipClass}`}
+                                  title={
+                                    catalogTitle
+                                      ? `${t.term} → #${isManual ? manualId : t.productId} ${catalogTitle}`
+                                      : t.term
+                                  }
+                                >
+                                  <span className="break-words text-[11px] font-semibold leading-snug">
+                                    {t.term}
+                                  </span>
+                                  <span className="break-words text-[10px] opacity-80">
+                                    {isAuto && (
+                                      <>
+                                        → #{t.productId} {t.productTitle}
+                                      </>
+                                    )}
+                                    {isManual && (
+                                      <>
+                                        → #{manualId} {catalogTitle ?? "?"}
+                                      </>
+                                    )}
+                                    {isPending && !isUnmatched && (
+                                      <>→ à valider ({t.candidates.length} suggestion
+                                      {t.candidates.length > 1 ? "s" : ""})</>
+                                    )}
+                                    {isUnmatched && <>→ introuvable au catalogue</>}
+                                  </span>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        ) : (
+                          <p className="text-[11px] text-zinc-500">
+                            Aucun produit extrait du texte — saisie manuelle impossible ici.
+                          </p>
+                        )}
+                      </article>
+                    )
+                  })}
+                </div>
               </div>
             )}
 
