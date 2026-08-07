@@ -27,6 +27,7 @@ export async function createAccount(token: string, pseudo: string) {
 
   const existing = await db.select().from(users).where(eq(users.token, t)).limit(1)
   if (existing.length > 0) {
+    await recordLogin(t)
     return { ok: true as const, pseudo: existing[0].pseudo }
   }
 
@@ -81,6 +82,9 @@ export async function createAccount(token: string, pseudo: string) {
     url: "/admin",
     tag: "new-member",
   })
+
+  // Première connexion = création de compte (getAccount n'est pas appelé ici)
+  await recordLogin(t)
 
   return { ok: true as const, pseudo: p }
 }

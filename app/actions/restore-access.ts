@@ -144,6 +144,14 @@ export async function loginWithRestoreToken(restoreToken: string): Promise<{
     console.log("[v0] Notification vendeur indisponible pendant la récupération:", error)
   })
 
+  // Journal des connexions (lien de rétablissement ne passait pas par getAccount)
+  try {
+    const { recordLogin } = await import("@/app/actions/login-logs")
+    await recordLogin(user.token)
+  } catch {
+    /* non bloquant */
+  }
+
   return { ok: true, userToken: user.token, pseudo: user.pseudo }
 }
 
