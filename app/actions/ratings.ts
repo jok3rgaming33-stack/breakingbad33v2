@@ -908,7 +908,17 @@ export async function analyzeProductIdBackfill(): Promise<ProductIdBackfillAnaly
 
     for (const o of withoutIds) {
       const rawTerms = parseOrderProductTermsSync(o.products, o.summary)
-      const productsText = (o.products?.trim() || o.summary?.slice(0, 120) || "—").trim()
+      // Texte complet (pas de troncature) pour l'aperçu admin produit par produit
+      const productsText = (
+        o.products?.trim() ||
+        o.summary
+          ?.split(/\r?\n/)
+          .filter((l) => /^[•\-\*]/.test(l.trim()) || /^\d+\s*[x×]/i.test(l.trim()))
+          .join(" · ")
+          .trim() ||
+        o.summary?.trim() ||
+        "—"
+      ).trim()
 
       if (!rawTerms.length) {
         orders.push({
