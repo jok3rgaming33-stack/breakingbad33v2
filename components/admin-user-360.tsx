@@ -93,7 +93,8 @@ export function AdminUser360({ userId, onClose }: Props) {
   }, [userId])
 
   const handleValidateKyc = async () => {
-    if (!data?.verification || data.verification.status !== "pending" || kycBusy) return
+    if (!data?.verification || kycBusy) return
+    if (String(data.verification.status).toLowerCase() === "validated") return
     if (!window.confirm(`Valider le KYC de ${data.pseudo} ? La vidéo sera purgée, la photo conservée.`)) return
     setKycBusy(true)
     setKycMsg(null)
@@ -126,7 +127,8 @@ export function AdminUser360({ userId, onClose }: Props) {
   }
 
   const handleRejectKyc = async () => {
-    if (!data?.verification || data.verification.status !== "pending" || kycBusy) return
+    if (!data?.verification || kycBusy) return
+    if (String(data.verification.status).toLowerCase() === "validated") return
     const reason = rejectReason.trim()
     if (!reason) {
       setKycErr("Justification requise pour le refus.")
@@ -358,19 +360,23 @@ export function AdminUser360({ userId, onClose }: Props) {
                       </p>
                     )}
 
-                    {data.verification.status === "pending" && (
-                      <div className="flex flex-col gap-2">
+                    {/* Boutons si pas encore validé (pending ou statut inattendu) */}
+                    {String(data.verification.status || "").toLowerCase() !== "validated" && (
+                      <div className="flex flex-col gap-2 border-t border-border pt-3">
+                        <p className="text-[11px] font-medium text-amber-200/90">
+                          Cette vérification peut être traitée ici sans passer par l&apos;onglet Vérifications.
+                        </p>
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
                             disabled={kycBusy}
                             onClick={() => void handleValidateKyc()}
-                            className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                            className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-accent-foreground shadow-[0_0_20px_rgba(62,103,87,0.25)] transition-opacity hover:opacity-90 disabled:opacity-50"
                           >
                             {kycBusy ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                             ) : (
-                              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
                             )}
                             Valider la vérification
                           </button>

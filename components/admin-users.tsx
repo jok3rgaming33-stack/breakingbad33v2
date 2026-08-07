@@ -22,11 +22,14 @@ import {
   KeyRound,
   UserRoundSearch,
   MoreHorizontal,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react"
 import { AdminUser360 } from "@/components/admin-user-360"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { createGeneralInquiryThread } from "@/app/actions/messaging"
 import { grantRestoreAccess } from "@/app/actions/restore-access"
+import { validateAndPurge } from "@/app/actions/verification"
 
 const FLAG_OPTIONS: { value: string; label: string; short: string; className: string }[] = [
   { value: "absent", label: "Absent lors de la livraison", short: "Absent", className: "bg-amber-500/15 text-amber-500 border-amber-500/30" },
@@ -395,8 +398,48 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
     }
   }
 
+  const [kycValidatingId, setKycValidatingId] = useState<number | null>(null)
+
+  const handleValidateKyc = async (u: AdminUserRow) => {
+    if (!u.kycId || u.kycStatus !== "pending") return
+    if (!window.confirm(`Valider le KYC de ${u.pseudo} ?`)) return
+    setKycValidatingId(u.id)
+    try {
+      const res = await validateAndPurge(u.kycId)
+      if (res.ok) {
+        setUsers((prev) =>
+          prev.map((row) =>
+            row.id === u.id ? { ...row, kycStatus: "validated" } : row,
+          ),
+        )
+      } else {
+        window.alert(res.error ?? "Échec de la validation.")
+      }
+    } catch {
+      window.alert("Erreur réseau.")
+    } finally {
+      setKycValidatingId(null)
+    }
+  }
+
   const actionButtons = (u: AdminUserRow) => (
     <div className="flex shrink-0 items-center justify-end gap-1.5">
+      {u.kycStatus === "pending" && u.kycId != null && (
+        <button
+          type="button"
+          onClick={() => void handleValidateKyc(u)}
+          disabled={kycValidatingId === u.id}
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 text-xs font-bold text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+          title="Valider la vérification d'identité"
+        >
+          {kycValidatingId === u.id ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+          )}
+          <span className="hidden sm:inline">Valider KYC</span>
+        </button>
+      )}
       <button
         type="button"
         onClick={() => setProfileUserId(u.id)}
@@ -544,6 +587,18 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                         mdp
                       </span>
                     )}
+                    {u.kycStatus === "pending" && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+                        <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+                        KYC
+                      </span>
+                    )}
+                    {u.kycStatus === "validated" && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
+                        <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+                        OK
+                      </span>
+                    )}
                   </div>
                 </div>
                 {actionButtons(u)}
@@ -563,6 +618,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                 <th className="px-3 py-3 font-medium">Signalement</th>
                 <th className="hidden px-3 py-3 font-medium xl:table-cell">Token</th>
                 <th className="px-3 py-3 font-medium">Cmd</th>
+                <th className="px-3 py-3 font-medium">KYC</th>
                 <th className="px-3 py-3 font-medium">Points</th>
                 <th className="sticky right-0 bg-background/95 px-3 py-3 text-right font-medium backdrop-blur">
                   Actions
@@ -572,7 +628,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                     Aucun compte à afficher.
                   </td>
                 </tr>
@@ -644,6 +700,21 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                         <ShoppingBag className="h-3.5 w-3.5 text-accent" />
                         {u.orderCount}
                       </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      {u.kycStatus === "pending" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+                          <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+                          Attente
+                        </span>
+                      ) : u.kycStatus === "validated" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
+                          <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+                          OK
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       {editingId === u.id ? (
