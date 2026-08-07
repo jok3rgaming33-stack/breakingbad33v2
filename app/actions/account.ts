@@ -83,13 +83,20 @@ export async function createAccount(token: string, pseudo: string, referralCode?
     }
   }
 
-  // Parrain optionnel (lien stocké ; bonus versé à la 1ʳᵉ livraison — voir grantReferralBonusOnFirstDelivery)
+  // Parrain optionnel : code invalide / vide = on crée quand même le compte (non bloquant)
   let referrer: typeof users.$inferSelect | null = null
-  const refCode = referralCode?.trim().toUpperCase()
+  let referralIgnored = false
+  const refCode = referralCode?.trim().toUpperCase() || ""
   if (refCode) {
-    const refRows = await db.select().from(users).where(eq(users.referralCode, refCode)).limit(1)
-    if (refRows[0] && refRows[0].token !== t) {
-      referrer = refRows[0]
+    try {
+      const refRows = await db.select().from(users).where(eq(users.referralCode, refCode)).limit(1)
+      if (refRows[0] && refRows[0].token !== t) {
+        referrer = refRows[0]
+      } else {
+        referralIgnored = true // saisi mais inconnu / auto-réf
+      }
+    } catch {
+      referralIgnored = true
     }
   }
 
@@ -107,12 +114,20 @@ export async function createAccount(token: string, pseudo: string, referralCode?
     .returning({ id: users.id })
 
   const newId = inserted[0]?.id
+  let ownReferralCode: string | null = null
   if (newId) {
-    const code = buildReferralCode(p, newId)
+    ownReferralCode = buildReferralCode(p, newId)
     try {
-      await db.update(users).set({ referralCode: code }).where(eq(users.id, newId))
-    } catch {
-      /* ignore */
+      await db.update(users).set({ referralCode: ownReferralCode }).where(eq(users.id, newId))
+    } catch (e) {
+      console.error("[account] set referralCode on create:", e)
+      // Réessaie une fois après ensure schema
+      try {
+        await ensureFeatureSchema()
+        await db.update(users).set({ referralCode: ownReferralCode }).where(eq(users.id, newId))
+      } catch (e2) {
+        console.error("[account] set referralCode retry failed:", e2)
+      }
     }
   }
 
@@ -138,6 +153,60 @@ export async function createAccount(token: string, pseudo: string, referralCode?
     ok: true as const,
     pseudo: p,
     referralLinked: !!referrer,
+    /** true si un code a été saisi mais non reconnu — compte créé quand même */
+    referralIgnored,
+    referralCode: ownReferralCode,
+  }
+}
+
+/**
+ * Garantit et renvoie le code parrain d'un utilisateur (génère si absent).
+ * Utilisé par l'Espace fidélité pour toujours afficher un code.
+ */
+export async function ensureReferralCode(token: string): Promise<{
+  ok: boolean
+  code: string | null
+  error?: string
+}> {
+  const t = token?.trim()
+  if (!t) return { ok: false, code: null, error: "Session invalide" }
+  try {
+    await ensureFeatureSchema()
+    const rows = await db
+      .select({
+        id: users.id,
+        pseudo: users.pseudo,
+        referralCode: users.referralCode,
+      })
+      .from(users)
+      .where(eq(users.token, t))
+      .limit(1)
+    const u = rows[0]
+    if (!u) return { ok: false, code: null, error: "Compte introuvable" }
+
+    if (u.referralCode?.trim()) {
+      return { ok: true, code: u.referralCode.trim().toUpperCase() }
+    }
+
+    const code = buildReferralCode(u.pseudo, u.id)
+    try {
+      await db.update(users).set({ referralCode: code }).where(eq(users.id, u.id))
+      return { ok: true, code }
+    } catch (e) {
+      console.error("[account] ensureReferralCode update:", e)
+      // En cas de collision unique rare : suffixe alternatif
+      const alt = `${code.slice(0, -1)}${String(u.id % 36).toUpperCase()}`
+      try {
+        await db.update(users).set({ referralCode: alt }).where(eq(users.id, u.id))
+        return { ok: true, code: alt }
+      } catch (e2) {
+        console.error("[account] ensureReferralCode alt failed:", e2)
+        return { ok: true, code } // affiche quand même le code calculé
+      }
+    }
+  } catch (e) {
+    console.error("[account] ensureReferralCode:", e)
+    return { ok: false, code: null, error: "Impossible de charger le code parrain." }
   }
 }
 
@@ -348,21 +417,67 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
     else active += 1
   }
 
-  const account = await db.select().from(users).where(eq(users.token, t)).limit(1)
-  const u = account[0]
+  // Select ciblé (évite plantage si une colonne optionnelle manque encore)
+  let u: {
+    id: number
+    pseudo: string
+    loyaltyAdjustment: number | null
+    loyaltySpent: number | null
+    referralCode: string | null
+    peakTier: string | null
+    freeDeliveryUntil: Date | null
+  } | null = null
+  try {
+    const account = await db
+      .select({
+        id: users.id,
+        pseudo: users.pseudo,
+        loyaltyAdjustment: users.loyaltyAdjustment,
+        loyaltySpent: users.loyaltySpent,
+        referralCode: users.referralCode,
+        peakTier: users.peakTier,
+        freeDeliveryUntil: users.freeDeliveryUntil,
+      })
+      .from(users)
+      .where(eq(users.token, t))
+      .limit(1)
+    u = account[0] ?? null
+  } catch (e) {
+    console.error("[account] getCustomerStats user select:", e)
+    try {
+      const fallback = await db
+        .select({
+          id: users.id,
+          pseudo: users.pseudo,
+          loyaltyAdjustment: users.loyaltyAdjustment,
+          loyaltySpent: users.loyaltySpent,
+          referralCode: users.referralCode,
+        })
+        .from(users)
+        .where(eq(users.token, t))
+        .limit(1)
+      if (fallback[0]) {
+        u = {
+          ...fallback[0],
+          peakTier: "bronze",
+          freeDeliveryUntil: null,
+        }
+      }
+    } catch (e2) {
+      console.error("[account] getCustomerStats user fallback:", e2)
+    }
+  }
+
   const peakTier = (u?.peakTier as LoyaltyTierId) || "bronze"
 
   const replay = replayLoyaltyOrders(livree, peakTier)
   let points = Math.max(0, replay.points + (u?.loyaltyAdjustment ?? 0) - (u?.loyaltySpent ?? 0))
 
-  let referralCode = u?.referralCode ?? null
+  // Code parrain : toujours généré / renvoyé
+  let referralCode = u?.referralCode?.trim() || null
   if (u && !referralCode) {
-    referralCode = buildReferralCode(u.pseudo, u.id)
-    try {
-      await db.update(users).set({ referralCode }).where(eq(users.id, u.id))
-    } catch {
-      /* ignore */
-    }
+    const ensured = await ensureReferralCode(t)
+    referralCode = ensured.code
   }
 
   const resolved = resolveEffectiveTier(replay.qualifyingSpend, peakTier)

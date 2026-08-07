@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { X, Gift, Check, Copy, Loader2, Ticket, AlertCircle, Crown, Truck } from "lucide-react"
-import { getCustomerStats, type CustomerStats } from "@/app/actions/account"
+import { ensureReferralCode, getCustomerStats, type CustomerStats } from "@/app/actions/account"
 import { generateLoyaltyCode, listLoyaltyCodes } from "@/app/actions/promo"
 import type { LoyaltyCode } from "@/lib/db/schema"
 import { LOYALTY_REWARDS, LOYALTY_TIERS, type LoyaltyReward } from "@/lib/loyalty"
@@ -23,25 +23,53 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
   const [generating, setGenerating] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const [referralCode, setReferralCode] = useState<string | null>(null)
+  const [referralLoading, setReferralLoading] = useState(false)
+
+  const loadReferralCode = async () => {
+    if (!token) return
+    setReferralLoading(true)
+    try {
+      const res = await ensureReferralCode(token)
+      if (res.ok && res.code) setReferralCode(res.code)
+      else if (res.error) setError(res.error)
+    } catch {
+      setError("Impossible de charger le code parrain.")
+    } finally {
+      setReferralLoading(false)
+    }
+  }
 
   const refresh = () => {
     if (!token) return
     getCustomerStats(token)
-      .then(setStats)
+      .then((s) => {
+        setStats(s)
+        if (s.referralCode) setReferralCode(s.referralCode)
+      })
       .catch(() => setStats(null))
     listLoyaltyCodes(token)
       .then(setMyCodes)
       .catch(() => setMyCodes([]))
+    void loadReferralCode()
   }
 
   useEffect(() => {
     if (!isOpen || !token) return
     setStats(null)
+    setReferralCode(null)
     setView("rewards")
     setError(null)
     refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, token])
+
+  // Recharge le code dès qu'on ouvre l'onglet Parrainage
+  useEffect(() => {
+    if (!isOpen || !token || view !== "parrainage") return
+    if (!referralCode) void loadReferralCode()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, isOpen, token])
 
   if (!isOpen) return null
 
@@ -329,18 +357,27 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
                 l&apos;inscription seule.
               </p>
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4">
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs text-muted-foreground">Ton code parrain</p>
-                  <p className="font-mono text-xl font-bold tracking-wider">{stats?.referralCode || "—"}</p>
+                  {referralLoading && !referralCode ? (
+                    <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      Génération…
+                    </div>
+                  ) : (
+                    <p className="font-mono text-xl font-bold tracking-wider break-all">
+                      {referralCode || stats?.referralCode || "—"}
+                    </p>
+                  )}
                 </div>
-                {stats?.referralCode && (
+                {(referralCode || stats?.referralCode) && (
                   <button
                     type="button"
-                    onClick={() => handleCopy(stats.referralCode!)}
-                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary hover:bg-muted"
+                    onClick={() => handleCopy((referralCode || stats?.referralCode)!)}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-secondary hover:bg-muted"
                     aria-label="Copier le code parrain"
                   >
-                    {copied === stats.referralCode ? (
+                    {copied === (referralCode || stats?.referralCode) ? (
                       <Check className="h-4 w-4 text-accent" aria-hidden="true" />
                     ) : (
                       <Copy className="h-4 w-4" aria-hidden="true" />
@@ -348,6 +385,19 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
                   </button>
                 )}
               </div>
+              {!referralCode && !referralLoading && (
+                <button
+                  type="button"
+                  onClick={() => void loadReferralCode()}
+                  className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium hover:bg-secondary"
+                >
+                  Afficher / générer mon code
+                </button>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                Un nouveau membre peut saisir ce code à la création de son compte (optionnel). Le bonus
+                est versé à sa 1ʳᵉ commande livrée.
+              </p>
             </div>
           )}
         </div>
