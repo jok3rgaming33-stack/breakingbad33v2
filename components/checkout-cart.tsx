@@ -6,6 +6,8 @@ import { useCart } from "@/components/cart-provider"
 import { createOrderThread } from "@/app/actions/messaging"
 import { validateCode, markLoyaltyCodeUsed } from "@/app/actions/promo"
 import { needsVerification, submitVerification } from "@/app/actions/verification"
+import { getCustomerStats } from "@/app/actions/account"
+import { consumeReservationsForOrder } from "@/app/actions/product-reservations"
 import { getCartConfig, type CartConfig, type DeliverySlot, type MeetupSlot } from "@/app/actions/settings"
 import { SelfieVerificationModal, type VerificationMetadata } from "@/components/selfie-verification-modal"
 import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus, Package, Lock } from "lucide-react"
@@ -209,15 +211,45 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     if (meetupHour && !availableMeetupSlots.some((s) => s.label === meetupHour)) setMeetupHour("")
   }, [availableMeetupSlots, meetupHour])
 
-  // Frais de livraison selon la distance
-  const deliveryFee = useMemo(() => {
+  // Avantages Platine (livraison offerte ≥ min)
+  const [freeDeliveryActive, setFreeDeliveryActive] = useState(false)
+  const [freeDeliveryMin, setFreeDeliveryMin] = useState(90)
+  useEffect(() => {
+    if (!isOpen) return
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null
+    if (!token) {
+      setFreeDeliveryActive(false)
+      return
+    }
+    getCustomerStats(token)
+      .then((s) => {
+        setFreeDeliveryActive(!!s.freeDeliveryActive)
+        setFreeDeliveryMin(s.freeDeliveryMinOrder || 90)
+      })
+      .catch(() => setFreeDeliveryActive(false))
+  }, [isOpen])
+
+  // Frais de livraison selon la distance (+ offre Platine)
+  const rawDeliveryFee = useMemo(() => {
     if (isMeetup) return 0
     if (isLocker) return FEE_LOCKER
     if (distanceKm == null) return 0
     return calcDeliveryFee(distanceKm)
   }, [isMeetup, isLocker, distanceKm])
 
+  const freeDeliveryApplied =
+    freeDeliveryActive &&
+    !isMeetup &&
+    !isLocker &&
+    fulfillmentMode === "livraison" &&
+    subtotal >= freeDeliveryMin &&
+    rawDeliveryFee > 0
+
+  const deliveryFee = freeDeliveryApplied ? 0 : rawDeliveryFee
+
   const total = Math.max(0, subtotal + deliveryFee - promoDiscount)
+  const isLoyaltyCode = !!(promo && /^BB33-/i.test(promo.code))
+  const loyaltyDiscountAmount = isLoyaltyCode ? promoDiscount : 0
 
   if (!isOpen) return null
 
@@ -355,7 +387,9 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       ? `Retrait sur place (meet-up) à ${meetupHour}`
         : isLocker
         ? `Retrait en Locker Mondial Relay — ${lockerAddress} (frais ${FEE_LOCKER}€)`
-        : `Livraison à ${address} — créneau ${slot} (frais ${deliveryFee}€)`
+        : freeDeliveryApplied
+          ? `Livraison à ${address} — créneau ${slot} (💎 livr. offerte Platine ≥${freeDeliveryMin}€)`
+          : `Livraison à ${address} — créneau ${slot} (frais ${deliveryFee}€)`
 
     const payLine = isLocker
       ? `Paiement : ${lockerPayMethod === "paysafecard" ? "Paysafecard" : "Monero (XMR)"}`
@@ -373,6 +407,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       ``,
       `Sous-total : ${subtotal}€`,
       (!isMeetup && deliveryFee > 0) ? `${isLocker ? "Locker" : "Livraison"} : ${deliveryFee}€` : null,
+      freeDeliveryApplied ? `Livraison : offerte (Platine)` : null,
       promo && promoDiscount > 0 ? `Reduction (${promo.code}) : -${promoDiscount}€` : null,
       `TOTAL : ${total}€`,
     ]
@@ -390,6 +425,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         products: productsShort,
         productIds,
         total,
+        loyaltyDiscount: loyaltyDiscountAmount,
+        promoDiscount: promoDiscount > 0 ? promoDiscount : undefined,
         fulfillment: isMeetup ? "meetup" : isLocker ? "locker" : "livraison",
         address: isMeetup ? undefined : isLocker ? lockerAddress : resolvedLabel ?? address,
         lat: isMeetup || isLocker ? null : coords?.lat ?? null,
@@ -409,6 +446,10 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       // Code fidélité (BB33-...) consommé à usage unique une fois la commande passée.
       if (promo && /^BB33-/i.test(promo.code)) {
         await markLoyaltyCodeUsed(promo.code)
+      }
+      // Consomme les réservations Platine des produits commandés
+      if (token && productIds.length > 0) {
+        await consumeReservationsForOrder(token, productIds).catch(() => {})
       }
       if (orderRes && typeof orderRes === "object" && "cryptoPayment" in orderRes) {
         const cp = (orderRes as { cryptoPayment?: typeof cryptoPayment }).cryptoPayment
@@ -801,7 +842,12 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     )}
                     {geoStatus === "done" && distanceKm != null && (
                       <span className="text-muted-foreground">
-                        ≈ {distanceKm.toFixed(1)} km — frais {deliveryFee}€
+                        ≈ {distanceKm.toFixed(1)} km —{" "}
+                        {freeDeliveryApplied ? (
+                          <span className="text-accent">livraison offerte 💎</span>
+                        ) : (
+                          <>frais {deliveryFee}€</>
+                        )}
                       </span>
                     )}
                     {geoStatus === "notfound" && <span className="text-destructive">Adresse introuvable</span>}
@@ -967,7 +1013,13 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
               {!isMeetup && (
                 <div className="mb-1 flex justify-between text-sm text-muted-foreground">
                   <span>Livraison</span>
-                  <span>{distanceKm != null ? `${deliveryFee}€` : "—"}</span>
+                  <span>
+                    {distanceKm == null
+                      ? "—"
+                      : freeDeliveryApplied
+                        ? "Offerte 💎"
+                        : `${deliveryFee}€`}
+                  </span>
                 </div>
               )}
               {promo && (

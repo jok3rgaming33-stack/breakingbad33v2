@@ -27,6 +27,10 @@ export const users = pgTable("users", {
   referralCode: text("referral_code"),
   referredBy: text("referred_by"),
   referralBonusGranted: boolean("referral_bonus_granted").notNull().default(false),
+  // Palier le plus haut atteint (ne redescend jamais, même si bons utilisés)
+  peakTier: text("peak_tier").notNull().default("bronze"),
+  // Livraison offerte Platine : fin de la fenêtre d'1 mois
+  freeDeliveryUntil: timestamp("free_delivery_until", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -204,6 +208,10 @@ export const orderThreads = pgTable("order_threads", {
   // Rappels auto Locker (retrait en attente)
   lockerReminderCount: integer("locker_reminder_count").notNull().default(0),
   lockerLastReminderAt: timestamp("locker_last_reminder_at", { withTimezone: true }),
+  // Remise fidélité appliquée (€) — pour CA qualifiant palier sans pénaliser le statut
+  loyaltyDiscount: integer("loyalty_discount").notNull().default(0),
+  // Points crédités à la livraison (avec multi palier) ; null = commande historique
+  loyaltyPointsAwarded: integer("loyalty_points_awarded"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
@@ -330,6 +338,19 @@ export const restockAlerts = pgTable("restock_alerts", {
   notified: boolean("notified").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+// Réservations Platine : sécurise 1 unité pendant 48 h.
+export const productReservations = pgTable("product_reservations", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id").notNull(),
+  userToken: text("user_token").notNull(),
+  // active | consumed | expired | cancelled
+  status: text("status").notNull().default("active"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export type ProductReservation = typeof productReservations.$inferSelect
 
 // Réglages applicatifs clé/valeur (point de départ carte, contenu modale logistique).
 export const appSettings = pgTable("app_settings", {

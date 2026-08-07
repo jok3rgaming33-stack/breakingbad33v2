@@ -1,4 +1,6 @@
-// Règle de fidélité : 1 € dépensé = 1 point.
+// ─── Points de base ───────────────────────────────────────────────────────────
+// 1 € dépensé (montant payé net) = 1 point, puis × multiplicateur de palier.
+
 export const EUROS_PER_POINT = 1
 
 export function computeLoyaltyPoints(total: number): number {
@@ -6,22 +8,31 @@ export function computeLoyaltyPoints(total: number): number {
   return Math.floor(total / EUROS_PER_POINT)
 }
 
-// Récompenses échangeables contre des points.
-// minAmount = montant d'achat minimum requis pour utiliser le code généré.
+/** Points crédités sur une commande livrée, avec multi de palier. */
+export function computeTierPoints(orderTotal: number, multiplier: number): number {
+  const base = computeLoyaltyPoints(orderTotal)
+  if (base <= 0) return 0
+  const m = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1
+  return Math.max(0, Math.floor(base * m))
+}
+
+// ─── Récompenses (bons) ───────────────────────────────────────────────────────
+// minAmount = panier minimum pour utiliser le code.
+
 export type LoyaltyReward = {
   points: number
-  discount: number // en euros
+  discount: number
   minAmount: number
   label: string
 }
 
 export const LOYALTY_REWARDS: LoyaltyReward[] = [
   { points: 300, discount: 10, minAmount: 50, label: "-10€" },
-  { points: 500, discount: 20, minAmount: 100, label: "-20€" },
-  { points: 800, discount: 30, minAmount: 150, label: "-30€" },
+  { points: 600, discount: 20, minAmount: 100, label: "-20€" },
+  { points: 900, discount: 30, minAmount: 150, label: "-30€" },
 ]
 
-// ─── Paliers de fidélité (basés sur le total dépensé livré) ─────────────────
+// ─── Paliers ──────────────────────────────────────────────────────────────────
 
 export type LoyaltyTierId = "bronze" | "silver" | "gold" | "platinum"
 
@@ -29,7 +40,18 @@ export type LoyaltyTier = {
   id: LoyaltyTierId
   label: string
   minSpent: number
-  color: string // classes Tailwind badge
+  /** Multiplicateur de points sur chaque commande livrée */
+  pointsMultiplier: number
+  /** Emoji affiché à côté du pseudo (client + admin) */
+  emoji: string
+  /** File messagerie prioritaire côté admin */
+  priorityMessaging: boolean
+  /** Réservation produit avant les autres */
+  canReserve: boolean
+  /** Livraison offerte 1 mois (commandes ≥ freeDeliveryMinOrder) */
+  freeDelivery: boolean
+  freeDeliveryMinOrder: number
+  color: string
   perks: string[]
 }
 
@@ -38,37 +60,103 @@ export const LOYALTY_TIERS: LoyaltyTier[] = [
     id: "bronze",
     label: "Bronze",
     minSpent: 0,
+    pointsMultiplier: 1,
+    emoji: "",
+    priorityMessaging: false,
+    canReserve: false,
+    freeDelivery: false,
+    freeDeliveryMinOrder: 0,
     color: "bg-amber-700/20 text-amber-600 border-amber-700/40",
-    perks: ["1€ dépensé = 1 point", "Échange de points en codes promo"],
+    perks: [
+      "1€ payé = 1 point",
+      "Échange de points en bons -10 / -20 / -30€",
+      "Parrainage à la 1ʳᵉ livraison du filleul",
+    ],
   },
   {
     id: "silver",
     label: "Argent",
     minSpent: 100,
+    pointsMultiplier: 1.1,
+    emoji: "🥈",
+    priorityMessaging: false,
+    canReserve: false,
+    freeDelivery: false,
+    freeDeliveryMinOrder: 0,
     color: "bg-zinc-400/20 text-zinc-300 border-zinc-400/40",
-    perks: ["Tous les avantages Bronze", "Priorité relative en messagerie"],
+    perks: [
+      "+10 % de points sur chaque commande livrée",
+      "Bon -10€ toujours à 300 pts",
+      "Tous les avantages Bronze",
+    ],
   },
   {
     id: "gold",
     label: "Or",
     minSpent: 300,
+    pointsMultiplier: 1.2,
+    emoji: "🥇",
+    priorityMessaging: true,
+    canReserve: false,
+    freeDelivery: false,
+    freeDeliveryMinOrder: 0,
     color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/40",
-    perks: ["Tous les avantages Argent", "Accès anticipé aux drops (annonces)"],
+    perks: [
+      "+20 % de points sur chaque commande livrée",
+      "Priorité messagerie (file admin + badge)",
+      "Emoji 🥇 à côté de ton pseudo",
+      "Bon -20€ à 600 pts",
+      "Tous les avantages Argent",
+    ],
   },
   {
     id: "platinum",
     label: "Platine",
     minSpent: 600,
+    pointsMultiplier: 1.3,
+    emoji: "💎",
+    priorityMessaging: true,
+    canReserve: true,
+    freeDelivery: true,
+    freeDeliveryMinOrder: 90,
     color: "bg-cyan-400/20 text-cyan-300 border-cyan-400/40",
-    perks: ["Tous les avantages Or", "Support prioritaire + bonus parrainage"],
+    perks: [
+      "+30 % de points sur chaque commande livrée",
+      "Emoji 💎 — statut premium",
+      "Réservation produit (sécurise ton article 48 h)",
+      "Livraison offerte 1 mois sur commandes ≥ 90€",
+      "Bon -30€ à 900 pts",
+      "Bonus parrainage renforcé",
+      "Tous les avantages Or",
+    ],
   },
 ]
 
-/** Total dépensé sur commandes livrées → palier actuel + suivant */
+const TIER_RANK: Record<LoyaltyTierId, number> = {
+  bronze: 0,
+  silver: 1,
+  gold: 2,
+  platinum: 3,
+}
+
+export function tierRank(id: LoyaltyTierId | string | null | undefined): number {
+  if (!id) return 0
+  return TIER_RANK[id as LoyaltyTierId] ?? 0
+}
+
+export function getTierById(id: LoyaltyTierId | string | null | undefined): LoyaltyTier {
+  return LOYALTY_TIERS.find((t) => t.id === id) ?? LOYALTY_TIERS[0]
+}
+
+export function maxTierId(a: LoyaltyTierId, b: LoyaltyTierId): LoyaltyTierId {
+  return tierRank(a) >= tierRank(b) ? a : b
+}
+
+/** Total « statut » (CA qualifiant) → palier théorique + progression */
 export function getLoyaltyTier(totalSpentDelivered: number): {
   tier: LoyaltyTier
   next: LoyaltyTier | null
-  progress: number // 0–1 vers le palier suivant
+  progress: number
   spentToNext: number
 } {
   const spent = Math.max(0, Number.isFinite(totalSpentDelivered) ? totalSpentDelivered : 0)
@@ -92,16 +180,77 @@ export function getLoyaltyTier(totalSpentDelivered: number): {
   }
 }
 
-// ─── Parrainage ────────────────────────────────────────────────────────────
+/**
+ * Palier effectif = max(palier calculé sur CA, palier plancher / pic).
+ * → un bon utilisé ne rétrograde jamais le client.
+ */
+export function resolveEffectiveTier(
+  qualifyingSpend: number,
+  peakTierId?: LoyaltyTierId | string | null,
+): {
+  tier: LoyaltyTier
+  next: LoyaltyTier | null
+  progress: number
+  spentToNext: number
+  fromPeak: boolean
+} {
+  const calc = getLoyaltyTier(qualifyingSpend)
+  const peak = getTierById(peakTierId)
+  if (tierRank(peak.id) > tierRank(calc.tier.id)) {
+    // Garde le palier pic ; progression affichée vers le suivant du pic (ou max)
+    const idx = LOYALTY_TIERS.findIndex((t) => t.id === peak.id)
+    const next = idx >= 0 && idx < LOYALTY_TIERS.length - 1 ? LOYALTY_TIERS[idx + 1] : null
+    if (!next) {
+      return { tier: peak, next: null, progress: 1, spentToNext: 0, fromPeak: true }
+    }
+    // Progression vers le palier suivant du pic, basée sur le CA réel
+    const span = next.minSpent - peak.minSpent
+    const into = qualifyingSpend - peak.minSpent
+    const progress = span > 0 ? Math.min(1, Math.max(0, into / span)) : 0
+    return {
+      tier: peak,
+      next,
+      progress,
+      spentToNext: Math.max(0, next.minSpent - qualifyingSpend),
+      fromPeak: true,
+    }
+  }
+  return { ...calc, fromPeak: false }
+}
 
-/** Points offerts au filleul à sa 1ʳᵉ commande livrée (avec un code parrain) */
+/** Pseudo + emoji de palier (Or / Platine surtout). */
+export function formatPseudoWithTier(
+  pseudo: string,
+  tierId?: LoyaltyTierId | string | null,
+): string {
+  const t = getTierById(tierId)
+  if (!t.emoji) return pseudo
+  return `${t.emoji} ${pseudo}`
+}
+
+// ─── Impact des bons (sans dégoûter) ──────────────────────────────────────────
+/**
+ * Règle win-win :
+ * 1) Les POINTS sont calculés sur le montant PAYÉ (net) × multi palier.
+ *    → utiliser un -20€ réduit les points de CETTE commande (coût naturel du bon).
+ * 2) Le STATUT / palier regarde le CA « qualifiant » = net + remise fidélité
+ *    (on ne te fait pas perdre le fruit d’un gros panier à cause du bon).
+ * 3) Le palier ne DESCEND JAMAIS (peak_tier) une fois atteint.
+ *
+ * Résultat : le bon a un vrai coût (points + un peu de progression brute),
+ * mais tu ne redescends pas d’Or à Argent en l’utilisant.
+ */
+
+export const FREE_DELIVERY_DAYS = 30
+export const PLATINUM_FREE_DELIVERY_MIN = 90
+export const PRODUCT_RESERVE_HOURS = 48
+
+// ─── Parrainage ───────────────────────────────────────────────────────────────
+
 export const REFERRAL_BONUS_REFEREE = 30
-/** Points offerts au parrain à la 1ʳᵉ livraison du filleul */
 export const REFERRAL_BONUS_REFERRER = 50
-/** Bonus extra Platine pour le parrain (CA livré ≥ 600€) */
 export const REFERRAL_BONUS_PLATINUM_EXTRA = 25
 
-/** Génère un code parrain lisible (ex. HEIS-A3F9) à partir du pseudo + id */
 export function buildReferralCode(pseudo: string, userId: number): string {
   const clean = (pseudo || "USER")
     .normalize("NFD")
