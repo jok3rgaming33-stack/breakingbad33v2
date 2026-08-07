@@ -19,9 +19,12 @@ export default function LogoutPage() {
       const isAdminLocal = localStorage.getItem("isAdmin") === "1"
       if (token && !isAdminLocal) {
         try {
-          await recordLogout(token)
+          await Promise.race([
+            recordLogout(token),
+            new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+          ])
         } catch {
-          /* soft */
+          /* soft — on purgera la session quand même */
         }
       }
       if (cancelled) return
