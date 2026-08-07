@@ -86,7 +86,8 @@ export async function createAccount(token: string, pseudo: string) {
 }
 
 // Récupère le compte associé à une clé secrète (connexion d'un client existant).
-// Enregistre la connexion dans login_logs (fire-and-forget).
+// Journalise la connexion (await obligatoire sur serverless — le fire-and-forget
+// est tué dès que la server action renvoie sa réponse).
 export async function getAccount(token: string) {
   const { normalizeSecretKey } = await import("@/lib/normalize-token")
   const t = normalizeSecretKey(token)
@@ -94,8 +95,7 @@ export async function getAccount(token: string) {
   const rows = await db.select().from(users).where(eq(users.token, t)).limit(1)
   const account = rows[0] ?? null
   if (account) {
-    // Fire-and-forget : ne bloque pas la réponse
-    recordLogin(t).catch(() => {})
+    await recordLogin(t)
   }
   return account
 }
