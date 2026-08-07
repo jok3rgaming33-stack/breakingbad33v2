@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react"
 import { getUser360, type User360Data } from "@/app/actions/user-360"
-import { validateAndPurge, rejectVerification } from "@/app/actions/verification"
+import {
+  validateAndPurge,
+  rejectVerification,
+  adminForceValidateKyc,
+} from "@/app/actions/verification"
 import { OrderStatusTimeline } from "@/components/order-status-timeline"
 import { statusMeta } from "@/lib/order-status"
 import {
@@ -93,32 +97,64 @@ export function AdminUser360({ userId, onClose }: Props) {
   }, [userId])
 
   const handleValidateKyc = async () => {
-    if (!data?.verification || kycBusy) return
-    if (String(data.verification.status).toLowerCase() === "validated") return
-    if (!window.confirm(`Valider le KYC de ${data.pseudo} ? La vidéo sera purgée, la photo conservée.`)) return
+    if (!data || kycBusy) return
+    if (data.verification && String(data.verification.status).toLowerCase() === "validated") return
+
+    const hasSubmission = !!data.verification
+    const okConfirm = window.confirm(
+      hasSubmission
+        ? `Valider le KYC de ${data.pseudo} ? La vidéo sera purgée, la photo conservée.`
+        : `Valider manuellement le KYC de ${data.pseudo} ?\n\nAucune pièce n'a été soumise : le compte sera marqué vérifié sans selfie/vidéo.`,
+    )
+    if (!okConfirm) return
+
     setKycBusy(true)
     setKycMsg(null)
     setKycErr(null)
     try {
-      const res = await validateAndPurge(data.verification.id)
-      if (!res.ok) {
-        setKycErr(res.error ?? "Échec validation.")
-        return
+      if (hasSubmission && data.verification) {
+        const res = await validateAndPurge(data.verification.id)
+        if (!res.ok) {
+          setKycErr(res.error ?? "Échec validation.")
+          return
+        }
+        setKycMsg("Vérification validée.")
+        setData((prev) =>
+          prev && prev.verification
+            ? {
+                ...prev,
+                verification: {
+                  ...prev.verification,
+                  status: "validated",
+                  validatedAt: new Date().toISOString(),
+                  videoPathname: null,
+                },
+              }
+            : prev,
+        )
+      } else {
+        const res = await adminForceValidateKyc(data.token)
+        if (!res.ok) {
+          setKycErr(res.error ?? "Échec validation manuelle.")
+          return
+        }
+        setKycMsg("KYC validé manuellement (sans pièce jointe).")
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                verification: {
+                  id: res.id,
+                  status: "validated",
+                  createdAt: new Date().toISOString(),
+                  validatedAt: new Date().toISOString(),
+                  photoPathname: null,
+                  videoPathname: null,
+                },
+              }
+            : prev,
+        )
       }
-      setKycMsg("Vérification validée.")
-      setData((prev) =>
-        prev && prev.verification
-          ? {
-              ...prev,
-              verification: {
-                ...prev.verification,
-                status: "validated",
-                validatedAt: new Date().toISOString(),
-                videoPathname: null,
-              },
-            }
-          : prev,
-      )
     } catch {
       setKycErr("Erreur réseau.")
     } finally {
@@ -283,143 +319,152 @@ export function AdminUser360({ userId, onClose }: Props) {
                 </div>
               </section>
 
-              {/* Vérification d'identité — validation directe */}
+              {/* Vérification d'identité — validation directe ou manuelle */}
               <section className="rounded-2xl border border-border bg-background/50 p-4">
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-bold">
                   <ShieldCheck className="h-4 w-4 text-accent" aria-hidden="true" />
                   Vérification d&apos;identité
                 </h3>
 
-                {!data.verification ? (
-                  <p className="text-xs text-muted-foreground">
-                    Aucune vérification soumise pour ce compte.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span
-                        className={`rounded-full px-2.5 py-1 font-semibold ${
-                          data.verification.status === "validated"
-                            ? "bg-emerald-500/15 text-emerald-400"
-                            : data.verification.status === "pending"
-                              ? "bg-amber-500/15 text-amber-300"
-                              : "bg-secondary text-muted-foreground"
-                        }`}
-                      >
-                        {data.verification.status === "pending"
-                          ? "En attente"
-                          : data.verification.status === "validated"
-                            ? "Validée"
-                            : data.verification.status}
-                      </span>
-                      <span className="text-muted-foreground">
-                        Soumise le {formatDate(data.verification.createdAt)}
-                      </span>
-                      {data.verification.validatedAt && (
-                        <span className="text-muted-foreground">
-                          · validée le {formatDate(data.verification.validatedAt)}
+                <div className="space-y-3">
+                  {!data.verification ? (
+                    <>
+                      <p className="text-xs text-muted-foreground">
+                        Aucune vérification soumise pour ce compte.
+                      </p>
+                      <p className="text-[11px] text-amber-200/90">
+                        Tu peux quand même marquer ce client comme vérifié (validation manuelle admin).
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span
+                          className={`rounded-full px-2.5 py-1 font-semibold ${
+                            data.verification.status === "validated"
+                              ? "bg-emerald-500/15 text-emerald-400"
+                              : data.verification.status === "pending"
+                                ? "bg-amber-500/15 text-amber-300"
+                                : "bg-secondary text-muted-foreground"
+                          }`}
+                        >
+                          {data.verification.status === "pending"
+                            ? "En attente"
+                            : data.verification.status === "validated"
+                              ? "Validée"
+                              : data.verification.status}
                         </span>
-                      )}
-                    </div>
-
-                    {(data.verification.photoPathname || data.verification.videoPathname) && (
-                      <div className="flex flex-wrap gap-2">
-                        {data.verification.photoPathname && (
-                          <a
-                            href={verificationFileUrl(data.verification.photoPathname)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium hover:border-accent/40"
-                          >
-                            <ImageIcon className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-                            Voir la photo
-                          </a>
-                        )}
-                        {data.verification.videoPathname && (
-                          <a
-                            href={verificationFileUrl(data.verification.videoPathname)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium hover:border-accent/40"
-                          >
-                            <Video className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-                            Voir la vidéo
-                          </a>
+                        <span className="text-muted-foreground">
+                          Soumise le {formatDate(data.verification.createdAt)}
+                        </span>
+                        {data.verification.validatedAt && (
+                          <span className="text-muted-foreground">
+                            · validée le {formatDate(data.verification.validatedAt)}
+                          </span>
                         )}
                       </div>
-                    )}
 
-                    {kycMsg && (
-                      <p className="rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
-                        {kycMsg}
-                      </p>
-                    )}
-                    {kycErr && (
-                      <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                        {kycErr}
-                      </p>
-                    )}
-
-                    {/* Boutons si pas encore validé (pending ou statut inattendu) */}
-                    {String(data.verification.status || "").toLowerCase() !== "validated" && (
-                      <div className="flex flex-col gap-2 border-t border-border pt-3">
-                        <p className="text-[11px] font-medium text-amber-200/90">
-                          Cette vérification peut être traitée ici sans passer par l&apos;onglet Vérifications.
-                        </p>
+                      {(data.verification.photoPathname || data.verification.videoPathname) && (
                         <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={kycBusy}
-                            onClick={() => void handleValidateKyc()}
-                            className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-accent-foreground shadow-[0_0_20px_rgba(62,103,87,0.25)] transition-opacity hover:opacity-90 disabled:opacity-50"
-                          >
-                            {kycBusy ? (
-                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                            ) : (
-                              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                            )}
-                            Valider la vérification
-                          </button>
-                          <button
-                            type="button"
-                            disabled={kycBusy}
-                            onClick={() => {
-                              setRejectOpen((v) => !v)
-                              setKycErr(null)
-                            }}
-                            className="inline-flex items-center gap-2 rounded-xl border border-destructive/40 px-4 py-2.5 text-xs font-bold text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
-                          >
-                            <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
-                            Refuser
-                          </button>
+                          {data.verification.photoPathname && (
+                            <a
+                              href={verificationFileUrl(data.verification.photoPathname)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium hover:border-accent/40"
+                            >
+                              <ImageIcon className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+                              Voir la photo
+                            </a>
+                          )}
+                          {data.verification.videoPathname && (
+                            <a
+                              href={verificationFileUrl(data.verification.videoPathname)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium hover:border-accent/40"
+                            >
+                              <Video className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+                              Voir la vidéo
+                            </a>
+                          )}
                         </div>
+                      )}
+                    </>
+                  )}
 
-                        {rejectOpen && (
-                          <div className="rounded-xl border border-border bg-card p-3">
-                            <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-                              Justification (envoyée au client)
-                            </label>
-                            <textarea
-                              value={rejectReason}
-                              onChange={(e) => setRejectReason(e.target.value)}
-                              rows={3}
-                              placeholder="Ex. photo floue, site non visible…"
-                              className="mb-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-accent"
-                            />
+                  {kycMsg && (
+                    <p className="rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+                      {kycMsg}
+                    </p>
+                  )}
+                  {kycErr && (
+                    <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      {kycErr}
+                    </p>
+                  )}
+
+                  {(!data.verification ||
+                    String(data.verification.status || "").toLowerCase() !== "validated") && (
+                    <div className="flex flex-col gap-2 border-t border-border pt-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={kycBusy}
+                          onClick={() => void handleValidateKyc()}
+                          className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-accent-foreground shadow-[0_0_20px_rgba(62,103,87,0.25)] transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {kycBusy ? (
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                          )}
+                          {data.verification
+                            ? "Valider la vérification"
+                            : "Valider KYC manuellement"}
+                        </button>
+                        {data.verification &&
+                          String(data.verification.status).toLowerCase() !== "validated" && (
                             <button
                               type="button"
-                              disabled={kycBusy || !rejectReason.trim()}
-                              onClick={() => void handleRejectKyc()}
-                              className="rounded-lg bg-destructive px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
+                              disabled={kycBusy}
+                              onClick={() => {
+                                setRejectOpen((v) => !v)
+                                setKycErr(null)
+                              }}
+                              className="inline-flex items-center gap-2 rounded-xl border border-destructive/40 px-4 py-2.5 text-xs font-bold text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
                             >
-                              Confirmer le refus
+                              <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                              Refuser
                             </button>
-                          </div>
-                        )}
+                          )}
                       </div>
-                    )}
-                  </div>
-                )}
+
+                      {rejectOpen && data.verification && (
+                        <div className="rounded-xl border border-border bg-card p-3">
+                          <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+                            Justification (envoyée au client)
+                          </label>
+                          <textarea
+                            value={rejectReason}
+                            onChange={(e) => setRejectReason(e.target.value)}
+                            rows={3}
+                            placeholder="Ex. photo floue, site non visible…"
+                            className="mb-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-accent"
+                          />
+                          <button
+                            type="button"
+                            disabled={kycBusy || !rejectReason.trim()}
+                            onClick={() => void handleRejectKyc()}
+                            className="rounded-lg bg-destructive px-3 py-2 text-xs font-bold text-white disabled:opacity-40"
+                          >
+                            Confirmer le refus
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </section>
 
               <section>

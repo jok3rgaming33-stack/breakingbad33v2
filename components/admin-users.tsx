@@ -29,7 +29,7 @@ import { AdminUser360 } from "@/components/admin-user-360"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { createGeneralInquiryThread } from "@/app/actions/messaging"
 import { grantRestoreAccess } from "@/app/actions/restore-access"
-import { validateAndPurge } from "@/app/actions/verification"
+import { validateAndPurge, adminForceValidateKyc } from "@/app/actions/verification"
 
 const FLAG_OPTIONS: { value: string; label: string; short: string; className: string }[] = [
   { value: "absent", label: "Absent lors de la livraison", short: "Absent", className: "bg-amber-500/15 text-amber-500 border-amber-500/30" },
@@ -401,19 +401,33 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [kycValidatingId, setKycValidatingId] = useState<number | null>(null)
 
   const handleValidateKyc = async (u: AdminUserRow) => {
-    if (!u.kycId || u.kycStatus !== "pending") return
-    if (!window.confirm(`Valider le KYC de ${u.pseudo} ?`)) return
+    if (u.kycStatus === "validated" || kycValidatingId === u.id) return
+    const hasPending = u.kycStatus === "pending" && u.kycId != null
+    const ok = window.confirm(
+      hasPending
+        ? `Valider le KYC de ${u.pseudo} ?`
+        : `Valider manuellement le KYC de ${u.pseudo} ?\n\nAucune pièce soumise : le compte sera marqué vérifié sans selfie.`,
+    )
+    if (!ok) return
     setKycValidatingId(u.id)
     try {
-      const res = await validateAndPurge(u.kycId)
+      const res = hasPending
+        ? await validateAndPurge(u.kycId!)
+        : await adminForceValidateKyc(u.token)
       if (res.ok) {
         setUsers((prev) =>
           prev.map((row) =>
-            row.id === u.id ? { ...row, kycStatus: "validated" } : row,
+            row.id === u.id
+              ? {
+                  ...row,
+                  kycStatus: "validated",
+                  kycId: "id" in res && res.id ? res.id : row.kycId,
+                }
+              : row,
           ),
         )
       } else {
-        window.alert(res.error ?? "Échec de la validation.")
+        window.alert(("error" in res && res.error) || "Échec de la validation.")
       }
     } catch {
       window.alert("Erreur réseau.")
@@ -424,20 +438,30 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
 
   const actionButtons = (u: AdminUserRow) => (
     <div className="flex shrink-0 items-center justify-end gap-1.5">
-      {u.kycStatus === "pending" && u.kycId != null && (
+      {u.kycStatus !== "validated" && (
         <button
           type="button"
           onClick={() => void handleValidateKyc(u)}
           disabled={kycValidatingId === u.id}
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 text-xs font-bold text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
-          title="Valider la vérification d'identité"
+          className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-bold transition-colors disabled:opacity-50 ${
+            u.kycStatus === "pending"
+              ? "border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+              : "border-accent/40 bg-accent/10 text-accent hover:bg-accent/20"
+          }`}
+          title={
+            u.kycStatus === "pending"
+              ? "Valider la vérification soumise"
+              : "Valider KYC manuellement (sans pièce)"
+          }
         >
           {kycValidatingId === u.id ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
           ) : (
             <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
           )}
-          <span className="hidden sm:inline">Valider KYC</span>
+          <span className="hidden sm:inline">
+            {u.kycStatus === "pending" ? "Valider KYC" : "Marquer KYC"}
+          </span>
         </button>
       )}
       <button
@@ -713,7 +737,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                           OK
                         </span>
                       ) : (
-                        <span className="text-[10px] text-muted-foreground">—</span>
+                        <span className="text-[10px] font-medium text-zinc-500">Non vérifié</span>
                       )}
                     </td>
                     <td className="px-3 py-3">

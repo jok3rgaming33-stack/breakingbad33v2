@@ -157,6 +157,63 @@ export async function listVerifications(): Promise<VerificationRow[]> {
   })
 }
 
+/**
+ * Validation KYC manuelle (admin) — même sans selfie/vidéo soumis.
+ * Crée ou met à jour user_verifications en status "validated".
+ * Utile pour passer un client (ex. déjà connu) sans dossier en attente.
+ */
+export async function adminForceValidateKyc(token: string): Promise<
+  { ok: true; id: number } | { ok: false; error: string }
+> {
+  try {
+    if (!(await isAdminAuthenticated())) return { ok: false, error: "unauthorized" }
+    const t = token?.trim()
+    if (!t) return { ok: false, error: "Token manquant." }
+
+    const account = await db.select().from(users).where(eq(users.token, t)).limit(1)
+    const pseudo = account[0]?.pseudo ?? null
+    if (!account[0]) return { ok: false, error: "Compte introuvable." }
+
+    const existing = await db
+      .select({ id: userVerifications.id, status: userVerifications.status })
+      .from(userVerifications)
+      .where(eq(userVerifications.userToken, t))
+      .limit(1)
+
+    if (existing[0]) {
+      // Dossier déjà présent : même pipeline que validateAndPurge (purge vidéo si besoin)
+      if (existing[0].status === "validated") {
+        return { ok: true, id: existing[0].id }
+      }
+      const res = await validateAndPurge(existing[0].id)
+      if (!res.ok) return { ok: false, error: res.error ?? "Échec validation." }
+      return { ok: true, id: existing[0].id }
+    }
+
+    const [row] = await db
+      .insert(userVerifications)
+      .values({
+        userToken: t,
+        pseudo,
+        photoPathname: null,
+        videoPathname: null,
+        siteName: "validation-manuelle-admin",
+        recordedAt: new Date().toISOString(),
+        status: "validated",
+        validatedAt: new Date(),
+      })
+      .returning({ id: userVerifications.id })
+
+    if (!row) return { ok: false, error: "Insertion impossible." }
+
+    revalidatePath("/admin")
+    return { ok: true, id: row.id }
+  } catch (e) {
+    console.error("[verification] adminForceValidateKyc failed:", e)
+    return { ok: false, error: "Erreur serveur." }
+  }
+}
+
 // Valide la 1re livraison : supprime UNIQUEMENT la vidéo du Blob et marque "validated".
 // La photo est conservée et reste accessible à la demande depuis le panel admin.
 export async function validateAndPurge(id: number) {
