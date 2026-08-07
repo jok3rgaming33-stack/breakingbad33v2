@@ -11,11 +11,16 @@ import {
   CheckCircle2,
   Clock,
   MessageSquare,
+  Link2,
+  AlertTriangle,
 } from "lucide-react"
 import {
   getRatingsAdminOverview,
   sendRatingInvites,
+  analyzeProductIdBackfill,
+  applyProductIdBackfill,
   type RatingInviteTarget,
+  type ProductIdBackfillAnalysis,
 } from "@/app/actions/ratings"
 
 function formatDate(d: Date | string) {
@@ -41,6 +46,15 @@ export function AdminRatings() {
   const [sending, setSending] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+
+  // Backfill product_ids
+  const [backfill, setBackfill] = useState<ProductIdBackfillAnalysis | null>(null)
+  const [backfillLoading, setBackfillLoading] = useState(false)
+  const [backfillApplying, setBackfillApplying] = useState(false)
+  /** Associations manuelles : clé = terme normalisé approximatif (on envoie le terme brut) */
+  const [manualMap, setManualMap] = useState<Record<string, number>>({})
+  const [backfillMsg, setBackfillMsg] = useState<string | null>(null)
+  const [backfillErr, setBackfillErr] = useState<string | null>(null)
 
   const targets = data?.targets ?? []
   const stats = data?.stats
@@ -98,6 +112,53 @@ export function AdminRatings() {
     void handleSend([t.threadId])
   }
 
+  const runBackfillAnalysis = async () => {
+    setBackfillLoading(true)
+    setBackfillMsg(null)
+    setBackfillErr(null)
+    try {
+      const res = await analyzeProductIdBackfill()
+      setBackfill(res)
+      setManualMap({})
+    } catch {
+      setBackfillErr("Analyse impossible (réseau).")
+    } finally {
+      setBackfillLoading(false)
+    }
+  }
+
+  const applyBackfill = async () => {
+    if (backfillApplying) return
+    setBackfillApplying(true)
+    setBackfillMsg(null)
+    setBackfillErr(null)
+    try {
+      const res = await applyProductIdBackfill({ mappings: manualMap })
+      if (!res.ok) {
+        setBackfillErr(res.error)
+        return
+      }
+      setBackfillMsg(
+        `${res.updated} commande${res.updated > 1 ? "s" : ""} mise${res.updated > 1 ? "s" : ""} à jour` +
+          (res.skipped ? ` · ${res.skipped} ignorée${res.skipped > 1 ? "s" : ""}` : "") +
+          (res.stillBlocked.length
+            ? ` · encore bloquée(s) : ${res.stillBlocked.slice(0, 5).join(" ; ")}`
+            : ""),
+      )
+      // Re-analyse + refresh cibles de relance
+      const next = await analyzeProductIdBackfill()
+      setBackfill(next)
+      await mutate()
+    } catch {
+      setBackfillErr("Échec application.")
+    } finally {
+      setBackfillApplying(false)
+    }
+  }
+
+  const mappedCount = Object.keys(manualMap).filter((k) => manualMap[k]! > 0).length
+  const uncertainLeft = (backfill?.uncertainTerms ?? []).filter((u) => !manualMap[u.term]).length
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -120,6 +181,206 @@ export function AdminRatings() {
           Actualiser
         </button>
       </div>
+
+      {/* ═══ Rattachement archives ═══ */}
+      <section className="rounded-2xl border border-border bg-card p-5">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-base font-bold">
+              <Link2 className="h-4 w-4 text-accent" aria-hidden="true" />
+              Rattacher les IDs (archives)
+            </h3>
+            <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+              Analyse les commandes livrées <strong className="text-foreground">sans productIds</strong>{" "}
+              à partir du texte récap (ex. « 1x Coke ×2 »). Les matches sûrs sont proposés
+              automatiquement ; les termes ambigus t&apos;attendent ci-dessous pour association manuelle.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void runBackfillAnalysis()}
+            disabled={backfillLoading}
+            className="flex items-center gap-2 self-start rounded-xl border border-border bg-background px-4 py-2 text-xs font-bold transition-colors hover:bg-secondary disabled:opacity-50"
+          >
+            {backfillLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            Analyser les archives
+          </button>
+        </div>
+
+        {backfillErr && (
+          <p className="mb-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {backfillErr}
+          </p>
+        )}
+        {backfillMsg && (
+          <p className="mb-3 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+            {backfillMsg}
+          </p>
+        )}
+
+        {backfill && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: "Sans IDs", value: backfill.stats.ordersWithoutIds },
+                { label: "Prêtes (auto)", value: backfill.stats.fullyResolvable },
+                { label: "Bloquées", value: backfill.stats.blockedByUncertain },
+                { label: "Termes à valider", value: backfill.stats.uniqueUncertainTerms },
+              ].map((s) => (
+                <div key={s.label} className="rounded-xl border border-border bg-background/60 px-3 py-2">
+                  <p className="text-[10px] text-muted-foreground">{s.label}</p>
+                  <p className="text-lg font-bold tabular-nums">{s.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Termes incertains → association manuelle */}
+            {backfill.uncertainTerms.length > 0 ? (
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-200">
+                  <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                  Termes non sûrs — associe-les au bon produit
+                </div>
+                <ul className="space-y-2">
+                  {backfill.uncertainTerms.map((u) => (
+                    <li
+                      key={u.term}
+                      className="flex flex-col gap-2 rounded-lg border border-border bg-card px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-mono text-sm font-semibold text-foreground">
+                          « {u.term} »
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {u.count} occurrence{u.count > 1 ? "s" : ""} · cmd{" "}
+                          {u.orderIds
+                            .slice(0, 6)
+                            .map((id) => `#${id}`)
+                            .join(", ")}
+                          {u.orderIds.length > 6 ? "…" : ""}
+                        </p>
+                      </div>
+                      <select
+                        value={manualMap[u.term] ?? ""}
+                        onChange={(e) => {
+                          const v = Number(e.target.value)
+                          setManualMap((prev) => {
+                            const next = { ...prev }
+                            if (!v) delete next[u.term]
+                            else next[u.term] = v
+                            return next
+                          })
+                        }}
+                        className="w-full max-w-xs rounded-lg border border-border bg-background px-3 py-2 text-xs outline-none focus:border-accent sm:w-64"
+                      >
+                        <option value="">— Choisir un produit —</option>
+                        {u.candidates.length > 0 && (
+                          <optgroup label="Suggestions">
+                            {u.candidates.map((c) => (
+                              <option key={`s-${c.id}`} value={c.id}>
+                                #{c.id} · {c.title}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        <optgroup label="Catalogue complet">
+                          {backfill.catalog.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              #{c.id} · {c.title}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </select>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Associés : {mappedCount} / {backfill.uncertainTerms.length}
+                  {uncertainLeft > 0 ? ` · reste ${uncertainLeft}` : " · tous associés ✓"}
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Aucun terme ambigu — tous les rattachements détectés sont sûrs (ou aucune archive sans
+                IDs).
+              </p>
+            )}
+
+            {/* Aperçu commandes prêtes / bloquées */}
+            {backfill.orders.length > 0 && (
+              <div className="max-h-56 overflow-y-auto rounded-xl border border-border">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-card">
+                    <tr className="border-b border-border text-left text-muted-foreground">
+                      <th className="px-3 py-2">#</th>
+                      <th className="px-3 py-2">Client</th>
+                      <th className="px-3 py-2">Texte</th>
+                      <th className="px-3 py-2">État</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backfill.orders.slice(0, 80).map((o) => {
+                      // ready en tenant compte des mappings manuels
+                      const termsOk = o.terms.every((t) => {
+                        if (t.status === "matched") return true
+                        return !!manualMap[t.term]
+                      })
+                      const readyNow = o.terms.length > 0 && termsOk
+                      return (
+                        <tr key={o.threadId} className="border-b border-border/60 last:border-0">
+                          <td className="px-3 py-1.5 font-mono text-muted-foreground">#{o.threadId}</td>
+                          <td className="px-3 py-1.5">{o.customerName}</td>
+                          <td className="max-w-[220px] truncate px-3 py-1.5 text-muted-foreground">
+                            {o.productsText}
+                          </td>
+                          <td className="px-3 py-1.5">
+                            {readyNow ? (
+                              <span className="text-emerald-400">Prêt</span>
+                            ) : o.terms.length === 0 ? (
+                              <span className="text-zinc-500">Illisible</span>
+                            ) : (
+                              <span className="text-amber-300">
+                                {o.terms
+                                  .filter((t) => t.status !== "matched" && !manualMap[t.term])
+                                  .map((t) => t.term)
+                                  .join(", ") || "—"}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void applyBackfill()}
+                disabled={backfillApplying || backfill.stats.ordersWithoutIds === 0}
+                className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                {backfillApplying ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                Appliquer les rattachements
+              </button>
+              <p className="text-[11px] text-muted-foreground">
+                N&apos;écrit que les commandes 100 % résolues. N&apos;écrase jamais un productIds déjà
+                rempli.
+              </p>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
