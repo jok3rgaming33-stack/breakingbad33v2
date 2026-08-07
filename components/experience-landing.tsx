@@ -386,7 +386,7 @@ export function ExperienceLanding() {
         </div>
       </section>
 
-      <footer className="border-t border-white/[0.06] py-8 text-center text-xs text-zinc-600">
+      <div className="border-t border-white/[0.06] py-6 text-center text-xs text-zinc-600">
         <p>BreakingBad33 · Expérience client</p>
         <p className="mt-1">
           <Link href="/" className="underline-offset-2 hover:text-zinc-400 hover:underline">
@@ -395,7 +395,7 @@ export function ExperienceLanding() {
           {" · "}
           Conditions fidélité dans l’Espace fidélité une fois connecté
         </p>
-      </footer>
+      </div>
     </div>
   )
 }
