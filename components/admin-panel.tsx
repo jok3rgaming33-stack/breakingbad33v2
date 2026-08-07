@@ -28,13 +28,14 @@ import type { BroadcastNotificationRow } from "@/app/actions/notifications"
 import { adminLogout } from "@/app/actions/admin-auth"
 import { getAdminBadgeCounts } from "@/app/actions/messaging"
 import { AdminAppBadgeSync } from "@/components/app-badge-sync"
-import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox, Activity, Bell, CheckCheck, KeyRound, Wallet, Gift, LayoutDashboard } from "lucide-react"
+import { MessageSquare, Map, ListOrdered, Users, TrendingUp, LogOut, Construction, Eye, Newspaper, Package, Ticket, ShieldCheck, UserCog, Truck, Inbox, Activity, Bell, CheckCheck, KeyRound, Wallet, Gift, LayoutDashboard, Star } from "lucide-react"
 import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 import { AdminLoyalty } from "@/components/admin-loyalty"
 import { AdminDashboard } from "@/components/admin-dashboard"
+import { AdminRatings } from "@/components/admin-ratings"
 
-type TabId = "dashboard" | "commandes-en-cours" | "locker" | "cloturees" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "recuperations" | "produits" | "promos" | "logistique" | "crypto" | "news" | "admins" | "profits" | "connexions" | "notifications" | "staff" | "fidelite"
+type TabId = "dashboard" | "commandes-en-cours" | "locker" | "cloturees" | "messagerie" | "carte" | "commandes" | "utilisateurs" | "verifications" | "recuperations" | "produits" | "promos" | "logistique" | "crypto" | "news" | "admins" | "profits" | "connexions" | "notifications" | "staff" | "fidelite" | "notations"
 
 const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -46,6 +47,7 @@ const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "produits", label: "Produits", icon: Package },
   { id: "promos", label: "Codes promo", icon: Ticket },
   { id: "fidelite", label: "Fidélité PF", icon: Gift },
+  { id: "notations", label: "Notations", icon: Star },
   { id: "carte", label: "Carte interactive", icon: Map },
   { id: "logistique", label: "Logistique", icon: Truck },
   { id: "crypto", label: "Paiement XMR", icon: Wallet },
@@ -309,6 +311,8 @@ export function AdminPanel({
           <AdminPromos />
         ) : tab === "fidelite" ? (
           <AdminLoyalty />
+        ) : tab === "notations" ? (
+          <AdminRatings />
         ) : tab === "carte" ? (
           <AdminMap threads={initialThreads} />
         ) : tab === "logistique" ? (

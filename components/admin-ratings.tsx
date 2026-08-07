@@ -1,0 +1,379 @@
+"use client"
+
+import { useMemo, useState } from "react"
+import useSWR from "swr"
+import {
+  Star,
+  RefreshCw,
+  Send,
+  Loader2,
+  Package,
+  CheckCircle2,
+  Clock,
+  MessageSquare,
+} from "lucide-react"
+import {
+  getRatingsAdminOverview,
+  sendRatingInvites,
+  type RatingInviteTarget,
+} from "@/app/actions/ratings"
+
+function formatDate(d: Date | string) {
+  const date = typeof d === "string" ? new Date(d) : d
+  return date.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+export function AdminRatings() {
+  const { data, mutate, isLoading, isValidating } = useSWR(
+    "admin-ratings-overview",
+    () => getRatingsAdminOverview(),
+    { revalidateOnFocus: false },
+  )
+
+  const [filter, setFilter] = useState<"pending" | "all" | "done">("pending")
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [sending, setSending] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  const targets = data?.targets ?? []
+  const stats = data?.stats
+  const recent = data?.recentRatings ?? []
+
+  const filtered = useMemo(() => {
+    if (filter === "pending") return targets.filter((t) => t.pendingCount > 0)
+    if (filter === "done") return targets.filter((t) => t.pendingCount === 0)
+    return targets
+  }, [targets, filter])
+
+  const toggle = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectAllPendingVisible = () => {
+    const ids = filtered.filter((t) => t.pendingCount > 0).map((t) => t.threadId)
+    setSelected(new Set(ids))
+  }
+
+  const clearSelection = () => setSelected(new Set())
+
+  const handleSend = async (ids: number[]) => {
+    if (!ids.length || sending) return
+    setSending(true)
+    setMsg(null)
+    setErr(null)
+    try {
+      const res = await sendRatingInvites(ids)
+      if (!res.ok) {
+        setErr(res.error)
+        return
+      }
+      setMsg(
+        `${res.sent} invitation${res.sent > 1 ? "s" : ""} envoyée${res.sent > 1 ? "s" : ""}${
+          res.skipped ? ` · ${res.skipped} ignorée${res.skipped > 1 ? "s" : ""}` : ""
+        }.`,
+      )
+      setSelected(new Set())
+      await mutate()
+    } catch {
+      setErr("Échec réseau. Réessaie.")
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const sendOne = (t: RatingInviteTarget) => {
+    if (t.pendingCount <= 0) return
+    void handleSend([t.threadId])
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-xl font-bold">Notations</h2>
+          <p className="mt-0.5 max-w-2xl text-sm text-muted-foreground">
+            Relance les clients dont la commande est livrée et possède des{" "}
+            <span className="font-medium text-foreground">productIds</span>. Un produit ne peut être
+            noté qu&apos;une fois par commande. L&apos;invitation part sur le fil de commande avec le
+            bouton « Noter mes produits ».
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => mutate()}
+          disabled={isValidating}
+          className="flex items-center gap-2 self-start rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 ${isValidating ? "animate-spin" : ""}`} aria-hidden="true" />
+          Actualiser
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {[
+          {
+            label: "Commandes éligibles",
+            value: stats?.ordersWithProducts ?? "—",
+            icon: Package,
+          },
+          {
+            label: "À relancer",
+            value: stats?.pendingOrders ?? "—",
+            icon: Clock,
+          },
+          {
+            label: "Tout noté",
+            value: stats?.fullyRatedOrders ?? "—",
+            icon: CheckCircle2,
+          },
+          {
+            label: "Avis reçus",
+            value: stats?.totalRatings ?? "—",
+            icon: MessageSquare,
+          },
+          {
+            label: "Note moyenne",
+            value: stats?.avgScore != null ? `${stats.avgScore}/5` : "—",
+            icon: Star,
+          },
+        ].map(({ label, value, icon: Icon }) => (
+          <div key={label} className="rounded-2xl border border-border bg-card p-4">
+            <div className="mb-1 flex items-center gap-1.5 text-muted-foreground">
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+              <p className="text-xs">{label}</p>
+            </div>
+            <p className="text-2xl font-bold tabular-nums">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Actions de masse */}
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-3">
+        <div className="flex gap-1 rounded-xl bg-secondary/50 p-1">
+          {(
+            [
+              { id: "pending" as const, label: "À noter" },
+              { id: "all" as const, label: "Toutes" },
+              { id: "done" as const, label: "Complètes" },
+            ] as const
+          ).map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => {
+                setFilter(f.id)
+                setSelected(new Set())
+              }}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                filter === f.id
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={selectAllPendingVisible}
+          className="rounded-xl border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+        >
+          Tout sélectionner (visibles)
+        </button>
+        <button
+          type="button"
+          onClick={clearSelection}
+          disabled={!selected.size}
+          className="rounded-xl border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+        >
+          Vider
+        </button>
+
+        <button
+          type="button"
+          disabled={sending || selected.size === 0}
+          onClick={() => handleSend([...selected])}
+          className="ml-auto flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+        >
+          {sending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <Send className="h-3.5 w-3.5" aria-hidden="true" />
+          )}
+          Relancer ({selected.size})
+        </button>
+      </div>
+
+      {msg && (
+        <p className="rounded-xl border border-accent/30 bg-accent/10 px-4 py-2.5 text-sm text-accent">
+          {msg}
+        </p>
+      )}
+      {err && (
+        <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+          {err}
+        </p>
+      )}
+
+      {/* Table cibles */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16 text-muted-foreground">
+          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+          Chargement…
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-3xl border border-dashed border-border bg-card py-16 text-center">
+          <p className="font-medium">Aucune commande dans ce filtre</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Seules les commandes livrées avec productIds apparaissent ici.
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-card">
+                <th className="w-10 px-3 py-3" />
+                <th className="px-3 py-3 text-left font-semibold text-muted-foreground">#</th>
+                <th className="px-3 py-3 text-left font-semibold text-muted-foreground">Client</th>
+                <th className="px-3 py-3 text-left font-semibold text-muted-foreground">Commande</th>
+                <th className="px-3 py-3 text-left font-semibold text-muted-foreground">Notes</th>
+                <th className="px-3 py-3 text-left font-semibold text-muted-foreground">Invite</th>
+                <th className="px-3 py-3 text-left font-semibold text-muted-foreground">Date</th>
+                <th className="px-3 py-3 text-right font-semibold text-muted-foreground">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((t, i) => {
+                const canInvite = t.pendingCount > 0
+                return (
+                  <tr
+                    key={t.threadId}
+                    className={`border-b border-border last:border-0 ${
+                      i % 2 === 0 ? "bg-background" : "bg-card"
+                    }`}
+                  >
+                    <td className="px-3 py-2.5">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(t.threadId)}
+                        disabled={!canInvite}
+                        onChange={() => toggle(t.threadId)}
+                        className="h-4 w-4 rounded border-border accent-[#3e6757]"
+                        aria-label={`Sélectionner #${t.threadId}`}
+                      />
+                    </td>
+                    <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">
+                      #{t.threadId}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <div className="font-medium">{t.customerName}</div>
+                      <div className="max-w-[140px] truncate font-mono text-[10px] text-muted-foreground">
+                        {t.customerToken.slice(0, 12)}…
+                      </div>
+                    </td>
+                    <td className="max-w-[200px] px-3 py-2.5">
+                      <p className="truncate text-xs">{t.summary}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {t.fulfillment} · {t.total}€
+                      </p>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${
+                          t.pendingCount === 0
+                            ? "bg-emerald-500/15 text-emerald-400"
+                            : "bg-amber-500/15 text-amber-300"
+                        }`}
+                      >
+                        {t.ratedCount}/{t.productCount}
+                        {t.pendingCount > 0 ? ` · ${t.pendingCount} restant${t.pendingCount > 1 ? "s" : ""}` : " · ok"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-xs">
+                      {t.alreadyInvited ? (
+                        <span className="text-muted-foreground">Déjà envoyée</span>
+                      ) : (
+                        <span className="text-zinc-500">Jamais</span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px] text-muted-foreground">
+                      {formatDate(t.updatedAt)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <button
+                        type="button"
+                        disabled={!canInvite || sending}
+                        onClick={() => sendOne(t)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] font-semibold transition-colors hover:border-accent/40 hover:bg-accent/10 disabled:opacity-40"
+                      >
+                        <Send className="h-3 w-3" aria-hidden="true" />
+                        Relancer
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Derniers avis */}
+      <section>
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-bold">
+          <Star className="h-4 w-4 text-amber-400" aria-hidden="true" />
+          Derniers avis reçus
+        </h3>
+        {recent.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aucun avis pour l&apos;instant.</p>
+        ) : (
+          <ul className="divide-y divide-border rounded-2xl border border-border">
+            {recent.map((r) => (
+              <li
+                key={r.id}
+                className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {r.productTitle}
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      · {r.pseudo ?? "Client"} · cmd #{r.threadId}
+                    </span>
+                  </p>
+                  {r.comment && (
+                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{r.comment}</p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="inline-flex items-center gap-1 font-mono text-sm font-semibold text-amber-300">
+                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden="true" />
+                    {r.avgScore}
+                  </span>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {formatDate(r.createdAt)}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  )
+}
