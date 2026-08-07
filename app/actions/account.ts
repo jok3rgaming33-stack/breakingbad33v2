@@ -40,11 +40,20 @@ export async function createAccount(token: string, pseudo: string, referralCode?
   const p = pseudo?.trim()
   if (!t || t.length < 20 || !p) return { ok: false as const, error: "Paramètres invalides." }
 
-  await ensureFeatureSchema()
+  try {
+    await ensureFeatureSchema()
+  } catch {
+    /* soft — ne bloque pas la création */
+  }
 
   const existing = await db.select().from(users).where(eq(users.token, t)).limit(1)
   if (existing.length > 0) {
-    await recordLogin(t)
+    // Journal soft : ne doit jamais empêcher la reconnexion d'un compte existant
+    try {
+      await recordLogin(t)
+    } catch {
+      /* soft */
+    }
     return { ok: true as const, pseudo: existing[0].pseudo }
   }
 
@@ -131,13 +140,19 @@ export async function createAccount(token: string, pseudo: string, referralCode?
     }
   }
 
-  // Journalise l'IP pour faire respecter la limite mensuelle.
+  // Journalise l'IP pour faire respecter la limite mensuelle (soft : compte déjà créé).
   if (ip) {
-    await db.insert(accountCreations).values({ ip })
+    try {
+      await db.insert(accountCreations).values({ ip })
+    } catch (e) {
+      console.error("[account] accountCreations insert failed:", e)
+    }
   }
 
+  // Tout ce qui suit est optionnel : le compte existe déjà en base.
+  // Un échec ici ne doit JAMAIS faire croire au client que la création a échoué.
+
   // Message de bienvenue + bon de réduction unique (discussion vendeur → client).
-  // Non bloquant : un échec n'empêche jamais la création du compte.
   try {
     await sendWelcomePackage({ pseudo: p, token: t })
   } catch (e) {
@@ -145,17 +160,25 @@ export async function createAccount(token: string, pseudo: string, referralCode?
   }
 
   // Notifie le vendeur de l'arrivée d'un nouveau membre.
-  await notifyVendor({
-    title: "Nouveau membre",
-    body: referrer
-      ? `${p} vient de créer un compte (parrainé par ${referrer.pseudo} — bonus à la 1ʳᵉ livraison).`
-      : `${p} vient de créer un compte.`,
-    url: "/admin",
-    tag: "new-member",
-  })
+  try {
+    await notifyVendor({
+      title: "Nouveau membre",
+      body: referrer
+        ? `${p} vient de créer un compte (parrainé par ${referrer.pseudo} — bonus à la 1ʳᵉ livraison).`
+        : `${p} vient de créer un compte.`,
+      url: "/admin",
+      tag: "new-member",
+    })
+  } catch (e) {
+    console.error("[account] notifyVendor new member failed:", e)
+  }
 
   // Première connexion = création de compte (getAccount n'est pas appelé ici)
-  await recordLogin(t)
+  try {
+    await recordLogin(t)
+  } catch {
+    /* soft */
+  }
 
   return {
     ok: true as const,
@@ -407,17 +430,25 @@ export async function grantReferralBonusOnFirstDelivery(customerToken: string | 
 }
 
 // Récupère le compte associé à une clé secrète (connexion d'un client existant).
-// Journalise la connexion (await obligatoire sur serverless — le fire-and-forget
-// est tué dès que la server action renvoie sa réponse).
+// Le journal de connexion est best-effort : un échec n'empêche JAMAIS le login.
 export async function getAccount(token: string) {
   const { normalizeSecretKey } = await import("@/lib/normalize-token")
   const t = normalizeSecretKey(token)
   if (!t) return null
-  await ensureFeatureSchema()
+  try {
+    await ensureFeatureSchema()
+  } catch {
+    /* soft */
+  }
   const rows = await db.select().from(users).where(eq(users.token, t)).limit(1)
   const account = rows[0] ?? null
   if (account) {
-    await recordLogin(t)
+    // Soft total : jamais d'échec de login à cause des logs / géoloc / schéma
+    try {
+      await recordLogin(t)
+    } catch (e) {
+      console.error("[account] recordLogin on getAccount soft-fail:", e)
+    }
   }
   return account
 }

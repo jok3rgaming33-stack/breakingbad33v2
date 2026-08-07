@@ -264,13 +264,16 @@ export default function Home() {
     const token = userData?.token ?? (typeof window !== "undefined" ? localStorage.getItem("authToken") : null)
     const adminLocal =
       isAdmin || (typeof window !== "undefined" && localStorage.getItem("isAdmin") === "1")
-    // Journalise la déconnexion client avant de purger la session (await serverless).
+    // Journal soft : timeout court pour ne jamais bloquer la déconnexion UI.
     if (token && !adminLocal) {
       try {
         const { recordLogout } = await import("@/app/actions/login-logs")
-        await recordLogout(token)
+        await Promise.race([
+          recordLogout(token),
+          new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+        ])
       } catch {
-        /* soft */
+        /* soft — on purgera la session quand même */
       }
     }
     setIsAuthenticated(false)
