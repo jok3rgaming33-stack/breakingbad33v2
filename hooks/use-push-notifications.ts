@@ -28,6 +28,8 @@ export function usePushNotifications({ role, customerToken }: Options) {
   const [busy, setBusy] = useState(false)
 
   // Détecte le support et l'état d'abonnement courant au montage.
+  // Important mobile : ne PAS await serviceWorker.ready ici (peut pendre sous Safari/PWA).
+  // On enregistre le SW en fire-and-forget uniquement pour lire l'abonnement existant.
   useEffect(() => {
     const ok =
       typeof window !== "undefined" &&
@@ -42,11 +44,27 @@ export function usePushNotifications({ role, customerToken }: Options) {
     }
     setPermission(Notification.permission as PushStatus)
 
+    let cancelled = false
+    const t = window.setTimeout(() => {
+      // Timeout soft : si le SW ne répond pas (Safari mobile), on n'bloque rien
+      if (!cancelled) setSubscribed(false)
+    }, 2500)
+
     navigator.serviceWorker
       .register("/sw.js")
       .then((reg) => reg.pushManager.getSubscription())
-      .then((sub) => setSubscribed(!!sub))
-      .catch(() => {})
+      .then((sub) => {
+        if (!cancelled) setSubscribed(!!sub)
+      })
+      .catch(() => {
+        if (!cancelled) setSubscribed(false)
+      })
+      .finally(() => window.clearTimeout(t))
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(t)
+    }
   }, [])
 
   const subscribe = useCallback(async () => {

@@ -57,6 +57,7 @@ import Link from "next/link"
 import { PushToggle } from "@/components/push-toggle"
 import { AdminLoyalty } from "@/components/admin-loyalty"
 import { AdminDashboard } from "@/components/admin-dashboard"
+import type { AdminDashboardData } from "@/app/actions/admin-dashboard"
 import { AdminRatings } from "@/components/admin-ratings"
 
 type TabId =
@@ -133,6 +134,7 @@ export function AdminPanel({
   initialNotificationsHistory: BroadcastNotificationRow[]
   initialStaff: StaffRow[]
 }) {
+  // Mobile : démarrer sur commandes (SSR immédiat) plutôt que dashboard (server action).
   const [tab, setTab] = useState<TabId>("dashboard")
   const [focusThreadId, setFocusThreadId] = useState<number | null>(null)
   const [badges, setBadges] = useState({
@@ -144,23 +146,89 @@ export function AdminPanel({
     total: 0,
   })
 
+  // Seed dashboard depuis les données SSR déjà en page (aucun fetch mobile requis au 1er paint)
+  const dashboardSeed: AdminDashboardData = {
+    ordersActive: initialActiveOrders.length,
+    lockerActive: initialLockerOrders.length,
+    discussionsOpen: initialDiscussions.filter((t) =>
+      ["discussion", "pris_en_charge", "ouvert"].includes(t.status),
+    ).length,
+    verificationsPending: initialVerifications.filter((v) => v.status === "pending").length,
+    logins24h: initialLoginLogs.filter(
+      (l) => new Date(l.createdAt).getTime() > Date.now() - 24 * 60 * 60 * 1000,
+    ).length,
+    loginsToday: initialLoginLogs.filter((l) => {
+      const d = new Date(l.createdAt)
+      const now = new Date()
+      return d.toDateString() === now.toDateString()
+    }).length,
+    newUsers7d: initialUsers.filter(
+      (u) => new Date(u.createdAt).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000,
+    ).length,
+    unreadClientMessages: 0,
+    revenueDelivered30d: 0,
+    ordersDelivered30d: 0,
+    recentLogins: initialLoginLogs.slice(0, 8).map((l) => ({
+      id: l.id,
+      pseudo: l.pseudo,
+      city: l.city ?? null,
+      country: l.country ?? null,
+      createdAt: l.createdAt,
+    })),
+    recentOrders: [...initialActiveOrders, ...initialPastOrders]
+      .slice(0, 8)
+      .map((t) => ({
+        id: t.id,
+        customerName: t.customerName,
+        total: t.total ?? 0,
+        status: t.status,
+        fulfillment: t.fulfillment,
+        updatedAt: t.updatedAt,
+      })),
+    lockerReminders: { sent: 0, checked: 0 },
+    generatedAt: new Date().toISOString(),
+  }
+
+  useEffect(() => {
+    // Sur petit écran, ouvrir directement les commandes (données déjà hydratées).
+    // Ne pas écraser un deep-link ?tab= / thread.
+    try {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get("tab") || params.get("thread")) return
+      if (sessionStorage.getItem("bb33_admin_tab")) return
+      if (window.matchMedia("(max-width: 767px)").matches) {
+        setTab("commandes-en-cours")
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
   const refreshBadges = useCallback(async () => {
     try {
-      const c = await getAdminBadgeCounts()
-      setBadges(c)
+      // Timeout mobile : ne jamais bloquer l'UI
+      const c = await Promise.race([
+        getAdminBadgeCounts(),
+        new Promise<null>((r) => setTimeout(() => r(null), 6_000)),
+      ])
+      if (c) setBadges(c)
     } catch {
       /* silencieux */
     }
   }, [])
 
   useEffect(() => {
-    refreshBadges()
-    const interval = setInterval(refreshBadges, 12000)
+    // Délai court mobile : laisser peindre le panel avant les server actions
+    const start = window.setTimeout(() => {
+      void refreshBadges()
+    }, 400)
+    const interval = setInterval(refreshBadges, 15000)
     const onVis = () => {
-      if (document.visibilityState === "visible") refreshBadges()
+      if (document.visibilityState === "visible") void refreshBadges()
     }
     document.addEventListener("visibilitychange", onVis)
     return () => {
+      clearTimeout(start)
       clearInterval(interval)
       document.removeEventListener("visibilitychange", onVis)
     }
@@ -423,7 +491,10 @@ export function AdminPanel({
           )}
 
           {tab === "dashboard" ? (
-            <AdminDashboard onNavigate={(t) => setTab(t as TabId)} />
+            <AdminDashboard
+              onNavigate={(t) => setTab(t as TabId)}
+              seed={dashboardSeed}
+            />
           ) : tab === "commandes-en-cours" ? (
             <VendorInbox
               initialThreads={initialActiveOrders}

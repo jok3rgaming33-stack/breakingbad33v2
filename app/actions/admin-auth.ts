@@ -29,7 +29,9 @@ async function setSessionCookie(value: string) {
     // first-party uniquement : "lax" (évite les soucis SameSite=None / cookies 3P)
     sameSite: "lax",
     path: "/",
-    // Pas de maxAge → cookie de session : supprimé à la fermeture du navigateur.
+    // 7 jours : sur mobile/PWA un cookie de session pur est souvent purgé
+    // (Safari ITP / fermeture app) → re-login en boucle ou server actions sans cookie.
+    maxAge: 60 * 60 * 24 * 7,
   })
 }
 
