@@ -482,18 +482,13 @@ export function VendorInbox({
       setColissimoInput("")
       setEtaPreview(null)
       setColissimoOpen(true)
-      // Prévisualise le temps (server action = même point de départ carte que le message auto)
-      const t = threads.find((x) => x.id === selectedId)
-      if (
-        t?.fulfillment === "livraison" &&
-        typeof t.lat === "number" &&
-        typeof t.lng === "number"
-      ) {
+      // ETA via server action (GPS en base, sinon géocode adresse + persiste lat/lng)
+      if (selectedId != null) {
         setEtaLoading(true)
         void (async () => {
           try {
-            const { getDeliveryEta } = await import("@/app/actions/drive-eta")
-            const eta = await getDeliveryEta(t.lat as number, t.lng as number)
+            const { getDeliveryEtaForThread } = await import("@/app/actions/drive-eta")
+            const eta = await getDeliveryEtaForThread(selectedId)
             if (eta) setEtaPreview({ etaMin: eta.etaMin, driveMin: eta.driveMin })
           } catch {
             /* ignore */
@@ -1585,10 +1580,9 @@ export function VendorInbox({
               </div>
             )}
             {!etaLoading && !etaPreview && selected?.fulfillment === "livraison" && (
-              <p className="mt-3 text-xs text-muted-foreground">
-                {typeof selected.lat === "number" && typeof selected.lng === "number"
-                  ? "Impossible de calculer l'ETA pour le moment — le message partira sans estimation."
-                  : "Pas de coordonnées GPS sur cette commande — le message partira sans estimation de temps."}
+              <p className="mt-3 text-xs text-amber-400/90">
+                Impossible de calculer l&apos;ETA (adresse manquante ou géocode en échec).
+                Le message partira sans estimation — vérifie l&apos;adresse de la commande.
               </p>
             )}
 
