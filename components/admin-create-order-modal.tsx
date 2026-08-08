@@ -43,9 +43,11 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   const [meetupDate, setMeetupDate] = useState("")
   const [meetupSlot, setMeetupSlot] = useState("")
 
-  // Livraison domicile
+  // Livraison domicile (même logique jour + créneau que le checkout client)
   const [address, setAddress] = useState("")
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
+  const [deliveryDate, setDeliveryDate] = useState("")
+  const [deliverySlot, setDeliverySlot] = useState("")
 
   // Locker
   const [lockerAddress, setLockerAddress] = useState("")
@@ -62,6 +64,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   const total = subtotal + deliveryFee
 
   const meetupSlots = config?.meetupSlots ?? []
+  const deliverySlots = config?.deliverySlots ?? []
 
   // Produits filtrés
   const filtered = allProducts.filter((p) =>
@@ -94,6 +97,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
     if (!items.length) { setError("Ajoute au moins un article."); return }
     if (fulfillment === "meetup" && (!meetupDate || !meetupSlot)) { setError("Choisis une date et un créneau meet-up."); return }
     if (fulfillment === "livraison" && !address.trim()) { setError("Saisis l'adresse de livraison."); return }
+    if (fulfillment === "livraison" && (!deliveryDate || !deliverySlot)) { setError("Choisis une date et un créneau de livraison."); return }
     if (fulfillment === "locker" && !lockerAddress.trim()) { setError("Saisis l'adresse du point Locker."); return }
 
     setSubmitting(true)
@@ -108,6 +112,8 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
         deliveryFee: fulfillment === "livraison" ? deliveryFee : undefined,
         meetupDate: fulfillment === "meetup" ? meetupDate : undefined,
         meetupSlot: fulfillment === "meetup" ? meetupSlot : undefined,
+        deliveryDate: fulfillment === "livraison" ? deliveryDate : undefined,
+        deliverySlot: fulfillment === "livraison" ? deliverySlot : undefined,
         lockerAddress: fulfillment === "locker" ? lockerAddress : undefined,
       })
       if (!res.ok) { setError("Erreur lors de la création."); return }
@@ -355,7 +361,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
               </div>
             )}
 
-            {/* Livraison domicile */}
+            {/* Livraison domicile : adresse + date + créneau (comme le checkout client) */}
             {fulfillment === "livraison" && (
               <div className="space-y-3">
                 <div className="flex flex-col gap-1.5">
@@ -367,6 +373,41 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                     placeholder="Rue, ville…"
                     className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
                   />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Date</label>
+                    <input
+                      type="date"
+                      value={deliveryDate}
+                      onChange={(e) => setDeliveryDate(e.target.value)}
+                      min={new Date().toISOString().slice(0, 10)}
+                      className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Créneau</label>
+                    {deliverySlots.length > 0 ? (
+                      <select
+                        value={deliverySlot}
+                        onChange={(e) => setDeliverySlot(e.target.value)}
+                        className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                      >
+                        <option value="">Choisir…</option>
+                        {deliverySlots.map((s) => (
+                          <option key={s.id} value={s.label}>{s.label}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={deliverySlot}
+                        onChange={(e) => setDeliverySlot(e.target.value)}
+                        placeholder="ex: Lundi 18h-20h"
+                        className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                      />
+                    )}
+                  </div>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-medium text-muted-foreground">
