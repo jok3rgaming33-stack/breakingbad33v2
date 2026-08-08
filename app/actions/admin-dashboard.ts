@@ -47,7 +47,11 @@ export type AdminDashboardData = {
 
 export async function getAdminDashboard(): Promise<AdminDashboardData | null> {
   if (!(await isAdminAuthenticated())) return null
-  await ensureFeatureSchema()
+  try {
+    await ensureFeatureSchema()
+  } catch {
+    /* schema best-effort */
+  }
 
   const now = new Date()
   const dayStart = new Date(now)
@@ -56,13 +60,14 @@ export async function getAdminDashboard(): Promise<AdminDashboardData | null> {
   const d7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
   const d30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
 
-  // Rappels locker en best-effort (n'échoue pas le dashboard)
-  let lockerReminders = { sent: 0, checked: 0 }
-  try {
-    lockerReminders = await processLockerReminders()
-  } catch (e) {
-    console.error("[dashboard] locker reminders:", e)
-  }
+  // Rappels locker en arrière-plan : NE PAS await (web-push peut pendre → spinner infini).
+  // Le cron Vercel reste la source principale ; ici c'est un bonus soft.
+  const lockerReminders = { sent: 0, checked: 0 }
+  void processLockerReminders()
+    .then((r) => {
+      if (r.sent > 0) console.log("[dashboard] locker reminders sent:", r.sent)
+    })
+    .catch((e) => console.error("[dashboard] locker reminders:", e))
 
   const [
     ordersActiveRow,
