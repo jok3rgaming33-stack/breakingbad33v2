@@ -52,6 +52,37 @@ function avgOfFour(r: { quality: number; quantity: number; packaging: number; de
   return Math.round(((r.quality + r.quantity + r.packaging + r.delivery) / 4) * 10) / 10
 }
 
+/** Normalise product_ids (jsonb / string / number[]) → number[] uniques. */
+function normalizeProductIds(raw: unknown): number[] {
+  let v: unknown = raw
+  if (typeof v === "string") {
+    try {
+      v = JSON.parse(v)
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(v)) return []
+  const out: number[] = []
+  const seen = new Set<number>()
+  for (const x of v) {
+    const n = Math.trunc(Number(x))
+    if (!Number.isFinite(n) || n <= 0 || seen.has(n)) continue
+    seen.add(n)
+    out.push(n)
+  }
+  return out
+}
+
+/** Corps message invitation — tag EN PREMIER (détecté par MessageBody). */
+function buildRatingInviteBody(): string {
+  return [
+    RATING_INVITE_TAG,
+    "Ta satisfaction est importante.",
+    "Prends 1 minute pour noter tes produits — ça aide vraiment le labo !",
+  ].join("\n")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Soumission d'une note
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,7 +116,7 @@ export async function submitRating(params: {
   if (thread.status !== "livree") return { ok: false, error: "La commande doit être livrée pour noter." }
 
   // Vérifier que le productId figure dans les produits de la commande (productIds requis)
-  const pids = Array.isArray(thread.productIds) ? thread.productIds : []
+  const pids = normalizeProductIds(thread.productIds)
   if (!pids.length) return { ok: false, error: "Commande sans produits notifiables." }
   if (!pids.includes(productId)) return { ok: false, error: "Produit non commandé." }
 
@@ -135,9 +166,9 @@ export async function getRatableProducts(customerToken: string): Promise<Ratable
     .from(orderThreads)
     .where(and(eq(orderThreads.customerToken, token), eq(orderThreads.status, "livree")))
 
-  const withProducts = delivered.filter(
-    (t) => Array.isArray(t.productIds) && t.productIds.length > 0,
-  )
+  const withProducts = delivered
+    .map((t) => ({ id: t.id, productIds: normalizeProductIds(t.productIds) }))
+    .filter((t) => t.productIds.length > 0)
   if (!withProducts.length) return []
 
   // Avis déjà donnés
@@ -340,10 +371,7 @@ export async function getRatingsAdminOverview(): Promise<RatingAdminOverview> {
       .limit(400)
 
     const eligible = delivered.filter(
-      (o) =>
-        !!o.customerToken?.trim() &&
-        Array.isArray(o.productIds) &&
-        o.productIds.length > 0,
+      (o) => !!o.customerToken?.trim() && normalizeProductIds(o.productIds).length > 0,
     )
 
     const threadIds = eligible.map((o) => o.id)
@@ -378,7 +406,7 @@ export async function getRatingsAdminOverview(): Promise<RatingAdminOverview> {
           .from(threadMessages)
           .where(inArray(threadMessages.threadId, threadIds))
         for (const m of invites) {
-          if (m.body?.startsWith(RATING_INVITE_TAG)) invitedSet.add(m.threadId)
+          if (m.body?.includes(RATING_INVITE_TAG)) invitedSet.add(m.threadId)
         }
       } catch (e) {
         console.error("[ratings-admin] invite scan failed:", e)
@@ -386,7 +414,7 @@ export async function getRatingsAdminOverview(): Promise<RatingAdminOverview> {
     }
 
     const targets: RatingInviteTarget[] = eligible.map((o) => {
-      const pids = o.productIds
+      const pids = normalizeProductIds(o.productIds)
       const rated = ratedByThread.get(o.id) ?? new Set()
       let ratedCount = 0
       for (const pid of pids) {
@@ -532,15 +560,7 @@ export async function sendRatingInvites(
       ratedByThread.set(r.threadId, set)
     }
 
-    const body = [
-      RATING_INVITE_TAG,
-      "Bonjour ! Nous espérons que ta commande t'a plu.",
-      "",
-      "Prends 1 minute pour noter ton expérience produit par produit — ça nous aide vraiment à améliorer le labo.",
-      "",
-      "Merci,",
-      "Le chimiste",
-    ].join("\n")
+    const body = buildRatingInviteBody()
 
     let sent = 0
     let skipped = 0
@@ -555,26 +575,31 @@ export async function sendRatingInvites(
       }
       if (order.status !== "livree") {
         skipped++
+        errors.push(`#${id} : pas livrée (${order.status})`)
         continue
       }
       const token = order.customerToken?.trim()
       if (!token) {
         skipped++
+        errors.push(`#${id} : sans token client`)
         continue
       }
-      const pids = Array.isArray(order.productIds) ? order.productIds : []
+      const pids = normalizeProductIds(order.productIds)
       if (!pids.length) {
         skipped++
+        errors.push(`#${id} : productIds vide — rattache les produits d'abord`)
         continue
       }
       const rated = ratedByThread.get(id) ?? new Set()
       const pending = pids.filter((pid) => !rated.has(pid))
       if (!pending.length) {
         skipped++
+        errors.push(`#${id} : déjà tout noté`)
         continue
       }
 
       try {
+        // Message vendeur avec tag [NOTER_PRODUITS] → bouton côté client
         await db.insert(threadMessages).values({
           threadId: id,
           sender: "vendeur",
@@ -593,7 +618,7 @@ export async function sendRatingInvites(
             title: "Note ton expérience ⭐",
             body: "Un message t'attend pour noter les produits de ta commande livrée.",
             url: clientThreadUrl(open, id),
-            tag: `rating-invite-${id}`,
+            tag: `rating-invite-${id}-${Date.now()}`,
             threadId: id,
             open,
           })
@@ -611,6 +636,7 @@ export async function sendRatingInvites(
 
     revalidatePath("/admin")
     revalidatePath("/messagerie")
+    revalidatePath("/")
     return { ok: true, sent, skipped, errors }
   } catch (e) {
     console.error("[ratings-admin] sendRatingInvites failed:", e)

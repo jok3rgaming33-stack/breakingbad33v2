@@ -93,10 +93,17 @@ export function AdminRatings() {
         setErr(res.error)
         return
       }
+      const detail =
+        res.errors?.length > 0
+          ? ` ${res.errors.slice(0, 5).join(" · ")}${res.errors.length > 5 ? "…" : ""}`
+          : ""
       setMsg(
-        `${res.sent} invitation${res.sent > 1 ? "s" : ""} envoyée${res.sent > 1 ? "s" : ""}${
-          res.skipped ? ` · ${res.skipped} ignorée${res.skipped > 1 ? "s" : ""}` : ""
-        }.`,
+        `${res.sent} invitation${res.sent > 1 ? "s" : ""} envoyée${res.sent > 1 ? "s" : ""}` +
+          `${res.skipped ? ` · ${res.skipped} ignorée${res.skipped > 1 ? "s" : ""}` : ""}.` +
+          (res.sent > 0
+            ? " Message avec bouton « Noter mes produits » dans la commande (Mes commandes → Passées)."
+            : "") +
+          detail,
       )
       setSelected(new Set())
       await mutate()
