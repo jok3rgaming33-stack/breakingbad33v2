@@ -1,10 +1,12 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useTransition } from "react"
 import Image from "next/image"
 import type { OrderThread } from "@/lib/db/schema"
 import type { AdminUserRow } from "@/app/actions/account"
+import { listUsers } from "@/app/actions/account"
 import type { VerificationRow } from "@/app/actions/verification"
+import { listVerifications } from "@/app/actions/verification"
 import { VendorInbox } from "@/components/vendor-inbox"
 import { AdminOrdersRecap } from "@/components/admin-orders-recap"
 import { AdminUsers } from "@/components/admin-users"
@@ -12,6 +14,7 @@ import { AdminVerifications } from "@/components/admin-verifications"
 import { AdminAdmins } from "@/components/admin-admins"
 import { AdminStaff } from "@/components/admin-staff"
 import type { StaffRow } from "@/app/actions/staff"
+import { listStaff } from "@/app/actions/staff"
 import { AdminRecovery } from "@/components/admin-recovery"
 import { AdminMap } from "@/components/admin-map"
 import { AdminNews } from "@/components/admin-news"
@@ -22,12 +25,18 @@ import { AdminCartSettings } from "@/components/admin-cart-settings"
 import { AdminCryptoSettings } from "@/components/admin-crypto-settings"
 import { AdminLoginLogs } from "@/components/admin-login-logs"
 import type { LoginLogRow } from "@/app/actions/login-logs"
+import { listLoginLogs } from "@/app/actions/login-logs"
 import { AdminProfit } from "@/components/admin-profit"
 import type { ProfitSummary } from "@/app/actions/profit"
+import { getProfitData } from "@/app/actions/profit"
 import { AdminNotifications } from "@/components/admin-notifications"
 import type { BroadcastNotificationRow } from "@/app/actions/notifications"
+import { listBroadcastNotifications } from "@/app/actions/notifications"
 import { adminLogout } from "@/app/actions/admin-auth"
-import { getAdminBadgeCounts } from "@/app/actions/messaging"
+import {
+  getAdminBadgeCounts,
+  getThreads,
+} from "@/app/actions/messaging"
 import { AdminAppBadgeSync } from "@/components/app-badge-sync"
 import {
   MessageSquare,
@@ -52,12 +61,11 @@ import {
   Gift,
   LayoutDashboard,
   Star,
+  Loader2,
 } from "lucide-react"
 import Link from "next/link"
-import { PushToggle } from "@/components/push-toggle"
 import { AdminLoyalty } from "@/components/admin-loyalty"
 import { AdminDashboard } from "@/components/admin-dashboard"
-import type { AdminDashboardData } from "@/app/actions/admin-dashboard"
 import { AdminRatings } from "@/components/admin-ratings"
 
 type TabId =
@@ -109,33 +117,20 @@ const TABS: { id: TabId; label: string; icon: typeof MessageSquare }[] = [
   { id: "profits", label: "Profits", icon: TrendingUp },
 ]
 
-export function AdminPanel({
-  initialActiveOrders,
-  initialLockerOrders,
-  initialDiscussions,
-  initialThreads,
-  initialUsers,
-  initialVerifications,
-  initialLoginLogs,
-  initialProfitData,
-  initialNotificationsHistory,
-  initialPastOrders,
-  initialStaff,
-}: {
-  initialActiveOrders: OrderThread[]
-  initialLockerOrders: OrderThread[]
-  initialDiscussions: OrderThread[]
-  initialThreads: OrderThread[]
-  initialPastOrders: OrderThread[]
-  initialUsers: AdminUserRow[]
-  initialVerifications: VerificationRow[]
-  initialLoginLogs: LoginLogRow[]
-  initialProfitData: ProfitSummary
-  initialNotificationsHistory: BroadcastNotificationRow[]
-  initialStaff: StaffRow[]
-}) {
-  // Mobile : démarrer sur commandes (SSR immédiat) plutôt que dashboard (server action).
-  const [tab, setTab] = useState<TabId>("dashboard")
+const EMPTY_PROFIT: ProfitSummary = {
+  products: [],
+  totalRevenue: 0,
+  totalCost: 0,
+  totalNetProfit: 0,
+}
+
+/**
+ * Panel admin shell : aucune donnée SSR lourde.
+ * Chaque onglet charge en client (VendorInbox refresh auto, etc.).
+ */
+export function AdminPanel() {
+  // TOUJOURS démarrer sur commandes (journée active) — pas de spinner dashboard
+  const [tab, setTab] = useState<TabId>("commandes-en-cours")
   const [focusThreadId, setFocusThreadId] = useState<number | null>(null)
   const [badges, setBadges] = useState({
     orders: 0,
@@ -146,95 +141,23 @@ export function AdminPanel({
     total: 0,
   })
 
-  // Seed dashboard depuis les données SSR déjà en page (aucun fetch mobile requis au 1er paint)
-  const dashboardSeed: AdminDashboardData = {
-    ordersActive: initialActiveOrders.length,
-    lockerActive: initialLockerOrders.length,
-    discussionsOpen: initialDiscussions.filter((t) =>
-      ["discussion", "pris_en_charge", "ouvert"].includes(t.status),
-    ).length,
-    verificationsPending: initialVerifications.filter((v) => v.status === "pending").length,
-    logins24h: initialLoginLogs.filter(
-      (l) => new Date(l.createdAt).getTime() > Date.now() - 24 * 60 * 60 * 1000,
-    ).length,
-    loginsToday: initialLoginLogs.filter((l) => {
-      const d = new Date(l.createdAt)
-      const now = new Date()
-      return d.toDateString() === now.toDateString()
-    }).length,
-    newUsers7d: initialUsers.filter(
-      (u) => new Date(u.createdAt).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000,
-    ).length,
-    unreadClientMessages: 0,
-    revenueDelivered30d: 0,
-    ordersDelivered30d: 0,
-    recentLogins: initialLoginLogs.slice(0, 8).map((l) => ({
-      id: l.id,
-      pseudo: l.pseudo,
-      city: l.city ?? null,
-      country: l.country ?? null,
-      createdAt: l.createdAt,
-    })),
-    recentOrders: [...initialActiveOrders, ...initialPastOrders]
-      .slice(0, 8)
-      .map((t) => ({
-        id: t.id,
-        customerName: t.customerName,
-        total: t.total ?? 0,
-        status: t.status,
-        fulfillment: t.fulfillment,
-        updatedAt: t.updatedAt,
-      })),
-    lockerReminders: { sent: 0, checked: 0 },
-    generatedAt: new Date().toISOString(),
-  }
+  // Caches client pour onglets secondaires (chargés à la demande)
+  const [threads, setThreads] = useState<OrderThread[]>([])
+  const [users, setUsers] = useState<AdminUserRow[]>([])
+  const [verifications, setVerifications] = useState<VerificationRow[]>([])
+  const [loginLogs, setLoginLogs] = useState<LoginLogRow[]>([])
+  const [profitData, setProfitData] = useState<ProfitSummary>(EMPTY_PROFIT)
+  const [notifHistory, setNotifHistory] = useState<BroadcastNotificationRow[]>([])
+  const [staff, setStaff] = useState<StaffRow[]>([])
+  const [tabLoading, setTabLoading] = useState(false)
+  const [, startTransition] = useTransition()
 
-  useEffect(() => {
-    // Sur petit écran, ouvrir directement les commandes (données déjà hydratées).
-    // Ne pas écraser un deep-link ?tab= / thread.
-    try {
-      const params = new URLSearchParams(window.location.search)
-      if (params.get("tab") || params.get("thread")) return
-      if (sessionStorage.getItem("bb33_admin_tab")) return
-      if (window.matchMedia("(max-width: 767px)").matches) {
-        setTab("commandes-en-cours")
-      }
-    } catch {
-      /* ignore */
-    }
-  }, [])
+  const selectTab = useCallback((id: TabId) => {
+    // startTransition = UI reste réactive (clics jamais « morts »)
+    startTransition(() => setTab(id))
+  }, [startTransition])
 
-  const refreshBadges = useCallback(async () => {
-    try {
-      // Timeout mobile : ne jamais bloquer l'UI
-      const c = await Promise.race([
-        getAdminBadgeCounts(),
-        new Promise<null>((r) => setTimeout(() => r(null), 6_000)),
-      ])
-      if (c) setBadges(c)
-    } catch {
-      /* silencieux */
-    }
-  }, [])
-
-  useEffect(() => {
-    // Délai court mobile : laisser peindre le panel avant les server actions
-    const start = window.setTimeout(() => {
-      void refreshBadges()
-    }, 400)
-    const interval = setInterval(refreshBadges, 15000)
-    const onVis = () => {
-      if (document.visibilityState === "visible") void refreshBadges()
-    }
-    document.addEventListener("visibilitychange", onVis)
-    return () => {
-      clearTimeout(start)
-      clearInterval(interval)
-      document.removeEventListener("visibilitychange", onVis)
-    }
-  }, [refreshBadges])
-
-  // Deep-link depuis Récupérations → onglet messagerie
+  // Deep-links
   useEffect(() => {
     try {
       const t = sessionStorage.getItem("bb33_admin_tab") as TabId | null
@@ -247,7 +170,6 @@ export function AdminPanel({
     }
   }, [])
 
-  // Deep-link URL push : /admin?tab=messagerie&thread=123
   useEffect(() => {
     if (typeof window === "undefined") return
     try {
@@ -263,7 +185,6 @@ export function AdminPanel({
       /* ignore */
     }
 
-    // SW postMessage pour admin
     if (!("serviceWorker" in navigator)) return
     const onMsg = (event: MessageEvent) => {
       if (event.data?.type !== "BB33_DEEP_LINK" || !event.data?.url) return
@@ -283,7 +204,86 @@ export function AdminPanel({
     return () => navigator.serviceWorker.removeEventListener("message", onMsg)
   }, [])
 
-  // Pastille rouge par onglet
+  // Badges soft (jamais bloquant)
+  const refreshBadges = useCallback(async () => {
+    try {
+      const c = await Promise.race([
+        getAdminBadgeCounts(),
+        new Promise<null>((r) => setTimeout(() => r(null), 5_000)),
+      ])
+      if (c) setBadges(c)
+    } catch {
+      /* silencieux */
+    }
+  }, [])
+
+  useEffect(() => {
+    const start = window.setTimeout(() => void refreshBadges(), 600)
+    const interval = setInterval(() => void refreshBadges(), 20_000)
+    return () => {
+      clearTimeout(start)
+      clearInterval(interval)
+    }
+  }, [refreshBadges])
+
+  // Charge à la demande les onglets hors VendorInbox
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      try {
+        if (tab === "commandes" || tab === "carte") {
+          if (threads.length > 0) return
+          setTabLoading(true)
+          const t = await getThreads()
+          if (!cancelled) setThreads(t)
+        } else if (tab === "utilisateurs" || tab === "notifications") {
+          if (users.length > 0 && tab === "utilisateurs") return
+          if (tab === "notifications" && notifHistory.length > 0 && users.length > 0) return
+          setTabLoading(true)
+          const [u, n] = await Promise.all([
+            users.length ? Promise.resolve(users) : listUsers(),
+            tab === "notifications" && !notifHistory.length
+              ? listBroadcastNotifications(50)
+              : Promise.resolve(notifHistory),
+          ])
+          if (!cancelled) {
+            setUsers(u)
+            if (tab === "notifications") setNotifHistory(n)
+          }
+        } else if (tab === "verifications") {
+          if (verifications.length > 0) return
+          setTabLoading(true)
+          const v = await listVerifications()
+          if (!cancelled) setVerifications(v)
+        } else if (tab === "connexions") {
+          if (loginLogs.length > 0) return
+          setTabLoading(true)
+          const logs = await listLoginLogs(200)
+          if (!cancelled) setLoginLogs(logs)
+        } else if (tab === "profits") {
+          if (profitData.products.length > 0 || profitData.totalRevenue > 0) return
+          setTabLoading(true)
+          const p = await getProfitData()
+          if (!cancelled) setProfitData(p)
+        } else if (tab === "staff") {
+          if (staff.length > 0) return
+          setTabLoading(true)
+          const s = await listStaff()
+          if (!cancelled) setStaff(s)
+        }
+      } catch (e) {
+        console.error("[admin-panel] tab load", tab, e)
+      } finally {
+        if (!cancelled) setTabLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
+
   const tabBadge = (id: TabId): number => {
     switch (id) {
       case "commandes-en-cours":
@@ -307,10 +307,8 @@ export function AdminPanel({
     <div className="flex min-h-screen flex-col bg-background text-foreground md:flex-row">
       <AdminAppBadgeSync total={badges.total} />
 
-      {/* ── Sidebar (desktop) + barre mobile ─────────────────────────────── */}
       <aside className="flex w-full flex-col border-b border-border bg-card md:sticky md:top-0 md:h-screen md:w-64 md:shrink-0 md:border-b-0 md:border-r md:overflow-y-auto">
         <div className="flex flex-col gap-4 px-4 py-4 md:px-5 md:py-6">
-          {/* Brand */}
           <div className="flex items-center gap-3">
             <div className="relative h-10 w-10 overflow-hidden rounded-xl border border-white/10">
               <Image src="/images/logoapp.png" alt="BB33" fill className="object-cover" sizes="40px" />
@@ -328,7 +326,6 @@ export function AdminPanel({
             )}
           </div>
 
-          {/* Identité admin */}
           <div className="hidden items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 md:flex">
             <div className="relative h-8 w-8 overflow-hidden rounded-full border border-white/10">
               <Image src="/images/ww.jpg" alt="" fill className="object-cover object-top" sizes="32px" />
@@ -344,7 +341,6 @@ export function AdminPanel({
             )}
           </div>
 
-          {/* Nav desktop */}
           <nav className="hidden flex-col gap-0.5 md:flex" aria-label="Sections admin">
             {TABS.map(({ id, label, icon: Icon }) => {
               const count = tabBadge(id)
@@ -353,7 +349,7 @@ export function AdminPanel({
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setTab(id)}
+                  onClick={() => selectTab(id)}
                   aria-current={active ? "page" : undefined}
                   className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors ${
                     active
@@ -368,7 +364,6 @@ export function AdminPanel({
                       className={`flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none ${
                         active ? "bg-accent text-accent-foreground" : "bg-red-500 text-white"
                       }`}
-                      aria-label={`${count} non traité${count > 1 ? "s" : ""}`}
                     >
                       {count > 9 ? "9+" : count}
                     </span>
@@ -378,18 +373,7 @@ export function AdminPanel({
             })}
           </nav>
 
-          {/* Actions bas sidebar (desktop) */}
           <div className="mt-auto hidden flex-col gap-3 border-t border-border pt-4 md:flex">
-            <div className="rounded-xl border border-border bg-background p-3">
-              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Push vendeur
-              </p>
-              <p className="mb-2 text-[10px] leading-snug text-muted-foreground">
-                Alertes commandes / messages, même panel fermé.
-              </p>
-              <PushToggle role="vendeur" className="w-full" />
-            </div>
-
             <Link
               href="/"
               className="flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/5 px-3 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10"
@@ -397,7 +381,6 @@ export function AdminPanel({
               <Eye className="h-4 w-4 shrink-0" aria-hidden="true" />
               Vue Client
             </Link>
-
             <form action={adminLogout}>
               <button
                 type="submit"
@@ -410,7 +393,7 @@ export function AdminPanel({
           </div>
         </div>
 
-        {/* Nav mobile — strip horizontal scrollable */}
+        {/* Nav mobile — icônes */}
         <div className="flex items-center gap-1 overflow-x-auto border-t border-border px-2 py-2 md:hidden">
           {TABS.map(({ id, icon: Icon, label }) => {
             const count = tabBadge(id)
@@ -419,11 +402,10 @@ export function AdminPanel({
               <button
                 key={id}
                 type="button"
-                onClick={() => setTab(id)}
+                onClick={() => selectTab(id)}
                 aria-label={label}
-                aria-current={active ? "page" : undefined}
                 title={label}
-                className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${
+                className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors ${
                   active ? "bg-accent/10 text-accent" : "text-muted-foreground"
                 }`}
               >
@@ -436,18 +418,16 @@ export function AdminPanel({
           })}
           <Link
             href="/"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground"
             aria-label="Vue Client"
-            title="Vue Client"
           >
             <Eye className="h-4 w-4" />
           </Link>
           <form action={adminLogout} className="shrink-0">
             <button
               type="submit"
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground"
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground"
               aria-label="Déconnexion"
-              title="Déconnexion"
             >
               <LogOut className="h-4 w-4" />
             </button>
@@ -455,25 +435,17 @@ export function AdminPanel({
         </div>
       </aside>
 
-      {/* ── Contenu principal ─────────────────────────────────────────────── */}
       <main className="min-w-0 flex-1 overflow-x-hidden">
-        {/* Bandeau mobile : titre onglet + push compact */}
         <div className="border-b border-border bg-card/50 px-4 py-3 md:hidden">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Heisenberg · Admin
-              </p>
-              <h1 className="text-lg font-bold text-foreground">
-                {activeTabMeta?.label ?? "Panel"}
-              </h1>
-            </div>
-            <PushToggle role="vendeur" className="shrink-0" />
-          </div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Heisenberg · Admin
+          </p>
+          <h1 className="text-lg font-bold text-foreground">
+            {activeTabMeta?.label ?? "Panel"}
+          </h1>
         </div>
 
         <div className="p-4 md:p-8">
-          {/* Titre desktop de l'onglet courant (sauf dashboard qui a le sien) */}
           {tab !== "dashboard" && (
             <div className="mb-6 hidden md:block">
               <h1 className="text-2xl font-bold text-foreground">
@@ -490,47 +462,58 @@ export function AdminPanel({
             </div>
           )}
 
+          {tabLoading &&
+            !["commandes-en-cours", "locker", "cloturees", "messagerie", "dashboard", "produits", "promos", "fidelite", "notations", "logistique", "crypto", "news", "admins", "recuperations"].includes(
+              tab,
+            ) && (
+              <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Chargement…
+              </div>
+            )}
+
           {tab === "dashboard" ? (
-            <AdminDashboard
-              onNavigate={(t) => setTab(t as TabId)}
-              seed={dashboardSeed}
-            />
+            <AdminDashboard onNavigate={(t) => selectTab(t as TabId)} />
           ) : tab === "commandes-en-cours" ? (
             <VendorInbox
-              initialThreads={initialActiveOrders}
+              initialThreads={[]}
               mode="orders"
               focusThreadId={focusThreadId}
             />
           ) : tab === "locker" ? (
             <VendorInbox
-              initialThreads={initialLockerOrders}
+              initialThreads={[]}
               mode="locker"
               focusThreadId={focusThreadId}
             />
           ) : tab === "cloturees" ? (
             <VendorInbox
-              initialThreads={initialPastOrders}
+              initialThreads={[]}
               mode="past"
               focusThreadId={focusThreadId}
             />
           ) : tab === "messagerie" ? (
             <VendorInbox
-              initialThreads={initialDiscussions}
+              initialThreads={[]}
               mode="messages"
               focusThreadId={focusThreadId}
             />
           ) : tab === "commandes" ? (
-            <AdminOrdersRecap threads={initialThreads} />
+            <AdminOrdersRecap key={`recap-${threads.length}`} threads={threads} />
           ) : tab === "utilisateurs" ? (
-            <AdminUsers initialUsers={initialUsers} />
+            <AdminUsers key={`users-${users.length}`} initialUsers={users} />
           ) : tab === "verifications" ? (
-            <AdminVerifications initialVerifications={initialVerifications} />
+            <AdminVerifications
+              key={`verif-${verifications.length}`}
+              initialVerifications={verifications}
+            />
           ) : tab === "recuperations" ? (
             <AdminRecovery />
           ) : tab === "notifications" ? (
             <AdminNotifications
-              initialHistory={initialNotificationsHistory}
-              users={initialUsers}
+              key={`notif-${notifHistory.length}-${users.length}`}
+              initialHistory={notifHistory}
+              users={users}
             />
           ) : tab === "produits" ? (
             <AdminProducts />
@@ -541,7 +524,7 @@ export function AdminPanel({
           ) : tab === "notations" ? (
             <AdminRatings />
           ) : tab === "carte" ? (
-            <AdminMap threads={initialThreads} />
+            <AdminMap key={`map-${threads.length}`} threads={threads} />
           ) : tab === "logistique" ? (
             <div className="space-y-8">
               <AdminCartSettings />
@@ -552,11 +535,14 @@ export function AdminPanel({
           ) : tab === "news" ? (
             <AdminNews />
           ) : tab === "connexions" ? (
-            <AdminLoginLogs initialLogs={initialLoginLogs} />
+            <AdminLoginLogs key={`logs-${loginLogs.length}`} initialLogs={loginLogs} />
           ) : tab === "profits" ? (
-            <AdminProfit initialData={initialProfitData} />
+            <AdminProfit
+              key={`profit-${profitData.totalRevenue}-${profitData.products.length}`}
+              initialData={profitData}
+            />
           ) : tab === "staff" ? (
-            <AdminStaff initialStaff={initialStaff} />
+            <AdminStaff key={`staff-${staff.length}`} initialStaff={staff} />
           ) : tab === "admins" ? (
             <AdminAdmins />
           ) : null}

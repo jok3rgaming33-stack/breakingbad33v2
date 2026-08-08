@@ -33,6 +33,7 @@ export function VendorInbox({
   focusThreadId?: number | null
 }) {
   const [threads, setThreads] = useState(() => sortByActivityDesc(initialThreads))
+  const [listLoading, setListLoading] = useState(initialThreads.length === 0)
   const [selectedId, setSelectedId] = useState<number | null>(
     focusThreadId && Number.isFinite(focusThreadId) ? focusThreadId : null,
   )
@@ -348,9 +349,17 @@ export function VendorInbox({
   }
 
   // Rafraîchissement automatique : nouvelles commandes + messages clients en direct
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (isFirst = false) => {
     try {
-      const latest = mode === "messages" ? await getDiscussions() : mode === "locker" ? await getLockerOrders() : mode === "past" ? await getPastOrders() : await getActiveOrders()
+      if (isFirst) setListLoading(true)
+      const latest =
+        mode === "messages"
+          ? await getDiscussions()
+          : mode === "locker"
+            ? await getLockerOrders()
+            : mode === "past"
+              ? await getPastOrders()
+              : await getActiveOrders()
       setThreads(sortByActivityDesc(latest))
       const openId = selectedIdRef.current
       if (openId != null) {
@@ -359,14 +368,16 @@ export function VendorInbox({
       }
     } catch {
       // silencieux : on réessaiera au prochain tick
+    } finally {
+      if (isFirst) setListLoading(false)
     }
   }, [mode])
 
   useEffect(() => {
-    refresh() // chargement immédiat a l'affichage de l'onglet
-    const interval = setInterval(refresh, 8000)
+    void refresh(true) // chargement immédiat a l'affichage de l'onglet
+    const interval = setInterval(() => void refresh(false), 8000)
     const onVisible = () => {
-      if (document.visibilityState === "visible") refresh()
+      if (document.visibilityState === "visible") void refresh(false)
     }
     document.addEventListener("visibilitychange", onVisible)
     return () => {
@@ -632,7 +643,13 @@ export function VendorInbox({
           <span className="ml-auto text-xs text-muted-foreground">{threads.length}</span>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {threads.length === 0 && (
+          {listLoading && threads.length === 0 && (
+            <div className="flex items-center justify-center gap-2 px-4 py-10 text-sm text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+              Chargement…
+            </div>
+          )}
+          {!listLoading && threads.length === 0 && (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">
               {mode === "messages" ? "Aucun message direct." : mode === "locker" ? "Aucune commande Locker en cours." : mode === "past" ? "Aucune commande clôturée." : "Aucune commande en cours."}
             </p>
