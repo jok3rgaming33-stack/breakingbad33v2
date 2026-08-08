@@ -68,8 +68,9 @@ function stripRatingTag(body: string): string {
 
 /**
  * Rendu d'un corps de message (texte + image / vidéo / vocal).
- * Accepte un callback optionnel `onRateProducts` : quand le corps contient
- * le tag [NOTER_PRODUITS], un bouton s'affiche à la place du tag.
+ * Si le corps contient [NOTER_PRODUITS], le bouton « Noter mes produits » est
+ * TOUJOURS affiché (aperçu admin inclus). Clic actif uniquement si
+ * `onRateProducts` est fourni (espace client).
  */
 export function MessageBody({ body, onRateProducts }: { body: string; onRateProducts?: () => void }) {
   const raw = body ?? ""
@@ -80,17 +81,22 @@ export function MessageBody({ body, onRateProducts }: { body: string; onRateProd
 
   return (
     <div className="flex flex-col gap-2">
-      {isRatingMessage && onRateProducts && (
+      {isRatingMessage && (
         <button
           type="button"
+          disabled={!onRateProducts}
           onClick={(e) => {
             e.preventDefault()
             e.stopPropagation()
-            onRateProducts()
+            onRateProducts?.()
           }}
-          className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-amber-400/60 bg-amber-400/15 px-4 py-3 text-sm font-bold text-amber-200 shadow-sm transition hover:bg-amber-400/25 active:scale-[0.98]"
+          className={`mt-1 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-amber-400/70 bg-amber-400/20 px-4 py-3 text-sm font-bold text-amber-100 shadow-sm transition ${
+            onRateProducts
+              ? "hover:bg-amber-400/30 active:scale-[0.98] cursor-pointer"
+              : "cursor-default opacity-90"
+          }`}
         >
-          <Star className="h-5 w-5 fill-amber-400 text-amber-400" aria-hidden="true" />
+          <Star className="h-5 w-5 shrink-0 fill-amber-400 text-amber-400" aria-hidden="true" />
           Noter mes produits
         </button>
       )}
