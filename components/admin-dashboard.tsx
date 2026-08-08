@@ -30,26 +30,28 @@ function formatWhen(d: Date | string) {
 
 type Props = {
   onNavigate?: (tab: string) => void
+  /** Données SSR immédiates (évite spinner infini mobile / Safari server actions). */
+  seed?: AdminDashboardData | null
 }
 
-export function AdminDashboard({ onNavigate }: Props) {
-  const [data, setData] = useState<AdminDashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
+export function AdminDashboard({ onNavigate, seed = null }: Props) {
+  // Mobile : afficher d'abord le seed SSR, rafraîchir en fond (pas de spinner bloquant)
+  const [data, setData] = useState<AdminDashboardData | null>(seed)
+  const [loading, setLoading] = useState(!seed)
   const [refreshing, setRefreshing] = useState(false)
 
   const load = useCallback(async (soft = false) => {
     if (soft) setRefreshing(true)
     else setLoading(true)
     try {
-      // Timeout client : ne jamais rester en spinner infini si l'action serveur pend
+      // Timeout court mobile : Safari/PWA peut pendre les server actions
       const d = await Promise.race([
         getAdminDashboard(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000)),
       ])
       if (d) setData(d)
-      else if (!soft) setData(null)
     } catch {
-      if (!soft) setData(null)
+      /* garde le seed si dispo */
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -57,16 +59,25 @@ export function AdminDashboard({ onNavigate }: Props) {
   }, [])
 
   useEffect(() => {
-    load()
+    // Soft refresh si seed SSR déjà affiché ; sinon charge complète
+    void load(!!seed)
     const t = setInterval(() => load(true), 60_000)
     return () => clearInterval(t)
-  }, [load])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (loading && !data) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
         <Loader2 className="h-8 w-8 animate-spin" aria-hidden="true" />
         <p className="text-sm">Chargement du tableau de bord…</p>
+        <button
+          type="button"
+          onClick={() => onNavigate?.("commandes-en-cours")}
+          className="mt-2 text-sm font-medium text-accent underline"
+        >
+          Aller aux commandes →
+        </button>
       </div>
     )
   }
@@ -75,15 +86,24 @@ export function AdminDashboard({ onNavigate }: Props) {
     return (
       <div className="flex flex-col items-center gap-4 py-12 text-center">
         <p className="text-sm text-muted-foreground">
-          Impossible de charger le tableau de bord (timeout ou session).
+          Impossible de charger le tableau de bord (réseau mobile / session).
         </p>
-        <button
-          type="button"
-          onClick={() => load(false)}
-          className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground"
-        >
-          Réessayer
-        </button>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => load(false)}
+            className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground"
+          >
+            Réessayer
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate?.("commandes-en-cours")}
+            className="rounded-xl border border-border px-4 py-2 text-sm font-medium"
+          >
+            Voir les commandes
+          </button>
+        </div>
       </div>
     )
   }
