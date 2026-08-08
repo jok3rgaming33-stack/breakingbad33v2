@@ -1,6 +1,6 @@
 "use client"
 
-import { Star, Mic } from "lucide-react"
+import { Star } from "lucide-react"
 import { BlobImg, BlobVideo, BlobAudio, isVideoUrl } from "@/components/blob-media"
 
 /**
@@ -125,15 +125,12 @@ export function MessageBody({ body, onRateProducts }: { body: string; onRateProd
             <div
               key={i}
               className="flex w-full min-w-[14rem] max-w-full flex-col gap-1.5 rounded-xl border border-white/10 bg-black/30 px-3 py-2.5"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                <Mic className="h-3 w-3" aria-hidden="true" />
-                Message vocal
-              </div>
               <BlobAudio
                 src={seg.url}
                 className="w-full max-w-full"
-                style={{ minHeight: 40 }}
               />
             </div>
           )
