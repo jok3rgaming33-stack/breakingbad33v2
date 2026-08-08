@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { X, ArrowLeft, Package, Send, Loader2, Lock, Bell, BellOff, ShieldAlert, Paperclip, FlaskConical } from "lucide-react"
+import { X, ArrowLeft, Package, Send, Loader2, Lock, Bell, BellOff, ShieldAlert, Paperclip, FlaskConical, Star } from "lucide-react"
 import { VoiceNoteButton } from "@/components/voice-note-button"
 import {
   getThreadsForToken,
@@ -685,8 +685,18 @@ export function MyOrdersModal({
             {!isTrkSelected && (
               <div className="border-t border-border p-4">
                 {isClosedStatus(selected.status) ? (
-                  /* Commande cloturee : lecture seule + bouton messagerie directe */
+                  /* Commande cloturee : lecture seule + notation si livrée + messagerie */
                   <div className="flex flex-col gap-3 rounded-2xl border border-border bg-background/60 px-4 py-3 text-center">
+                    {selected.status === "livree" && (
+                      <button
+                        type="button"
+                        onClick={() => setRatingThreadId(selected.id)}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-amber-400/60 bg-amber-400/15 py-3 text-sm font-bold text-amber-200 transition hover:bg-amber-400/25"
+                      >
+                        <Star className="h-4 w-4 fill-amber-400 text-amber-400" aria-hidden="true" />
+                        Noter mes produits
+                      </button>
+                    )}
                     <p className="text-xs text-muted-foreground leading-relaxed">
                       Cette commande est cloturee. Tu ne peux plus y ecrire.
                     </p>

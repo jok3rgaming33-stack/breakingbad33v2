@@ -54,7 +54,17 @@ export function parseMessageBody(body: string): Segment[] {
 }
 
 // Tag spécial inséré automatiquement lors du passage au statut "livree".
-const RATING_TAG = "[NOTER_PRODUITS]"
+export const RATING_TAG = "[NOTER_PRODUITS]"
+
+/** Détecte le tag de notation même avec espaces / position variable. */
+export function hasRatingInviteTag(body: string | null | undefined): boolean {
+  if (!body) return false
+  return body.includes(RATING_TAG)
+}
+
+function stripRatingTag(body: string): string {
+  return body.replace(RATING_TAG, "").trimStart()
+}
 
 /**
  * Rendu d'un corps de message (texte + image / vidéo / vocal).
@@ -62,12 +72,9 @@ const RATING_TAG = "[NOTER_PRODUITS]"
  * le tag [NOTER_PRODUITS], un bouton s'affiche à la place du tag.
  */
 export function MessageBody({ body, onRateProducts }: { body: string; onRateProducts?: () => void }) {
-  // Tag notation : remplacer par bouton si callback fourni
-  const cleanBody = body.startsWith(RATING_TAG)
-    ? body.slice(RATING_TAG.length).trimStart()
-    : body
-
-  const isRatingMessage = body.startsWith(RATING_TAG)
+  const raw = body ?? ""
+  const isRatingMessage = hasRatingInviteTag(raw)
+  const cleanBody = isRatingMessage ? stripRatingTag(raw) : raw
 
   const segments = parseMessageBody(cleanBody)
 
@@ -75,10 +82,15 @@ export function MessageBody({ body, onRateProducts }: { body: string; onRateProd
     <div className="flex flex-col gap-2">
       {isRatingMessage && onRateProducts && (
         <button
-          onClick={onRateProducts}
-          className="mt-1 flex items-center gap-2 self-start rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-300 transition hover:bg-amber-400/20 active:scale-95"
+          type="button"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onRateProducts()
+          }}
+          className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-amber-400/60 bg-amber-400/15 px-4 py-3 text-sm font-bold text-amber-200 shadow-sm transition hover:bg-amber-400/25 active:scale-[0.98]"
         >
-          <Star className="h-4 w-4 fill-amber-400 text-amber-400" aria-hidden="true" />
+          <Star className="h-5 w-5 fill-amber-400 text-amber-400" aria-hidden="true" />
           Noter mes produits
         </button>
       )}
