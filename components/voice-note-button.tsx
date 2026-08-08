@@ -71,13 +71,26 @@ export function VoiceNoteButton({ disabled, onSent, className = "", size = "md" 
   const mimeRef = useRef({ mime: "", ext: "webm" })
   const cancelledRef = useRef(false)
 
+  const [formatWarn, setFormatWarn] = useState<string | null>(null)
+
   useEffect(() => {
     const ok =
       typeof window !== "undefined" &&
       !!navigator.mediaDevices?.getUserMedia &&
       typeof MediaRecorder !== "undefined"
     setSupported(ok)
-    if (ok) mimeRef.current = pickMimeType()
+    if (ok) {
+      const picked = pickMimeType()
+      mimeRef.current = picked
+      // iPhone Safari ne lit pas webm/opus — prévenir l'émetteur (souvent admin desktop Chrome)
+      if (picked.ext === "webm" || picked.mime.includes("webm") || picked.mime.includes("ogg")) {
+        setFormatWarn(
+          "Format WebM : lisible sur Android/PC, pas sur iPhone. Pour les clients iOS, enregistre depuis Safari iPhone si possible.",
+        )
+      } else {
+        setFormatWarn(null)
+      }
+    }
   }, [])
 
   const clearTimer = () => {
@@ -288,7 +301,13 @@ export function VoiceNoteButton({ disabled, onSent, className = "", size = "md" 
             : "border-border bg-background/60 text-muted-foreground hover:border-accent hover:text-accent"
         }`}
         aria-label={recording ? "Arrêter et envoyer le vocal" : "Enregistrer un message vocal"}
-        title={recording ? "Arrêter et envoyer" : "Message vocal"}
+        title={
+          recording
+            ? "Arrêter et envoyer"
+            : formatWarn
+              ? formatWarn
+              : "Message vocal"
+        }
       >
         {uploading ? (
           <Loader2 className={size === "sm" ? "h-4 w-4 animate-spin" : "h-5 w-5 animate-spin"} />

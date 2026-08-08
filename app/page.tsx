@@ -352,7 +352,11 @@ export default function Home() {
         focusThreadId={isOrdersOpen ? focusThreadId : null}
         focusTab={focusOrdersTab}
         onFocusConsumed={() => {
-          /* garde focusThreadId jusqu'à fermeture pour re-render stable */
+          // Important : consommer le deep-link une seule fois.
+          // Sinon le polling (threads) ré-ouvre le fil notif et "éjecte" le client
+          // du fil où il écoute un vocal.
+          setFocusThreadId(null)
+          setFocusOrdersTab(null)
         }}
       />
 
@@ -371,7 +375,9 @@ export default function Home() {
         userData={userData}
         autoOpenLatest={autoOpenLatestMessaging}
         focusThreadId={isMessagingOpen ? focusThreadId : null}
-        onFocusConsumed={() => {}}
+        onFocusConsumed={() => {
+          setFocusThreadId(null)
+        }}
       />
 
       {/* Popup News à l'entrée du site (client connecté non admin) */}

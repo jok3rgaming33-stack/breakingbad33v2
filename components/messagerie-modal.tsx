@@ -148,11 +148,20 @@ export function MessagerieModal({
     void openThread(threads[0])
   }, [autoOpenLatest, isOpen, selected, threads, focusThreadId])
 
-  // Deep-link : ouvrir le fil ciblé (Discussions pour notifs, Commandes sinon)
+  // Deep-link : ouvrir le fil ciblé UNE seule fois (Discussions pour notifs, Commandes sinon).
+  // Ne pas re-dépendre de `threads` : le polling réinjecterait le fil notif et ferait
+  // "rebondir" le client hors du fil en cours (ex. pendant la lecture d'un vocal).
+  const lastFocusedRef = useRef<number | null>(null)
   useEffect(() => {
-    if (!isOpen || !focusThreadId || !threads.length) return
+    if (!isOpen) {
+      lastFocusedRef.current = null
+      return
+    }
+    if (!focusThreadId || !threads.length) return
+    if (lastFocusedRef.current === focusThreadId) return
     const t = threads.find((x) => x.id === focusThreadId)
     if (!t) return
+    lastFocusedRef.current = focusThreadId
     if (isMessagingThreadStatus(t.status)) setTab("discussions")
     else setTab("commandes")
     void openThread(t)

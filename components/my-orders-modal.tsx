@@ -176,14 +176,21 @@ export function MyOrdersModal({
     selectedRef.current = selected?.id ?? null
   }, [selected])
 
-  // Deep-link depuis cloche / push
+  // Deep-link depuis cloche / push — une seule fois (évite rebond sur refresh polling)
+  const lastFocusedRef = useRef<number | null>(null)
   useEffect(() => {
-    if (!isOpen || !focusThreadId) return
+    if (!isOpen) {
+      lastFocusedRef.current = null
+      return
+    }
+    if (!focusThreadId) return
+    if (lastFocusedRef.current === focusThreadId) return
     if (focusTab) setTab(focusTab)
     const fromOrders = threads.find((t) => t.id === focusThreadId)
     const fromLocker = lockerThreads.find((t) => t.id === focusThreadId)
     const t = fromOrders || fromLocker
     if (!t) return
+    lastFocusedRef.current = focusThreadId
     if (fromLocker && !fromOrders) {
       setTab("locker")
       setLockerUnlocked(t.id)
