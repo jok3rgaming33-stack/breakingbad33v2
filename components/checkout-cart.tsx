@@ -43,38 +43,53 @@ const FALLBACK_CONFIG: CartConfig = {
   ],
 }
 
-// Date du jour + n jours au format yyyy-mm-dd
+// Date locale du jour + n jours au format yyyy-mm-dd (évite le décalage UTC de toISOString)
 function dateOffset(days: number) {
   const d = new Date()
   d.setDate(d.getDate() + days)
-  return d.toISOString().split("T")[0]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
 }
 
-// Cutoff horaire selon le jour de la semaine :
-//   Dim(0)–Jeu(4) : plus de commande après 23h20 → premier créneau = J+1
-//   Ven(5)–Sam(6) : plus de commande après 01h20 → premier créneau = J+1
-// Retourne { minDate, isCutoff, cutoffLabel }
+/**
+ * Cutoff horaire — quand la date mini bascule à demain :
+ *   - Lun–Jeu : après 23h20 → demain
+ *   - Dimanche : après 23h20 → demain
+ *   - Ven–Sam : PAS de cut 23h20 (soirée ouverte)
+ *   - Matin Sam/Dim avant 01h20 : extension de la nuit Ven/Sam (toujours aujourd'hui)
+ *   - Après 01h20 Sam/Dim : journée normale (aujourd'hui reste dispo)
+ *
+ * Bug corrigé : l'ancienne règle "Ven–Sam après 01h20 → J+1" bloquait
+ * TOUTE la journée samedi/vendredi (créneaux d'aujourd'hui invisibles).
+ */
 function getOrderCutoff(now: Date): { minDate: string; isCutoff: boolean; cutoffLabel: string } {
-  const day = now.getDay()   // 0=Dim, 1=Lun, …, 6=Sam
-  const h = now.getHours()
-  const m = now.getMinutes()
-  const totalMinutes = h * 60 + m
+  const day = now.getDay() // 0=Dim … 6=Sam
+  const totalMinutes = now.getHours() * 60 + now.getMinutes()
+  const CUT_WEEKDAY = 23 * 60 + 20 // 23h20
 
   let isCutoff = false
   let cutoffLabel = ""
 
-  if (day >= 0 && day <= 4) {
-    // Dimanche à Jeudi : cutoff 23h20
-    if (totalMinutes >= 23 * 60 + 20) {
-      isCutoff = true
-      cutoffLabel = "Les commandes sont fermées après 23h20. Le premier créneau disponible est demain."
-    }
-  } else {
-    // Vendredi (5) et Samedi (6) : cutoff 01h20
-    if (totalMinutes >= 1 * 60 + 20) {
-      isCutoff = true
-      cutoffLabel = "Les commandes sont fermées après 01h20. Le premier créneau disponible est demain."
-    }
+  // Ven (5) : ouvert toute la journée et la nuit jusqu'au samedi 01h20 → jamais de bascule J+1 le vendredi
+  // Sam (6) avant 01h20 : encore la nuit de vendredi → aujourd'hui OK
+  // Sam (6) après 01h20 : journée samedi normale → aujourd'hui OK (pas de cut 23h20 le samedi soir)
+  // Dim (0) avant 01h20 : encore la nuit de samedi → aujourd'hui OK
+  // Dim (0) après 01h20 : dimanche normal, cut 23h20 le soir
+  // Lun–Jeu : cut 23h20
+
+  if (day === 5 || day === 6) {
+    // Vendredi & Samedi : pas de bascule forcée sur demain en journée
+    isCutoff = false
+  } else if (day === 0 && totalMinutes < 1 * 60 + 20) {
+    // Dimanche 00:00–01:19 : extension nuit samedi
+    isCutoff = false
+  } else if (totalMinutes >= CUT_WEEKDAY) {
+    // Dim (après 01h20) + Lun–Jeu : fermeture 23h20
+    isCutoff = true
+    cutoffLabel =
+      "Les commandes sont fermées après 23h20. Le premier créneau disponible est demain."
   }
 
   const minDate = isCutoff ? dateOffset(1) : dateOffset(0)
@@ -169,19 +184,22 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     if (!deliveryAllowed && fulfillmentMode === "livraison") setFulfillmentMode("meetup")
   }, [deliveryAllowed, fulfillmentMode])
 
-  // Extrait le jour depuis le libellé d'un slot (ex: "Lundi 14h-16h" → "Lundi")
-  const slotDay = (label: string) => label.split(/\s+/)[0] ?? ""
+  // Jour FR d'un créneau : days[] admin, sinon préfixe du label ("Lundi 14h"), sinon tous les jours
+  const slotMatchesDay = (s: { label: string; days?: string[] }, dayName: string) => {
+    if (s.days && s.days.length > 0) return s.days.includes(dayName)
+    const first = (s.label.split(/\s+/)[0] ?? "").trim()
+    if (FR_DAYS.includes(first)) return first === dayName
+    return true // ex. "14H - 17H" sans jour → disponible chaque jour
+  }
 
-  // Règle de cutoff horaire (23h20 dim-jeu / 01h20 ven-sam).
+  // Règle de cutoff horaire (23h20 lun–jeu/dim ; ven–sam ouverts).
   const now = new Date()
   const { minDate, isCutoff, cutoffLabel } = getOrderCutoff(now)
   const availableDeliverySlots = useMemo(() => {
     if (!date) return []
     const dayName = dateToFrDay(date)
     return config.deliverySlots.filter((s) => {
-      // Le jour encodé dans le label doit correspondre au jour de la date choisie.
-      if (slotDay(s.label) !== dayName) return false
-      // Masque les créneaux déjà passés.
+      if (!slotMatchesDay(s, dayName)) return false
       return deliverySlotAvailable(date, s, now)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,9 +208,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     if (!date) return []
     const dayName = dateToFrDay(date)
     return config.meetupSlots.filter((s) => {
-      // Même logique : filtre sur le jour dans le label.
-      if (slotDay(s.label) !== dayName) return false
-      // Masque les heures passées.
+      if (!slotMatchesDay(s, dayName)) return false
       return meetupSlotAvailable(date, s, now)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps

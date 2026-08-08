@@ -115,6 +115,7 @@ export async function setCartConfig(config: CartConfig) {
       label: s.label?.trim() || "",
       startHour: clampHour(s.startHour),
       endHour: clampHour(s.endHour),
+      days: Array.isArray(s.days) ? s.days.filter((d) => typeof d === "string") : undefined,
     }))
     .filter((s) => s.label.length > 0)
 
@@ -123,6 +124,7 @@ export async function setCartConfig(config: CartConfig) {
       id: s.id?.trim() || `m${i}-${Date.now()}`,
       label: s.label?.trim() || "",
       hour: clampHour(s.hour),
+      days: Array.isArray(s.days) ? s.days.filter((d) => typeof d === "string") : undefined,
     }))
     .filter((s) => s.label.length > 0)
 
