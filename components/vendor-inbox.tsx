@@ -1,11 +1,14 @@
 "use client"
 
-import { useState, useTransition, useEffect, useRef, useCallback } from "react"
+import { useState, useTransition, useEffect, useRef, useCallback, useMemo } from "react"
+import useSWR from "swr"
 import type { OrderThread, ThreadMessage, Product } from "@/lib/db/schema"
 import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, sendPaysafecardInstructions, confirmDeposit, updateOrderProducts, deleteMessage } from "@/app/actions/messaging"
-import type { OrderProductItem } from "@/app/actions/messaging"
+import type { OrderProductItem, AdminOrderPromo } from "@/app/actions/messaging"
 import { listProducts } from "@/app/actions/products"
-import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock } from "lucide-react"
+import { listPromoCodes } from "@/app/actions/promo"
+import { computePromoDiscount } from "@/lib/promo-calc"
+import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock, Ticket } from "lucide-react"
 import { VoiceNoteButton } from "@/components/voice-note-button"
 import { grantRestoreAccess, getRestoreStatus } from "@/app/actions/restore-access"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
@@ -71,6 +74,23 @@ export function VendorInbox({
   const [loadingProducts, setLoadingProducts] = useState(false)
   const [savingProducts, setSavingProducts] = useState(false)
   const [productSearch, setProductSearch] = useState("")
+  const [productsError, setProductsError] = useState<string | null>(null)
+  /** Frais livraison/locker préservés à l'ouverture du panneau */
+  const [preservedFee, setPreservedFee] = useState(0)
+
+  // Promo (modification commande — même modèle que création)
+  const { data: existingPromos = [] } = useSWR(
+    productsOpen ? "admin-promos-edit-order" : null,
+    listPromoCodes,
+  )
+  const [promoEnabled, setPromoEnabled] = useState(false)
+  const [promoSource, setPromoSource] = useState<"custom" | "existing">("custom")
+  const [promoCodeId, setPromoCodeId] = useState<number | "">("")
+  const [promoType, setPromoType] = useState<"fixed" | "percent" | "produit">("fixed")
+  const [promoValue, setPromoValue] = useState(10)
+  const [promoMinAmount, setPromoMinAmount] = useState(0)
+  const [promoProductName, setPromoProductName] = useState("")
+  const [promoCodeLabel, setPromoCodeLabel] = useState("ADMIN")
 
   const selected = threads.find((t) => t.id === selectedId) ?? null
 
@@ -161,11 +181,86 @@ export function VendorInbox({
 
     setOrderItems(parsed)
     setProductSearch("")
+    setProductsError(null)
+    setPromoEnabled(false)
+    setPromoSource("custom")
+    setPromoCodeId("")
+    setPromoType("fixed")
+    setPromoValue(10)
+    setPromoMinAmount(0)
+    setPromoProductName("")
+    setPromoCodeLabel("ADMIN")
+
+    // Préserve les frais (livraison/locker) : total actuel − sous-total articles (approx)
+    const itemsSum = parsed.reduce((s, i) => s + i.qty * i.price, 0)
+    if (selected.fulfillment === "locker") {
+      setPreservedFee(10)
+    } else if (selected.fulfillment === "meetup") {
+      setPreservedFee(0)
+    } else {
+      setPreservedFee(Math.max(0, Math.round(selected.total - itemsSum)))
+    }
   }, [selected, allProducts])
 
   // Garde une référence à la commande ouverte pour le rafraîchissement périodique
   const selectedIdRef = useRef<number | null>(null)
   selectedIdRef.current = selectedId
+
+  const activePromos = useMemo(
+    () => (existingPromos ?? []).filter((p) => p.active),
+    [existingPromos],
+  )
+
+  const editPromoDraft: AdminOrderPromo | null = useMemo(() => {
+    if (!promoEnabled) return null
+    if (promoSource === "existing" && promoCodeId !== "") {
+      const c = activePromos.find((p) => p.id === promoCodeId)
+      if (!c) return null
+      return {
+        code: c.code,
+        type: c.type as "percent" | "fixed" | "produit",
+        value: c.value,
+        minAmount: c.minAmount ?? 0,
+        productName: c.productName,
+      }
+    }
+    return {
+      code: promoCodeLabel.trim().toUpperCase() || "ADMIN",
+      type: promoType,
+      value: promoValue,
+      minAmount: promoMinAmount,
+      productName: promoType === "produit" ? promoProductName : null,
+    }
+  }, [
+    promoEnabled,
+    promoSource,
+    promoCodeId,
+    activePromos,
+    promoCodeLabel,
+    promoType,
+    promoValue,
+    promoMinAmount,
+    promoProductName,
+  ])
+
+  const orderSubtotal = useMemo(
+    () => orderItems.filter((i) => i.qty > 0).reduce((sum, i) => sum + i.qty * i.price, 0),
+    [orderItems],
+  )
+  const orderPromoDiscount = useMemo(
+    () => computePromoDiscount(
+      orderItems.filter((i) => i.qty > 0),
+      orderSubtotal,
+      editPromoDraft,
+    ),
+    [orderItems, orderSubtotal, editPromoDraft],
+  )
+  const orderPromoBlocked =
+    !!editPromoDraft && editPromoDraft.minAmount > 0 && orderSubtotal < editPromoDraft.minAmount
+  const orderTotal = Math.max(
+    0,
+    orderSubtotal + preservedFee - (orderPromoBlocked ? 0 : orderPromoDiscount),
+  )
 
   // Ajoute un produit (qty = 1 pack commandé, price = prix du conditionnement)
   const addProductToOrder = (prod: Product) => {
@@ -205,13 +300,25 @@ export function VendorInbox({
     setOrderItems((prev) => prev.filter((i) => i.productId !== productId))
   }
 
-  const orderTotal = orderItems.reduce((sum, i) => sum + i.qty * i.price, 0)
-
   const saveOrderProducts = async () => {
     if (!selectedId) return
+    if (promoEnabled && editPromoDraft) {
+      if (editPromoDraft.type === "produit" && !editPromoDraft.productName?.trim()) {
+        setProductsError("Indique le nom du produit offert.")
+        return
+      }
+      if (orderPromoBlocked) {
+        setProductsError(`Minimum d'achat non atteint (min. ${editPromoDraft.minAmount}€).`)
+        return
+      }
+    }
     setSavingProducts(true)
+    setProductsError(null)
     try {
-      const result = await updateOrderProducts(selectedId, orderItems)
+      const result = await updateOrderProducts(selectedId, orderItems, {
+        promo: promoEnabled ? editPromoDraft : null,
+        deliveryFee: preservedFee,
+      })
       if (result.ok) {
         const newProductsText = orderItems.filter(i => i.qty > 0).map(i => `${i.title} ×${i.qty}`).join(", ")
         setThreads((prev) => prev.map((t) =>
@@ -222,6 +329,8 @@ export function VendorInbox({
         const data = await getThread(selectedId)
         setMessages(data?.messages ?? [])
         setProductsOpen(false)
+      } else {
+        setProductsError(("error" in result && result.error) ? String(result.error) : "Erreur lors de la mise à jour.")
       }
     } finally {
       setSavingProducts(false)
@@ -1094,6 +1203,9 @@ export function VendorInbox({
               <div className="ml-auto text-right">
                 <p className="text-xs text-muted-foreground">Nouveau total</p>
                 <p className="text-base font-bold text-foreground">{orderTotal}€</p>
+                {promoEnabled && orderPromoDiscount > 0 && !orderPromoBlocked && (
+                  <p className="text-[10px] text-accent">−{orderPromoDiscount}€ promo</p>
+                )}
               </div>
             </div>
 
@@ -1207,29 +1319,208 @@ export function VendorInbox({
                   </div>
                 )}
               </div>
+
+              {/* Promotion — même modèle que création commande */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <Ticket className="h-3.5 w-3.5" aria-hidden="true" />
+                    Promotion
+                  </p>
+                  <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={promoEnabled}
+                      onChange={(e) => setPromoEnabled(e.target.checked)}
+                      className="rounded border-border"
+                    />
+                    Appliquer une promo
+                  </label>
+                </div>
+
+                {promoEnabled && (
+                  <div className="space-y-3 rounded-xl border border-border bg-background p-3">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPromoSource("custom")}
+                        className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                          promoSource === "custom"
+                            ? "border-accent bg-accent/10 text-accent"
+                            : "border-border text-muted-foreground"
+                        }`}
+                      >
+                        Personnalisée
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPromoSource("existing")}
+                        className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                          promoSource === "existing"
+                            ? "border-accent bg-accent/10 text-accent"
+                            : "border-border text-muted-foreground"
+                        }`}
+                      >
+                        Code existant
+                      </button>
+                    </div>
+
+                    {promoSource === "existing" ? (
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">Code promo actif</label>
+                        <select
+                          value={promoCodeId === "" ? "" : String(promoCodeId)}
+                          onChange={(e) =>
+                            setPromoCodeId(e.target.value ? Number(e.target.value) : "")
+                          }
+                          className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                        >
+                          <option value="">Choisir un code…</option>
+                          {activePromos.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.code} —{" "}
+                              {c.type === "percent"
+                                ? `-${c.value}%`
+                                : c.type === "produit"
+                                  ? `${c.value}× ${c.productName ?? "produit"}`
+                                  : `-${c.value}€`}
+                              {c.minAmount > 0 ? ` · min ${c.minAmount}€` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-1">
+                          <label className="text-xs font-medium text-muted-foreground">Libellé code</label>
+                          <input
+                            type="text"
+                            value={promoCodeLabel}
+                            onChange={(e) => setPromoCodeLabel(e.target.value.toUpperCase())}
+                            placeholder="ADMIN"
+                            className="rounded-xl border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus:border-accent"
+                          />
+                        </div>
+                        <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-1">
+                          <label className="text-xs font-medium text-muted-foreground">Type</label>
+                          <select
+                            value={promoType}
+                            onChange={(e) =>
+                              setPromoType(e.target.value as "fixed" | "percent" | "produit")
+                            }
+                            className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                          >
+                            <option value="fixed">Montant €</option>
+                            <option value="percent">Pourcentage %</option>
+                            <option value="produit">Produit offert</option>
+                          </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-xs font-medium text-muted-foreground">
+                            Valeur ({promoType === "percent" ? "%" : promoType === "produit" ? "nb offert" : "€"})
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={promoValue}
+                            onChange={(e) => setPromoValue(Number(e.target.value) || 0)}
+                            className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-xs font-medium text-muted-foreground">
+                            Minimum d&apos;achat (€)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={promoMinAmount}
+                            onChange={(e) => setPromoMinAmount(Number(e.target.value) || 0)}
+                            className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                          />
+                        </div>
+                        {promoType === "produit" && (
+                          <div className="col-span-2 flex flex-col gap-1.5">
+                            <label className="text-xs font-medium text-muted-foreground">
+                              Nom du produit offert
+                            </label>
+                            <input
+                              type="text"
+                              value={promoProductName}
+                              onChange={(e) => setPromoProductName(e.target.value)}
+                              placeholder="Doit correspondre à un article de la commande"
+                              list="edit-order-product-names"
+                              className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                            />
+                            <datalist id="edit-order-product-names">
+                              {orderItems
+                                .filter((i) => i.qty > 0)
+                                .map((i) => (
+                                  <option key={i.productId} value={i.title} />
+                                ))}
+                            </datalist>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {orderPromoBlocked && (
+                      <p className="text-xs text-amber-400">
+                        Min. d&apos;achat {editPromoDraft?.minAmount}€ non atteint (panier {orderSubtotal}€).
+                      </p>
+                    )}
+                    {!orderPromoBlocked && orderPromoDiscount > 0 && (
+                      <p className="text-xs text-accent">Remise calculée : −{orderPromoDiscount}€</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {(preservedFee > 0 || orderSubtotal > 0) && (
+                <div className="rounded-xl border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground space-y-0.5">
+                  <p>Sous-total : <span className="font-medium text-foreground">{orderSubtotal}€</span></p>
+                  {preservedFee > 0 && (
+                    <p>
+                      {selected?.fulfillment === "locker" ? "Locker" : "Livraison"} :{" "}
+                      <span className="font-medium text-foreground">{preservedFee}€</span>
+                    </p>
+                  )}
+                  {promoEnabled && orderPromoDiscount > 0 && !orderPromoBlocked && (
+                    <p className="text-accent">Promo : −{orderPromoDiscount}€</p>
+                  )}
+                  <p className="pt-0.5 font-semibold text-foreground">Total : {orderTotal}€</p>
+                </div>
+              )}
             </div>
 
             {/* Pied de page */}
-            <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setProductsOpen(false)}
-                className="rounded-lg border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={saveOrderProducts}
-                disabled={savingProducts || orderItems.length === 0}
-                className="flex items-center gap-2 rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {savingProducts
-                  ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  : <RefreshCw className="h-4 w-4" aria-hidden="true" />
-                }
-                Mettre à jour la commande
-              </button>
+            <div className="flex flex-col gap-2 border-t border-border px-5 py-4">
+              {productsError && (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {productsError}
+                </p>
+              )}
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setProductsOpen(false)}
+                  className="rounded-lg border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={saveOrderProducts}
+                  disabled={savingProducts || orderItems.filter((i) => i.qty > 0).length === 0}
+                  className="flex items-center gap-2 rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {savingProducts
+                    ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    : <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                  }
+                  Mettre à jour la commande
+                </button>
+              </div>
             </div>
           </div>
         </div>
