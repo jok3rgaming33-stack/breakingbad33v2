@@ -482,7 +482,7 @@ export function VendorInbox({
       setColissimoInput("")
       setEtaPreview(null)
       setColissimoOpen(true)
-      // Prévisualise le temps de trajet (même logique que le message auto : OSRM + 3 min)
+      // Prévisualise le temps (server action = même point de départ carte que le message auto)
       const t = threads.find((x) => x.id === selectedId)
       if (
         t?.fulfillment === "livraison" &&
@@ -492,8 +492,8 @@ export function VendorInbox({
         setEtaLoading(true)
         void (async () => {
           try {
-            const { estimateDriveEta } = await import("@/lib/drive-eta")
-            const eta = await estimateDriveEta({ lat: t.lat as number, lng: t.lng as number })
+            const { getDeliveryEta } = await import("@/app/actions/drive-eta")
+            const eta = await getDeliveryEta(t.lat as number, t.lng as number)
             if (eta) setEtaPreview({ etaMin: eta.etaMin, driveMin: eta.driveMin })
           } catch {
             /* ignore */
@@ -1576,8 +1576,9 @@ export function VendorInbox({
                   <p className="text-foreground">
                     <span className="font-semibold text-accent">⏱ ETA client : ~{etaPreview.etaMin} min</span>
                     <span className="mt-0.5 block text-xs text-muted-foreground">
-                      Trajet carte ~{Math.round(etaPreview.driveMin)} min + 3 min de marge.
+                      Trajet ~{Math.round(etaPreview.driveMin)} min + 3 min de marge.
                       Inclus automatiquement dans le message.
+                      En multi-arrêt, mets à jour le point de départ sur la carte avant de confirmer.
                     </span>
                   </p>
                 ) : null}
@@ -1585,7 +1586,9 @@ export function VendorInbox({
             )}
             {!etaLoading && !etaPreview && selected?.fulfillment === "livraison" && (
               <p className="mt-3 text-xs text-muted-foreground">
-                Pas de coordonnées GPS sur cette commande — le message partira sans estimation de temps.
+                {typeof selected.lat === "number" && typeof selected.lng === "number"
+                  ? "Impossible de calculer l'ETA pour le moment — le message partira sans estimation."
+                  : "Pas de coordonnées GPS sur cette commande — le message partira sans estimation de temps."}
               </p>
             )}
 

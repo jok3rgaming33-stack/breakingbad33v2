@@ -714,7 +714,7 @@ export async function updateThreadStatus(
       case "livraison": {
         // Inclure le numéro de suivi Colissimo s'il existe
         const colNum = current.colissimoNumber || colissimoNumber
-        // ETA trajet (carte / OSRM) + 3 min de marge — uniquement livraison domicile géolocalisée
+        // ETA trajet (point de départ carte → client) + 3 min — multi-arrêt : mets à jour le départ carte
         let etaLine = ""
         if (
           current.fulfillment === "livraison" &&
@@ -722,13 +722,14 @@ export async function updateThreadStatus(
           typeof current.lng === "number"
         ) {
           try {
-            const { estimateDriveEta, formatEtaMessageLine } = await import("@/lib/drive-eta")
-            const eta = await estimateDriveEta({ lat: current.lat, lng: current.lng })
+            const { getDeliveryEta } = await import("@/app/actions/drive-eta")
+            const { formatEtaMessageLine } = await import("@/lib/drive-eta")
+            const eta = await getDeliveryEta(current.lat, current.lng)
             if (eta) {
               etaLine = `\n${formatEtaMessageLine(eta.etaMin)}`
             }
           } catch (e) {
-            console.error("[updateThreadStatus] ETA OSRM failed:", e)
+            console.error("[updateThreadStatus] ETA failed:", e)
           }
         }
         body = colNum
