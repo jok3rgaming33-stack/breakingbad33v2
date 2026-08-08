@@ -1311,21 +1311,29 @@ export type OrderProductItem = {
 }
 
 // Admin : met à jour les articles d'une commande existante.
-// - Recalcule le total
+// - Recalcule le total (sous-total − promo + frais)
 // - Ajuste le stock de chaque produit (delta = prevQty - newQty)
 // - Envoie un message récapitulatif au client + push
-export async function updateOrderProducts(threadId: number, items: OrderProductItem[]) {
-  if (!threadId || !items.length) return { ok: false as const }
+export async function updateOrderProducts(
+  threadId: number,
+  items: OrderProductItem[],
+  opts?: {
+    promo?: AdminOrderPromo | null
+    /** Frais livraison/locker à conserver (meetup = 0, locker = 10, livraison = montant saisi/préservé) */
+    deliveryFee?: number
+  },
+) {
+  if (!threadId || !items.length) return { ok: false as const, error: "Aucun article." }
   const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
-  if (!thread) return { ok: false as const }
+  if (!thread) return { ok: false as const, error: "Commande introuvable." }
+
+  const { computePromoDiscount } = await import("@/lib/promo-calc")
 
   // Calcul du nouveau total et des lignes de changement
   const changes: string[] = []
-  let newTotal = 0
 
   for (const item of items) {
     const lineTotal = item.qty * item.price
-    newTotal += lineTotal
 
     const delta = item.prevQty - item.qty // positif = stock rendu, négatif = stock consommé
     if (delta !== 0) {
@@ -1343,6 +1351,9 @@ export async function updateOrderProducts(threadId: number, items: OrderProductI
 
   // Reconstruit la colonne products (texte)
   const activeItems = items.filter((i) => i.qty > 0)
+  if (activeItems.length === 0) {
+    return { ok: false as const, error: "La commande doit contenir au moins un article." }
+  }
   const newProducts = activeItems.map((i) => `${i.title} ×${i.qty}`).join(", ")
 
   // Reconstruit le summary complet (même format que la commande initiale)
@@ -1363,8 +1374,47 @@ export async function updateOrderProducts(threadId: number, items: OrderProductI
     deliveryLine = `Livraison${thread.address ? ` à ${thread.address}` : ""}${thread.scheduledSlot ? ` — créneau ${thread.scheduledSlot}` : ""}`
   }
 
-  // Calcul sous-total (hors frais de livraison potentiels déjà dans l'ancien total)
   const subTotal = activeItems.reduce((s, i) => s + i.qty * i.price, 0)
+  const promo = opts?.promo ?? null
+  const promoDiscount = computePromoDiscount(activeItems, subTotal, promo)
+
+  if (promo && promo.minAmount > 0 && subTotal < promo.minAmount) {
+    return {
+      ok: false as const,
+      error: `Minimum d'achat non atteint pour la promo (min. ${promo.minAmount}€, panier ${subTotal}€).`,
+    }
+  }
+  if (promo?.type === "produit" && promoDiscount === 0) {
+    return {
+      ok: false as const,
+      error: `Produit offert introuvable dans la commande (attendu : ${promo.productName ?? "—"}).`,
+    }
+  }
+
+  const fee =
+    opts?.deliveryFee != null
+      ? Math.max(0, Math.trunc(Number(opts.deliveryFee) || 0))
+      : thread.fulfillment === "locker"
+        ? 10
+        : thread.fulfillment === "meetup"
+          ? 0
+          : 0
+
+  const newTotal = Math.max(0, subTotal + fee - promoDiscount)
+
+  const promoLabel = promo
+    ? promo.type === "percent"
+      ? `-${promo.value}%`
+      : promo.type === "produit"
+        ? `${promo.value}× ${promo.productName ?? "produit"} offert`
+        : `-${promo.value}€`
+    : null
+
+  if (promoDiscount > 0) {
+    changes.push(
+      `- Promo${promo?.code ? ` ${promo.code}` : ""}${promoLabel ? ` (${promoLabel})` : ""} : -${promoDiscount}€`,
+    )
+  }
 
   const newSummary = [
     `Commande mise à jour`,
@@ -1372,15 +1422,21 @@ export async function updateOrderProducts(threadId: number, items: OrderProductI
     `Date : ${dateStr}`,
     deliveryLine,
     `Sous-total : ${subTotal}€`,
+    fee > 0 ? `${thread.fulfillment === "locker" ? "Locker" : "Livraison"} : ${fee}€` : null,
+    promoDiscount > 0
+      ? `Promo${promo?.code ? ` ${promo.code}` : ""}${promoLabel ? ` (${promoLabel})` : ""} : -${promoDiscount}€`
+      : null,
     `TOTAL : ${newTotal}€`,
-  ].join("\n")
+  ]
+    .filter(Boolean)
+    .join("\n")
 
   await db
     .update(orderThreads)
     .set({ products: newProducts, total: newTotal, summary: newSummary, updatedAt: sql`now()` })
     .where(eq(orderThreads.id, threadId))
 
-  // Message récapitulatif au client avec détail complet
+  // Message récapitulatif au client (articles changés et/ou promo appliquée)
   if (changes.length > 0) {
     const body = [
       `Mise à jour de ta commande #${threadId} :`,
@@ -1391,9 +1447,15 @@ export async function updateOrderProducts(threadId: number, items: OrderProductI
       ...activeItems.map((i) => `• ${i.qty}x ${i.title} — ${i.qty * i.price}€`),
       ``,
       deliveryLine,
+      fee > 0 ? `${thread.fulfillment === "locker" ? "Locker" : "Livraison"} : ${fee}€` : null,
+      promoDiscount > 0
+        ? `Promo${promo?.code ? ` ${promo.code}` : ""} : -${promoDiscount}€`
+        : null,
       ``,
       `Nouveau total : ${newTotal}€`,
-    ].join("\n")
+    ]
+      .filter(Boolean)
+      .join("\n")
 
     await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
     await notifyCustomer(thread.customerToken, {
@@ -1405,7 +1467,7 @@ export async function updateOrderProducts(threadId: number, items: OrderProductI
   }
 
   revalidatePath("/admin")
-  return { ok: true as const, newTotal, newSummary }
+  return { ok: true as const, newTotal, newSummary, promoDiscount }
 }
 
 // Admin : confirme la réception du paiement (XMR ou Paysafecard), lance la préparation
