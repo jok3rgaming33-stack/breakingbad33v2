@@ -41,8 +41,15 @@ export function AdminDashboard({ onNavigate }: Props) {
     if (soft) setRefreshing(true)
     else setLoading(true)
     try {
-      const d = await getAdminDashboard()
-      setData(d)
+      // Timeout client : ne jamais rester en spinner infini si l'action serveur pend
+      const d = await Promise.race([
+        getAdminDashboard(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
+      ])
+      if (d) setData(d)
+      else if (!soft) setData(null)
+    } catch {
+      if (!soft) setData(null)
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -57,17 +64,27 @@ export function AdminDashboard({ onNavigate }: Props) {
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center py-20 text-muted-foreground">
+      <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
         <Loader2 className="h-8 w-8 animate-spin" aria-hidden="true" />
+        <p className="text-sm">Chargement du tableau de bord…</p>
       </div>
     )
   }
 
   if (!data) {
     return (
-      <p className="py-12 text-center text-sm text-muted-foreground">
-        Impossible de charger le tableau de bord.
-      </p>
+      <div className="flex flex-col items-center gap-4 py-12 text-center">
+        <p className="text-sm text-muted-foreground">
+          Impossible de charger le tableau de bord (timeout ou session).
+        </p>
+        <button
+          type="button"
+          onClick={() => load(false)}
+          className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground"
+        >
+          Réessayer
+        </button>
+      </div>
     )
   }
 

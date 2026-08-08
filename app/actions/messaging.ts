@@ -46,45 +46,56 @@ export type NewOrderInput = {
   paymentMethod?: LockerPaymentMethod | "wiro" | null
 }
 
-/** Colonnes order_threads / thread_messages potentiellement absentes sur anciennes bases. */
-let orderSchemaReady = false
+/** Colonnes order_threads / thread_messages potentiellement absentes sur anciennes bases.
+ *  Promise unique : les 11 lectures admin en parallèle ne doivent PAS lancer 11× ALTER
+ *  (locks PostgreSQL / Neon → hang infini du panel). */
+let orderSchemaPromise: Promise<void> | null = null
 async function ensureOrderSchema() {
-  if (orderSchemaReady) return
+  if (!orderSchemaPromise) {
+    orderSchemaPromise = (async () => {
+      try {
+        await db.execute(sql`
+          ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS product_ids JSONB NOT NULL DEFAULT '[]'::jsonb
+        `)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_method TEXT`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS wiro_identifier TEXT`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS xmr_wallet TEXT`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS colissimo_number TEXT`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS client_last_seen TIMESTAMPTZ`)
+        await db.execute(sql`
+          ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS deposit_notified BOOLEAN NOT NULL DEFAULT false
+        `)
+        await db.execute(sql`
+          ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS deposit_confirmed BOOLEAN NOT NULL DEFAULT false
+        `)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_provider TEXT`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_provider_id TEXT`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_status TEXT`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_crypto TEXT`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_amount_crypto TEXT`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_amount_eur INTEGER`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_pay_url TEXT`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_pay_address TEXT`)
+        // Top5 / rappels locker
+        await db.execute(sql`
+          ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS locker_reminder_count INTEGER NOT NULL DEFAULT 0
+        `)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS locker_last_reminder_at TIMESTAMPTZ`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_discount INTEGER NOT NULL DEFAULT 0`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_points_awarded INTEGER`)
+        // Lecture messages côté client
+        await db.execute(sql`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS client_read_at TIMESTAMPTZ`)
+      } catch (e) {
+        orderSchemaPromise = null
+        console.error("[messaging] ensureOrderSchema:", e)
+        throw e
+      }
+    })()
+  }
   try {
-    await db.execute(sql`
-      ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS product_ids JSONB NOT NULL DEFAULT '[]'::jsonb
-    `)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_method TEXT`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS wiro_identifier TEXT`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS xmr_wallet TEXT`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS colissimo_number TEXT`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS client_last_seen TIMESTAMPTZ`)
-    await db.execute(sql`
-      ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS deposit_notified BOOLEAN NOT NULL DEFAULT false
-    `)
-    await db.execute(sql`
-      ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS deposit_confirmed BOOLEAN NOT NULL DEFAULT false
-    `)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_provider TEXT`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_provider_id TEXT`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_status TEXT`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_crypto TEXT`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_amount_crypto TEXT`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_amount_eur INTEGER`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_pay_url TEXT`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS payment_pay_address TEXT`)
-    // Top5 / rappels locker
-    await db.execute(sql`
-      ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS locker_reminder_count INTEGER NOT NULL DEFAULT 0
-    `)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS locker_last_reminder_at TIMESTAMPTZ`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_discount INTEGER NOT NULL DEFAULT 0`)
-    await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_points_awarded INTEGER`)
-    // Lecture messages côté client
-    await db.execute(sql`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS client_read_at TIMESTAMPTZ`)
-    orderSchemaReady = true
-  } catch (e) {
-    console.error("[messaging] ensureOrderSchema:", e)
+    await orderSchemaPromise
+  } catch {
+    /* non bloquant : les SELECT peuvent encore réussir */
   }
 }
 
