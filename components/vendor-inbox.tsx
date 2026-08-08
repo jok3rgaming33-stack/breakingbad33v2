@@ -51,6 +51,8 @@ export function VendorInbox({
   // Champ Colissimo (affiché uniquement quand on passe en statut "livraison")
   const [colissimoInput, setColissimoInput] = useState("")
   const [colissimoOpen, setColissimoOpen] = useState(false)
+  const [etaPreview, setEtaPreview] = useState<{ etaMin: number; driveMin: number } | null>(null)
+  const [etaLoading, setEtaLoading] = useState(false)
   // Modale wallet XMR (locker validée)
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
   const [xmrWalletInput, setXmrWalletInput] = useState("")
@@ -475,10 +477,31 @@ export function VendorInbox({
       setCancelOpen(true)
       return
     }
-    // Le passage en "livraison" ouvre une modale pour saisir le numéro Colissimo.
+    // Le passage en "livraison" ouvre une modale pour saisir le numéro Colissimo + aperçu ETA.
     if (status === "livraison") {
       setColissimoInput("")
+      setEtaPreview(null)
       setColissimoOpen(true)
+      // Prévisualise le temps de trajet (même logique que le message auto : OSRM + 3 min)
+      const t = threads.find((x) => x.id === selectedId)
+      if (
+        t?.fulfillment === "livraison" &&
+        typeof t.lat === "number" &&
+        typeof t.lng === "number"
+      ) {
+        setEtaLoading(true)
+        void (async () => {
+          try {
+            const { estimateDriveEta } = await import("@/lib/drive-eta")
+            const eta = await estimateDriveEta({ lat: t.lat as number, lng: t.lng as number })
+            if (eta) setEtaPreview({ etaMin: eta.etaMin, driveMin: eta.driveMin })
+          } catch {
+            /* ignore */
+          } finally {
+            setEtaLoading(false)
+          }
+        })()
+      }
       return
     }
     // Locker validée → XMR wallet ou instructions Paysafecard
@@ -1540,6 +1563,32 @@ export function VendorInbox({
             <p className="mt-1 text-sm text-muted-foreground">
               Saisis le numéro de suivi transporteur (Colissimo, Chronopost…). Il sera transmis au client dans la messagerie.
             </p>
+
+            {/* Aperçu ETA (carte / OSRM + 3 min) — intégré au message auto */}
+            {(etaLoading || etaPreview) && (
+              <div className="mt-3 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2.5 text-sm">
+                {etaLoading ? (
+                  <p className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    Calcul du temps de trajet…
+                  </p>
+                ) : etaPreview ? (
+                  <p className="text-foreground">
+                    <span className="font-semibold text-accent">⏱ ETA client : ~{etaPreview.etaMin} min</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      Trajet carte ~{Math.round(etaPreview.driveMin)} min + 3 min de marge.
+                      Inclus automatiquement dans le message.
+                    </span>
+                  </p>
+                ) : null}
+              </div>
+            )}
+            {!etaLoading && !etaPreview && selected?.fulfillment === "livraison" && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                Pas de coordonnées GPS sur cette commande — le message partira sans estimation de temps.
+              </p>
+            )}
+
             <input
               type="text"
               value={colissimoInput}
