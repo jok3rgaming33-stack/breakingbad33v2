@@ -6,12 +6,8 @@ import type { Product } from "@/lib/db/schema"
 import { listProducts } from "@/app/actions/products"
 import { getCartConfig } from "@/app/actions/settings"
 import { listPromoCodes } from "@/app/actions/promo"
-import {
-  adminCreateOrder,
-  computeAdminPromoDiscount,
-  type AdminOrderItem,
-  type AdminOrderPromo,
-} from "@/app/actions/messaging"
+import { adminCreateOrder, type AdminOrderItem, type AdminOrderPromo } from "@/app/actions/messaging"
+import { computePromoDiscount } from "@/lib/promo-calc"
 import {
   X, Plus, Minus, Loader2, Truck, Store, Package, Search, ShoppingBag, Check, Ticket,
 } from "lucide-react"
@@ -116,7 +112,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   ])
 
   const promoDiscount = useMemo(
-    () => computeAdminPromoDiscount(items, subtotal, promoDraft),
+    () => computePromoDiscount(items, subtotal, promoDraft),
     [items, subtotal, promoDraft],
   )
   const promoBlocked =
