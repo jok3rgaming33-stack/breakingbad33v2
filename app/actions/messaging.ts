@@ -714,17 +714,14 @@ export async function updateThreadStatus(
       case "livraison": {
         // Inclure le numéro de suivi Colissimo s'il existe
         const colNum = current.colissimoNumber || colissimoNumber
-        // ETA trajet (point de départ carte → client) + 3 min — multi-arrêt : mets à jour le départ carte
+        // ETA : point de départ carte → client (+3 min). Si pas de GPS, géocode l'adresse.
+        // Multi-arrêt : mets à jour le point de départ carte avant de passer en livraison.
         let etaLine = ""
-        if (
-          current.fulfillment === "livraison" &&
-          typeof current.lat === "number" &&
-          typeof current.lng === "number"
-        ) {
+        if (current.fulfillment === "livraison") {
           try {
-            const { getDeliveryEta } = await import("@/app/actions/drive-eta")
+            const { getDeliveryEtaForThread } = await import("@/app/actions/drive-eta")
             const { formatEtaMessageLine } = await import("@/lib/drive-eta")
-            const eta = await getDeliveryEta(current.lat, current.lng)
+            const eta = await getDeliveryEtaForThread(threadId)
             if (eta) {
               etaLine = `\n${formatEtaMessageLine(eta.etaMin)}`
             }
