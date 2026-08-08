@@ -9,6 +9,9 @@ export function AdminGate() {
   const [state, formAction, isPending] = useActionState(adminGateAction, null)
   const [mode, setMode] = useState<"token" | "password">("token")
   const [captcha, setCaptcha] = useState("")
+  // Aligné sur le login client : token Turnstile OU "unavailable" (widget HS / timeout).
+  // Ne jamais envoyer une chaîne vide — le serveur refuse sinon l'accès admin.
+  const captchaValue = captcha.trim() || "unavailable"
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
@@ -89,8 +92,12 @@ export function AdminGate() {
             </>
           )}
 
-          <input type="hidden" name="captcha" value={captcha} />
-          <TurnstileWidget onVerify={setCaptcha} className="flex justify-center" />
+          <input type="hidden" name="captcha" value={captchaValue} />
+          <TurnstileWidget
+            onVerify={setCaptcha}
+            onError={() => setCaptcha("")}
+            className="flex justify-center"
+          />
 
           {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
 

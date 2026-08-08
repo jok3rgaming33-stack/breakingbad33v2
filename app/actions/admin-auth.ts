@@ -26,7 +26,8 @@ async function setSessionCookie(value: string) {
   store.set(COOKIE_NAME, value, {
     httpOnly: true,
     secure: isHttps,
-    sameSite: isHttps ? "none" : "lax",
+    // first-party uniquement : "lax" (évite les soucis SameSite=None / cookies 3P)
+    sameSite: "lax",
     path: "/",
     // Pas de maxAge → cookie de session : supprimé à la fermeture du navigateur.
   })
