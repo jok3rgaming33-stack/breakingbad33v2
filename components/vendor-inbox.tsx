@@ -587,7 +587,15 @@ export function VendorInbox({
               <div>
                 <h2 className="text-sm font-semibold">{selected.customerName}</h2>
                 <p className="text-xs text-muted-foreground">
-                  {selected.fulfillment === "meetup" ? "Retrait meet-up" : selected.fulfillment === "locker" ? "Locker Mondial Relay" : "Livraison"} · {selected.scheduledDate ?? "Délai 3–5 jours ouvrés"}
+                  {selected.fulfillment === "meetup"
+                    ? "Retrait meet-up"
+                    : selected.fulfillment === "locker"
+                      ? "Locker Mondial Relay"
+                      : "Livraison"}
+                  {" · "}
+                  {selected.fulfillment === "locker"
+                    ? selected.scheduledDate ?? "Délai 3–5 jours ouvrés"
+                    : selected.scheduledDate ?? "Date non renseignée"}
                   {selected.scheduledSlot ? ` · ${selected.scheduledSlot}` : ""}
                 </p>
               </div>

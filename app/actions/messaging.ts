@@ -1474,6 +1474,8 @@ export type AdminOrderInput = {
   // Livraison domicile
   address?: string
   deliveryFee?: number
+  deliveryDate?: string  // "2026-07-19" — même logique que meet-up
+  deliverySlot?: string  // "Lundi 18h-20h"
   // Meetup
   meetupDate?: string    // "2026-07-19"
   meetupSlot?: string    // "Dimanche 22h"
@@ -1504,9 +1506,13 @@ export async function adminCreateOrder(input: AdminOrderInput) {
     address = input.lockerAddress ?? null
     modeLine = `Retrait en Locker Mondial Relay${address ? ` — ${address}` : ""} (frais 10€)`
   } else {
+    // Livraison domicile : date + créneau (aligné checkout client)
     address = input.address ?? null
-    scheduledSlot = null
-    modeLine = `Livraison à ${address ?? "adresse non précisée"}${fee > 0 ? ` (frais ${fee}€)` : ""}`
+    scheduledDate = input.deliveryDate ?? null
+    scheduledSlot = input.deliverySlot ?? null
+    modeLine = `Livraison à ${address ?? "adresse non précisée"}${
+      scheduledSlot ? ` — créneau ${scheduledSlot}` : ""
+    }${fee > 0 ? ` (frais ${fee}€)` : ""}`
   }
 
   const summary = [
