@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { X, ArrowLeft, MessageSquare, Send, Loader2, FlaskConical, Package, Paperclip } from "lucide-react"
+import { X, ArrowLeft, MessageSquare, Send, Loader2, FlaskConical, Package, Paperclip, Star } from "lucide-react"
 import { VoiceNoteButton } from "@/components/voice-note-button"
 import {
   getThreadsForToken,
@@ -540,6 +540,16 @@ export function MessagerieModal({
               )}
             </div>
             <div className="border-t border-border p-4">
+              {selected?.status === "livree" && (
+                <button
+                  type="button"
+                  onClick={() => setRatingThreadId(selected.id)}
+                  className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-amber-400/60 bg-amber-400/15 py-3 text-sm font-bold text-amber-200 transition hover:bg-amber-400/25"
+                >
+                  <Star className="h-4 w-4 fill-amber-400 text-amber-400" aria-hidden="true" />
+                  Noter mes produits
+                </button>
+              )}
               {uploadErr && <p className="mb-2 text-xs text-destructive">{uploadErr}</p>}
               <input
                 ref={fileInputRef}
@@ -599,6 +609,7 @@ export function MessagerieModal({
         )}
       </div>
     </div>
+    {ratingModal}
     </>
   )
 }

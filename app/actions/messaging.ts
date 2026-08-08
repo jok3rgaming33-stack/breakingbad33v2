@@ -770,14 +770,6 @@ export async function updateThreadStatus(
             ? `\n${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités${multiLine}.`
             : "") +
           referralLine
-        // Second message séparé pour inviter à noter les produits.
-        // Le tag [NOTER_PRODUITS] est détecté côté client pour afficher le bouton.
-        // Envoyé systématiquement, même pour les commandes créées avant l'ajout de product_ids.
-        await db.insert(threadMessages).values({
-          threadId,
-          sender: "vendeur",
-          body: `[NOTER_PRODUITS]\nTa satisfaction est importante. Prends 1 minute pour noter tes produits — ça aide vraiment !`,
-        })
         break
       }
       case "annulee": {
@@ -790,6 +782,38 @@ export async function updateThreadStatus(
     }
     if (body) {
       await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
+
+      // Invitation notation : EN DERNIER (visible en bas du fil) + push dédiée.
+      // Le tag [NOTER_PRODUITS] est détecté côté client pour afficher le bouton.
+      if (nextKey === "livree") {
+        const ratingBody =
+          `[NOTER_PRODUITS]\nTa satisfaction est importante. Prends 1 minute pour noter tes produits — ça aide vraiment !`
+        try {
+          await db.insert(threadMessages).values({
+            threadId,
+            sender: "vendeur",
+            body: ratingBody,
+          })
+          await db
+            .update(orderThreads)
+            .set({ updatedAt: sql`now()` })
+            .where(eq(orderThreads.id, threadId))
+          await notifyCustomer(current.customerToken, {
+            title: "Note ton expérience ⭐",
+            body: "Un message t'attend pour noter les produits de ta commande livrée.",
+            url: clientThreadUrl(
+              current.fulfillment === "locker" ? "locker" : "orders",
+              threadId,
+            ),
+            tag: `rating-invite-${threadId}`,
+            threadId,
+            open: current.fulfillment === "locker" ? "locker" : "orders",
+          }).catch(() => {})
+        } catch (e) {
+          console.error("[updateThreadStatus] rating invite failed:", e)
+        }
+      }
+
       // Notifie le client du changement de statut de sa commande.
       await notifyCustomer(current.customerToken, {
         title: `Commande #${threadId} — ${statusMeta(nextKey).label}`,
@@ -1446,9 +1470,20 @@ export async function updateOrderProducts(
     .filter(Boolean)
     .join("\n")
 
+  // productIds : source de vérité pour la notation (toujours resync)
+  const newProductIds = [
+    ...new Set(activeItems.map((i) => i.productId).filter((id) => Number.isFinite(id) && id > 0)),
+  ]
+
   await db
     .update(orderThreads)
-    .set({ products: newProducts, total: newTotal, summary: newSummary, updatedAt: sql`now()` })
+    .set({
+      products: newProducts,
+      productIds: newProductIds,
+      total: newTotal,
+      summary: newSummary,
+      updatedAt: sql`now()`,
+    })
     .where(eq(orderThreads.id, threadId))
 
   // Message récapitulatif au client (articles changés et/ou promo appliquée)
@@ -1473,11 +1508,14 @@ export async function updateOrderProducts(
       .join("\n")
 
     await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
+    const open = thread.fulfillment === "locker" ? ("locker" as const) : ("orders" as const)
     await notifyCustomer(thread.customerToken, {
       title: `Commande #${threadId} modifiée`,
       body: `Total mis à jour : ${newTotal}€`,
-      url: "/",
+      url: clientThreadUrl(open, threadId),
       tag: `order-update-${threadId}`,
+      threadId,
+      open,
     })
   }
 
