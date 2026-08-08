@@ -553,10 +553,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
               Ta commande a été transmise au vendeur.
               {isLocker
                 ? " Après confirmation du paiement, tu recevras ton token TRK_ en messagerie pour le suivi Locker."
-                : " Un fil de discussion a été créé dans la messagerie interne pour le suivi."}
+                : " Paiement en espèces au rendez-vous. Un fil a été créé dans la messagerie pour le suivi."}
             </p>
 
-            {cryptoPayment?.enabled && lockerPayMethod === "xmr" && (
+            {/* Crypto uniquement Locker XMR — jamais livraison / meet-up */}
+            {isLocker && cryptoPayment?.enabled && lockerPayMethod === "xmr" && (
               <div className="mt-2 w-full max-w-sm rounded-2xl border border-accent/40 bg-accent/10 p-4 text-left">
                 <p className="mb-1 text-sm font-bold text-accent">Paiement Monero (XMR)</p>
                 {cryptoPayment.payAmount && (

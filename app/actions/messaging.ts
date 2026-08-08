@@ -238,10 +238,18 @@ export async function createOrderThread(input: NewOrderInput) {
         })
       }
     } else {
+      // Meet-up & livraison domicile : paiement en espèces uniquement (pas de crypto).
+      const modeLabel =
+        input.fulfillment === "meetup" ? "meet-up" : "livraison à domicile"
       await db.insert(threadMessages).values({
         threadId: thread.id,
         sender: "vendeur",
-        body: `Merci pour ta commande ! Elle a bien été prise en compte. Tu recevras une mise à jour dès qu'elle sera traitée.`,
+        body: [
+          `Merci pour ta commande ! Elle a bien été prise en compte (${modeLabel}).`,
+          ``,
+          `Paiement : espèces uniquement, sur place.`,
+          `Tu recevras une mise à jour dès qu'elle sera traitée.`,
+        ].join("\n"),
       })
     }
 
@@ -257,7 +265,9 @@ export async function createOrderThread(input: NewOrderInput) {
       open: isLocker ? "locker" : "commandes-en-cours",
     }).catch(() => {})
 
-    // Paiement XMR NOWPayments — uniquement si XMR, optionnel, timeout court, jamais bloquant
+    // Paiement XMR NOWPayments — UNIQUEMENT Locker + XMR (jamais livraison / meet-up : espèces).
+    // Bug corrigé : l'ancienne condition `paymentMethod !== "paysafecard"` était vraie quand
+    // paymentMethod = null (livraison/meetup) → invoice crypto créée par erreur.
     let cryptoPayment: {
       enabled: boolean
       payUrl?: string | null
@@ -267,7 +277,7 @@ export async function createOrderThread(input: NewOrderInput) {
       error?: string
     } = { enabled: false }
 
-    if (paymentMethod !== "paysafecard") {
+    if (isLocker && paymentMethod === "xmr") {
       try {
         const invPromise = createXmrPaymentForOrder({
           threadId: thread.id,
