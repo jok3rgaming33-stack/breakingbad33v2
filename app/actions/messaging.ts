@@ -1505,36 +1505,15 @@ export type AdminOrderInput = {
   promo?: AdminOrderPromo | null
 }
 
-/** Calcule la remise promo (€) — même règles que le panier client. */
-export function computeAdminPromoDiscount(
-  items: AdminOrderItem[],
-  subtotal: number,
-  promo: AdminOrderPromo | null | undefined,
-): number {
-  if (!promo) return 0
-  const minAmount = Math.max(0, Math.trunc(Number(promo.minAmount) || 0))
-  if (subtotal < minAmount) return 0
-  const value = Math.max(0, Number(promo.value) || 0)
-  if (promo.type === "produit") {
-    const name = (promo.productName ?? "").trim().toLowerCase()
-    if (!name) return 0
-    const target = items.find((i) => i.title.toLowerCase() === name)
-    if (!target) return 0
-    const freeQty = Math.min(Math.trunc(value), target.qty)
-    return Math.min(target.price * freeQty, subtotal)
-  }
-  const raw =
-    promo.type === "percent" ? Math.round((subtotal * value) / 100) : Math.trunc(value)
-  return Math.min(Math.max(0, raw), subtotal)
-}
-
 export async function adminCreateOrder(input: AdminOrderInput) {
   if (!input.items.length) return { ok: false as const, error: "Aucun article." }
+
+  const { computePromoDiscount } = await import("@/lib/promo-calc")
 
   const subtotal = input.items.reduce((s, i) => s + i.qty * i.price, 0)
   const fee = input.fulfillment === "livraison" ? (input.deliveryFee ?? 0) : input.fulfillment === "locker" ? 10 : 0
   const promo = input.promo ?? null
-  const promoDiscount = computeAdminPromoDiscount(input.items, subtotal, promo)
+  const promoDiscount = computePromoDiscount(input.items, subtotal, promo)
   if (promo && promo.minAmount > 0 && subtotal < promo.minAmount) {
     return {
       ok: false as const,
