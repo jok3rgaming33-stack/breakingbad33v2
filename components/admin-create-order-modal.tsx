@@ -1,14 +1,19 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useMemo, useState } from "react"
 import useSWR from "swr"
 import type { Product } from "@/lib/db/schema"
 import { listProducts } from "@/app/actions/products"
 import { getCartConfig } from "@/app/actions/settings"
-import { adminCreateOrder } from "@/app/actions/messaging"
-import type { AdminOrderItem } from "@/app/actions/messaging"
+import { listPromoCodes } from "@/app/actions/promo"
 import {
-  X, Plus, Minus, Loader2, Truck, Store, Package, Search, ShoppingBag, Check,
+  adminCreateOrder,
+  computeAdminPromoDiscount,
+  type AdminOrderItem,
+  type AdminOrderPromo,
+} from "@/app/actions/messaging"
+import {
+  X, Plus, Minus, Loader2, Truck, Store, Package, Search, ShoppingBag, Check, Ticket,
 } from "lucide-react"
 
 const FEE_LOCKER = 10
@@ -52,6 +57,17 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   // Locker
   const [lockerAddress, setLockerAddress] = useState("")
 
+  // Promo (même modèle panier : percent | fixed | produit)
+  const { data: existingPromos = [] } = useSWR("admin-promos-create-order", listPromoCodes)
+  const [promoEnabled, setPromoEnabled] = useState(false)
+  const [promoSource, setPromoSource] = useState<"custom" | "existing">("custom")
+  const [promoCodeId, setPromoCodeId] = useState<number | "">("")
+  const [promoType, setPromoType] = useState<"fixed" | "percent" | "produit">("fixed")
+  const [promoValue, setPromoValue] = useState(10)
+  const [promoMinAmount, setPromoMinAmount] = useState(0)
+  const [promoProductName, setPromoProductName] = useState("")
+  const [promoCodeLabel, setPromoCodeLabel] = useState("ADMIN")
+
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
@@ -61,7 +77,51 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   const deliveryFee = fulfillment === "meetup" ? 0
     : fulfillment === "locker" ? FEE_LOCKER
     : distanceKm != null ? calcDeliveryFee(distanceKm) : 0
-  const total = subtotal + deliveryFee
+
+  const activePromos = useMemo(
+    () => (existingPromos ?? []).filter((p) => p.active),
+    [existingPromos],
+  )
+
+  const promoDraft: AdminOrderPromo | null = useMemo(() => {
+    if (!promoEnabled) return null
+    if (promoSource === "existing" && promoCodeId !== "") {
+      const c = activePromos.find((p) => p.id === promoCodeId)
+      if (!c) return null
+      return {
+        code: c.code,
+        type: c.type as "percent" | "fixed" | "produit",
+        value: c.value,
+        minAmount: c.minAmount ?? 0,
+        productName: c.productName,
+      }
+    }
+    return {
+      code: promoCodeLabel.trim().toUpperCase() || "ADMIN",
+      type: promoType,
+      value: promoValue,
+      minAmount: promoMinAmount,
+      productName: promoType === "produit" ? promoProductName : null,
+    }
+  }, [
+    promoEnabled,
+    promoSource,
+    promoCodeId,
+    activePromos,
+    promoCodeLabel,
+    promoType,
+    promoValue,
+    promoMinAmount,
+    promoProductName,
+  ])
+
+  const promoDiscount = useMemo(
+    () => computeAdminPromoDiscount(items, subtotal, promoDraft),
+    [items, subtotal, promoDraft],
+  )
+  const promoBlocked =
+    !!promoDraft && promoDraft.minAmount > 0 && subtotal < promoDraft.minAmount
+  const total = Math.max(0, subtotal + deliveryFee - (promoBlocked ? 0 : promoDiscount))
 
   const meetupSlots = config?.meetupSlots ?? []
   const deliverySlots = config?.deliverySlots ?? []
@@ -99,6 +159,16 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
     if (fulfillment === "livraison" && !address.trim()) { setError("Saisis l'adresse de livraison."); return }
     if (fulfillment === "livraison" && (!deliveryDate || !deliverySlot)) { setError("Choisis une date et un créneau de livraison."); return }
     if (fulfillment === "locker" && !lockerAddress.trim()) { setError("Saisis l'adresse du point Locker."); return }
+    if (promoEnabled && promoDraft) {
+      if (promoDraft.type === "produit" && !promoDraft.productName?.trim()) {
+        setError("Indique le nom du produit offert.")
+        return
+      }
+      if (promoBlocked) {
+        setError(`Minimum d'achat non atteint (min. ${promoDraft.minAmount}€).`)
+        return
+      }
+    }
 
     setSubmitting(true)
     setError(null)
@@ -115,8 +185,9 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
         deliveryDate: fulfillment === "livraison" ? deliveryDate : undefined,
         deliverySlot: fulfillment === "livraison" ? deliverySlot : undefined,
         lockerAddress: fulfillment === "locker" ? lockerAddress : undefined,
+        promo: promoEnabled ? promoDraft : null,
       })
-      if (!res.ok) { setError("Erreur lors de la création."); return }
+      if (!res.ok) { setError(res.error ?? "Erreur lors de la création."); return }
       setDone(true)
       onCreated(res.id)
     } catch (e) {
@@ -452,6 +523,168 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
             )}
           </section>
 
+          {/* Promotion — même modèle que Codes promo (type / valeur / min. d'achat) */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                <Ticket className="h-3.5 w-3.5" aria-hidden="true" />
+                Promotion
+              </p>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={promoEnabled}
+                  onChange={(e) => setPromoEnabled(e.target.checked)}
+                  className="rounded border-border"
+                />
+                Appliquer une promo
+              </label>
+            </div>
+
+            {promoEnabled && (
+              <div className="space-y-3 rounded-xl border border-border bg-background p-3">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPromoSource("custom")}
+                    className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                      promoSource === "custom"
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-border text-muted-foreground"
+                    }`}
+                  >
+                    Personnalisée
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPromoSource("existing")}
+                    className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                      promoSource === "existing"
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-border text-muted-foreground"
+                    }`}
+                  >
+                    Code existant
+                  </button>
+                </div>
+
+                {promoSource === "existing" ? (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Code promo actif</label>
+                    <select
+                      value={promoCodeId === "" ? "" : String(promoCodeId)}
+                      onChange={(e) =>
+                        setPromoCodeId(e.target.value ? Number(e.target.value) : "")
+                      }
+                      className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                    >
+                      <option value="">Choisir un code…</option>
+                      {activePromos.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.code} —{" "}
+                          {c.type === "percent"
+                            ? `-${c.value}%`
+                            : c.type === "produit"
+                              ? `${c.value}× ${c.productName ?? "produit"}`
+                              : `-${c.value}€`}
+                          {c.minAmount > 0 ? ` · min ${c.minAmount}€` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    {activePromos.length === 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Aucun code actif. Crée-en dans l&apos;onglet Codes promo, ou saisie personnalisée.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
+                      <label className="text-xs font-medium text-muted-foreground">Libellé code</label>
+                      <input
+                        type="text"
+                        value={promoCodeLabel}
+                        onChange={(e) => setPromoCodeLabel(e.target.value.toUpperCase())}
+                        placeholder="ADMIN"
+                        className="rounded-xl border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus:border-accent"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
+                      <label className="text-xs font-medium text-muted-foreground">Type</label>
+                      <select
+                        value={promoType}
+                        onChange={(e) =>
+                          setPromoType(e.target.value as "fixed" | "percent" | "produit")
+                        }
+                        className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                      >
+                        <option value="fixed">Montant €</option>
+                        <option value="percent">Pourcentage %</option>
+                        <option value="produit">Produit offert</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Valeur ({promoType === "percent" ? "%" : promoType === "produit" ? "nb offert" : "€"})
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={promoValue}
+                        onChange={(e) => setPromoValue(Number(e.target.value) || 0)}
+                        className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">Minimum d&apos;achat (€)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={promoMinAmount}
+                        onChange={(e) => setPromoMinAmount(Number(e.target.value) || 0)}
+                        className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                      />
+                    </div>
+                    {promoType === "produit" && (
+                      <div className="flex flex-col gap-1.5 col-span-2">
+                        <label className="text-xs font-medium text-muted-foreground">
+                          Nom du produit offert
+                        </label>
+                        <input
+                          type="text"
+                          value={promoProductName}
+                          onChange={(e) => setPromoProductName(e.target.value)}
+                          placeholder="Doit correspondre au titre d'un article du panier"
+                          list="admin-order-product-names"
+                          className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                        />
+                        <datalist id="admin-order-product-names">
+                          {items.map((i) => (
+                            <option key={i.productId} value={i.title} />
+                          ))}
+                        </datalist>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {promoBlocked && (
+                  <p className="text-xs text-amber-400">
+                    Min. d&apos;achat {promoDraft?.minAmount}€ non atteint (panier {subtotal}€).
+                  </p>
+                )}
+                {!promoBlocked && promoDiscount > 0 && (
+                  <p className="text-xs text-accent">
+                    Remise calculée : −{promoDiscount}€
+                    {promoDraft?.type === "produit" && promoDraft.productName
+                      ? ` (${promoDraft.value}× ${promoDraft.productName})`
+                      : ""}
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+
         </div>
 
         {/* Pied : récap + bouton */}
@@ -467,6 +700,12 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                 {deliveryFee > 0 && (
                   <p>
                     {fulfillment === "locker" ? "Locker" : "Livraison"} : <span className="font-medium text-foreground">{deliveryFee}€</span>
+                  </p>
+                )}
+                {promoEnabled && promoDiscount > 0 && !promoBlocked && (
+                  <p className="text-accent">
+                    Promo{promoDraft?.code ? ` ${promoDraft.code}` : ""} :{" "}
+                    <span className="font-medium">−{promoDiscount}€</span>
                   </p>
                 )}
               </div>

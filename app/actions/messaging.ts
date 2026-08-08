@@ -1473,6 +1473,16 @@ export type AdminOrderItem = {
   price: number    // prix unitaire du conditionnement choisi
 }
 
+export type AdminOrderPromo = {
+  /** Code affiché dans le récap (optionnel) */
+  code?: string
+  type: "percent" | "fixed" | "produit"
+  value: number
+  minAmount: number
+  /** Requis si type = produit */
+  productName?: string | null
+}
+
 export type AdminOrderInput = {
   // Contexte client (issu du fil de discussion sélectionné)
   customerName: string
@@ -1491,6 +1501,31 @@ export type AdminOrderInput = {
   meetupSlot?: string    // "Dimanche 22h"
   // Locker
   lockerAddress?: string
+  /** Promo manuelle ou issue d'un code existant (même modèle panier) */
+  promo?: AdminOrderPromo | null
+}
+
+/** Calcule la remise promo (€) — même règles que le panier client. */
+export function computeAdminPromoDiscount(
+  items: AdminOrderItem[],
+  subtotal: number,
+  promo: AdminOrderPromo | null | undefined,
+): number {
+  if (!promo) return 0
+  const minAmount = Math.max(0, Math.trunc(Number(promo.minAmount) || 0))
+  if (subtotal < minAmount) return 0
+  const value = Math.max(0, Number(promo.value) || 0)
+  if (promo.type === "produit") {
+    const name = (promo.productName ?? "").trim().toLowerCase()
+    if (!name) return 0
+    const target = items.find((i) => i.title.toLowerCase() === name)
+    if (!target) return 0
+    const freeQty = Math.min(Math.trunc(value), target.qty)
+    return Math.min(target.price * freeQty, subtotal)
+  }
+  const raw =
+    promo.type === "percent" ? Math.round((subtotal * value) / 100) : Math.trunc(value)
+  return Math.min(Math.max(0, raw), subtotal)
 }
 
 export async function adminCreateOrder(input: AdminOrderInput) {
@@ -1498,7 +1533,21 @@ export async function adminCreateOrder(input: AdminOrderInput) {
 
   const subtotal = input.items.reduce((s, i) => s + i.qty * i.price, 0)
   const fee = input.fulfillment === "livraison" ? (input.deliveryFee ?? 0) : input.fulfillment === "locker" ? 10 : 0
-  const total = subtotal + fee
+  const promo = input.promo ?? null
+  const promoDiscount = computeAdminPromoDiscount(input.items, subtotal, promo)
+  if (promo && promo.minAmount > 0 && subtotal < promo.minAmount) {
+    return {
+      ok: false as const,
+      error: `Minimum d'achat non atteint pour la promo (min. ${promo.minAmount}€, panier ${subtotal}€).`,
+    }
+  }
+  if (promo?.type === "produit" && promoDiscount === 0) {
+    return {
+      ok: false as const,
+      error: `Produit offert introuvable dans la commande (attendu : ${promo.productName ?? "—"}).`,
+    }
+  }
+  const total = Math.max(0, subtotal + fee - promoDiscount)
 
   const lines = input.items.map((i) => `• ${i.qty}x ${i.title} — ${i.qty * i.price}€`).join("\n")
   const productsShort = input.items.map((i) => `${i.qty}x ${i.title}`).join(", ")
@@ -1525,6 +1574,14 @@ export async function adminCreateOrder(input: AdminOrderInput) {
     }${fee > 0 ? ` (frais ${fee}€)` : ""}`
   }
 
+  const promoLabel = promo
+    ? promo.type === "percent"
+      ? `-${promo.value}%`
+      : promo.type === "produit"
+        ? `${promo.value}× ${promo.productName ?? "produit"} offert`
+        : `-${promo.value}€`
+    : null
+
   const summary = [
     `Nouvelle commande de ${input.customerName}`,
     ``,
@@ -1535,6 +1592,9 @@ export async function adminCreateOrder(input: AdminOrderInput) {
     ``,
     `Sous-total : ${subtotal}€`,
     fee > 0 ? `${input.fulfillment === "locker" ? "Locker" : "Livraison"} : ${fee}€` : null,
+    promoDiscount > 0
+      ? `Promo${promo?.code ? ` ${promo.code}` : ""}${promoLabel ? ` (${promoLabel})` : ""} : -${promoDiscount}€`
+      : null,
     `TOTAL : ${total}€`,
   ].filter(Boolean).join("\n")
 
@@ -1549,7 +1609,9 @@ export async function adminCreateOrder(input: AdminOrderInput) {
     customerToken: input.customerToken ?? undefined,
     summary,
     products: productsShort,
+    productIds: input.items.map((i) => i.productId),
     total,
+    promoDiscount: promoDiscount > 0 ? promoDiscount : undefined,
     fulfillment: input.fulfillment,
     address: address ?? undefined,
     scheduledDate: scheduledDate ?? undefined,
@@ -1561,7 +1623,13 @@ export async function adminCreateOrder(input: AdminOrderInput) {
     return { ok: false as const, error: result.error ?? "Échec création commande." }
   }
 
-  return { ok: true as const, id: result.id, trackingToken: result.trackingToken, total }
+  return {
+    ok: true as const,
+    id: result.id,
+    trackingToken: result.trackingToken,
+    total,
+    promoDiscount,
+  }
 }
 
 // Compte les fils "nouveau" (badge boîte de réception)
