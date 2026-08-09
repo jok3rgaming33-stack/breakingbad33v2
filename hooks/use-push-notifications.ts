@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { savePushSubscription, removePushSubscription } from "@/app/actions/push"
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
@@ -26,6 +26,47 @@ export function usePushNotifications({ role, customerToken }: Options) {
   const [subscribed, setSubscribed] = useState(false)
   const [permission, setPermission] = useState<PushStatus>("default")
   const [busy, setBusy] = useState(false)
+  // Mémorise la dernière combinaison (endpoint + rôle + token) déjà synchronisée
+  // en base, pour éviter de réécrire à chaque appel inutilement.
+  const syncedRef = useRef<string | null>(null)
+
+  // Resynchronise silencieusement l'abonnement navigateur existant avec la base,
+  // SANS redemander la permission. Corrige le cas où le customerToken a changé
+  // (reconnexion, régénération de clé) ou où la ligne push_subscriptions a été
+  // supprimée côté serveur, alors que le navigateur reste abonné : sans ce
+  // rattrapage, les push partaient dans le vide jusqu'à ce que le client
+  // re-clique sur "Activer les notifications" — d'où l'impression de ne
+  // recevoir les notifications qu'en rouvrant l'app/le site.
+  const resync = useCallback(async () => {
+    if (typeof window === "undefined") return
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return
+    if (!VAPID_PUBLIC_KEY) return
+    if (Notification.permission !== "granted") return
+    try {
+      // Best-effort : pas de timeout dur ici, ça ne bloque aucun rendu (appel
+      // silencieux, pas sur le chemin de montage critique Safari/PWA).
+      const reg = await navigator.serviceWorker.register("/sw.js")
+      const sub = await reg.pushManager.getSubscription()
+      if (!sub) return
+
+      const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } }
+      if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return
+
+      const syncKey = `${json.endpoint}|${role}|${customerToken ?? ""}`
+      if (syncedRef.current === syncKey) return
+
+      await savePushSubscription({
+        endpoint: json.endpoint,
+        p256dh: json.keys.p256dh,
+        auth: json.keys.auth,
+        role,
+        customerToken: customerToken ?? null,
+      })
+      syncedRef.current = syncKey
+    } catch (e) {
+      console.log("[v0] push resync error:", e)
+    }
+  }, [role, customerToken])
 
   // Détecte le support et l'état d'abonnement courant au montage.
   // Important mobile : ne PAS await serviceWorker.ready ici (peut pendre sous Safari/PWA).
@@ -67,6 +108,23 @@ export function usePushNotifications({ role, customerToken }: Options) {
     }
   }, [])
 
+  // Rattrapage best-effort de la synchro serveur : une fois le support connu,
+  // quand le customerToken change (reconnexion) et quand l'onglet/l'app
+  // redevient visible. N'affecte jamais l'UI (pas de setBusy/setSupported ici).
+  useEffect(() => {
+    if (!supported) return
+    resync()
+  }, [supported, resync])
+
+  useEffect(() => {
+    if (!supported) return
+    const onVisible = () => {
+      if (document.visibilityState === "visible") resync()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => document.removeEventListener("visibilitychange", onVisible)
+  }, [supported, resync])
+
   const subscribe = useCallback(async () => {
     if (!supported || !VAPID_PUBLIC_KEY) return false
     setBusy(true)
@@ -96,6 +154,7 @@ export function usePushNotifications({ role, customerToken }: Options) {
         role,
         customerToken: customerToken ?? null,
       })
+      syncedRef.current = `${json.endpoint}|${role}|${customerToken ?? ""}`
       setSubscribed(true)
       return true
     } catch (e) {
@@ -116,6 +175,7 @@ export function usePushNotifications({ role, customerToken }: Options) {
         await removePushSubscription(sub.endpoint)
         await sub.unsubscribe()
       }
+      syncedRef.current = null
       setSubscribed(false)
     } catch (e) {
       console.log("[v0] unsubscribe error:", e)
