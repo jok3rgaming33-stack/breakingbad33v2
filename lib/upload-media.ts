@@ -17,8 +17,10 @@ export async function uploadMedia(file: File): Promise<UploadedMedia> {
   }
 
   try {
+    // Store privé (voir /api/media et /api/products/upload) : access doit
+    // être "private" ici aussi, sinon Vercel Blob rejette le jeton avec un 403.
     const blob = await upload(file.name, file, {
-      access: "public",
+      access: "private",
       handleUploadUrl: "/api/products/upload",
       contentType: file.type,
     })

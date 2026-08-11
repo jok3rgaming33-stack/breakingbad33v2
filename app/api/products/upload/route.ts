@@ -20,6 +20,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           throw new Error("Non autorisé.")
         }
         return {
+          access: "private",
           allowedContentTypes: [
             "image/jpeg",
             "image/png",
