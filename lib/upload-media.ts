@@ -1,8 +1,14 @@
+import { upload } from "@vercel/blob/client"
+
 export type UploadedMedia = { url: string; type: "image" | "video" }
 
-// Upload via notre route serveur /api/products/upload.
-// Le fichier transite par Next.js → Vercel Blob côté serveur,
-// ce qui évite tout CORS (pas d'appel direct navigateur → Blob).
+// Upload direct navigateur → Vercel Blob (client upload).
+// La route /api/products/upload ne fait que délivrer un jeton signé ;
+// le fichier ne transite jamais par notre fonction serverless.
+// Important : les fonctions Vercel plafonnent le corps des requêtes à 4.5 Mo,
+// donc l'ancien flux (fetch avec FormData vers la route) échouait en silence
+// ("Failed to fetch") pour toute photo un peu lourde, la plupart des GIF et
+// quasiment toutes les vidéos. L'upload client n'a pas cette limite.
 export async function uploadMedia(file: File): Promise<UploadedMedia> {
   const isVideo = file.type.startsWith("video/")
   const isImage = file.type.startsWith("image/")
@@ -10,19 +16,17 @@ export async function uploadMedia(file: File): Promise<UploadedMedia> {
     throw new Error("Format non supporté (image ou vidéo).")
   }
 
-  const formData = new FormData()
-  formData.append("file", file)
+  try {
+    const blob = await upload(file.name, file, {
+      access: "public",
+      handleUploadUrl: "/api/products/upload",
+      contentType: file.type,
+    })
 
-  const res = await fetch("/api/products/upload", {
-    method: "POST",
-    body: formData,
-  })
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error(data?.error ?? "Échec de l'envoi.")
+    return { url: blob.url, type: isVideo ? "video" : "image" }
+  } catch (e) {
+    console.log("[v0] uploadMedia error:", e)
+    const message = e instanceof Error ? e.message : "Échec de l'envoi."
+    throw new Error(message)
   }
-
-  const data = await res.json()
-  return { url: data.url, type: data.type }
 }
