@@ -38,6 +38,7 @@ import {
   getThreads,
 } from "@/app/actions/messaging"
 import { AdminAppBadgeSync } from "@/components/app-badge-sync"
+import { PushToggle } from "@/components/push-toggle"
 import {
   MessageSquare,
   Map,
@@ -374,6 +375,13 @@ export function AdminPanel() {
           </nav>
 
           <div className="mt-auto hidden flex-col gap-3 border-t border-border pt-4 md:flex">
+            {/* Sans ça, l'admin n'a AUCUN moyen de (re)synchroniser son
+                abonnement push depuis le panel : la cloche client n'est
+                jamais montée ici, donc si l'abonnement navigateur se
+                désynchronise côté serveur, les notifications de vente
+                s'arrêtent silencieusement jusqu'à passer par la cloche
+                publique. */}
+            <PushToggle role="vendeur" />
             <Link
               href="/"
               className="flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/5 px-3 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10"
