@@ -9,10 +9,13 @@ export function PushToggle({
   role,
   customerToken,
   className = "",
+  compact = false,
 }: {
   role: "client" | "vendeur"
   customerToken?: string | null
   className?: string
+  /** Bouton icône seul (header mobile admin). */
+  compact?: boolean
 }) {
   const { supported, subscribed, permission, busy, subscribe, unsubscribe } = usePushNotifications({
     role,
@@ -20,6 +23,7 @@ export function PushToggle({
   })
 
   if (!supported) {
+    if (compact) return null
     return (
       <div className={`flex flex-col gap-1.5 ${className}`}>
         <p className="text-xs font-semibold text-muted-foreground">Notifications push</p>
@@ -35,6 +39,18 @@ export function PushToggle({
   }
 
   if (permission === "denied") {
+    if (compact) {
+      return (
+        <button
+          type="button"
+          disabled
+          title="Notifications bloquées dans le navigateur"
+          className={`flex h-10 w-10 items-center justify-center rounded-xl border border-destructive/30 text-destructive ${className}`}
+        >
+          <BellOff className="h-4 w-4" aria-hidden="true" />
+        </button>
+      )
+    }
     return (
       <div className={`flex flex-col gap-1.5 ${className}`}>
         <p className="text-xs font-semibold text-destructive">Notifications bloquées</p>
@@ -42,6 +58,31 @@ export function PushToggle({
           Autorise-les dans les réglages de ton navigateur (Site info → Notifications → Autoriser) puis recharge la page.
         </p>
       </div>
+    )
+  }
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={() => (subscribed ? unsubscribe() : subscribe())}
+        disabled={busy}
+        title={subscribed ? "Notifications activées — cliquer pour couper" : "Activer les notifications"}
+        aria-label={subscribed ? "Notifications activées" : "Activer les notifications"}
+        className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors disabled:opacity-50 ${
+          subscribed
+            ? "border-[#3e6757]/40 bg-[#3e6757]/15 text-[#7fd1b0]"
+            : "border-input bg-secondary text-foreground"
+        } ${className}`}
+      >
+        {busy ? (
+          <Bell className="h-4 w-4 animate-pulse" aria-hidden="true" />
+        ) : subscribed ? (
+          <BellRing className="h-4 w-4" aria-hidden="true" />
+        ) : (
+          <BellOff className="h-4 w-4" aria-hidden="true" />
+        )}
+      </button>
     )
   }
 

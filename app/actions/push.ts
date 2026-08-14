@@ -4,6 +4,8 @@ import { db } from "@/lib/db"
 import { pushSubscriptions } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 
+export type PushRole = "client" | "vendeur" | "both"
+
 export type PushSubscriptionInput = {
   endpoint: string
   p256dh: string
@@ -12,14 +14,37 @@ export type PushSubscriptionInput = {
   customerToken?: string | null
 }
 
+function mergePushRole(existing: string | undefined, incoming: "client" | "vendeur"): PushRole {
+  if (!existing) return incoming
+  if (existing === "both") return "both"
+  if (existing === incoming) return incoming
+  if (existing === "client" || existing === "vendeur") return "both"
+  return incoming
+}
+
 // Enregistre (ou met à jour) un abonnement push pour un client ou le vendeur.
+// Même appareil / même endpoint : on fusionne les rôles (client + vendeur = both)
+// au lieu d'écraser — sinon activer la cloche boutique retire l'admin des push.
 export async function savePushSubscription(input: PushSubscriptionInput) {
   if (!input.endpoint || !input.p256dh || !input.auth) return { ok: false as const }
 
-  const role = input.role === "vendeur" ? "vendeur" : "client"
-  const customerToken = role === "client" ? input.customerToken?.trim() || null : null
+  const incomingRole = input.role === "vendeur" ? "vendeur" : "client"
+  const incomingToken = input.customerToken?.trim() || null
 
-  // L'endpoint est unique : on remplace les infos si l'abonnement existe déjà.
+  const [existing] = await db
+    .select({
+      role: pushSubscriptions.role,
+      customerToken: pushSubscriptions.customerToken,
+    })
+    .from(pushSubscriptions)
+    .where(eq(pushSubscriptions.endpoint, input.endpoint))
+    .limit(1)
+
+  const role = mergePushRole(existing?.role, incomingRole)
+  // Ne jamais perdre le token client : un re-save vendeur sur le même
+  // endpoint doit continuer à pouvoir recevoir les notifs perso.
+  const customerToken = incomingToken || existing?.customerToken || null
+
   await db
     .insert(pushSubscriptions)
     .values({

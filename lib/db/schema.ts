@@ -235,7 +235,7 @@ export const productBadges = pgTable("product_badges", {
 })
 
 // Abonnements aux notifications push Web (Service Worker + VAPID).
-// role = 'client' (avec customer_token) ou 'vendeur' (notifications admin).
+// role = 'client' | 'vendeur' | 'both' (même appareil boutique + panel).
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: serial("id").primaryKey(),
   role: text("role").notNull().default("client"),
