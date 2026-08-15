@@ -1026,7 +1026,6 @@ export function VendorInbox({
                           createdAt={selected.createdAt}
                           scheduledSlot={selected.scheduledSlot}
                           colissimoNumber={selected.colissimoNumber}
-                          className="sticky top-0 z-10"
                         />
                       )}
                       {rest.map(renderBubble)}

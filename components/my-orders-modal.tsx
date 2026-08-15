@@ -641,7 +641,7 @@ export function MyOrdersModal({
                             createdAt={selected.createdAt}
                             scheduledSlot={selected.scheduledSlot}
                             colissimoNumber={selected.colissimoNumber}
-                            className="sticky top-0 z-10 mb-1"
+                            className="mb-1"
                           />
                         )}
                         {rest.map(bubble)}
