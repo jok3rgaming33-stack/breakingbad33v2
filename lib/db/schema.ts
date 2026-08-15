@@ -212,6 +212,16 @@ export const orderThreads = pgTable("order_threads", {
   loyaltyDiscount: integer("loyalty_discount").notNull().default(0),
   // Points crédités à la livraison (avec multi palier) ; null = commande historique
   loyaltyPointsAwarded: integer("loyalty_points_awarded"),
+  /** Historique des étapes + ETA (suivi graphique, plus de messages auto statut). */
+  tracking: jsonb("tracking").$type<{
+    history?: Record<string, string>
+    etaMin?: number | null
+    etaAt?: string | null
+    etaArriveBy?: string | null
+    cancelReason?: string | null
+  }>().notNull().default({}),
+  /** Lien Mode tournée (avance statut sans ouvrir le panel). */
+  runToken: text("run_token"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
@@ -452,7 +462,7 @@ export type AccountRecoveryClaim = typeof accountRecoveryClaims.$inferSelect
 
 // Avis clients sur les produits achetés.
 // Seule une commande avec statut "livree" permet la notation.
-// Un client ne peut noter un produit qu'une seule fois par commande (index d'unicité).
+// Un avis par produit ET par commande : le même produit peut être noté à chaque nouvelle livraison.
 export const productRatings = pgTable("product_ratings", {
   id: serial("id").primaryKey(),
   productId: integer("product_id").notNull(),

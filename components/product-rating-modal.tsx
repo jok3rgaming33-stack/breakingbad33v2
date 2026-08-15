@@ -120,9 +120,9 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-accent/20">
             <Check className="h-7 w-7 text-accent" />
           </div>
-          <h3 className="mb-2 text-lg font-bold">Merci pour tes avis !</h3>
+          <h3 className="mb-2 text-lg font-bold">Merci — tu fais avancer le labo</h3>
           <p className="mb-6 text-sm text-muted-foreground">
-            Tous tes produits ont déjà été notés ou il n&apos;y a rien à noter pour le moment.
+            Tes retours à chaque commande, même sur un produit que tu connais déjà, montrent que le niveau tient dans le temps. À très vite pour le prochain.
           </p>
           <button
             type="button"
@@ -204,6 +204,13 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
 
         {/* Corps */}
         <div className="flex flex-col gap-4 p-5">
+          {current.priorRatingCount > 0 && (
+            <p className="rounded-2xl border border-amber-400/25 bg-amber-400/10 px-3 py-2.5 text-xs leading-relaxed text-amber-100/90">
+              Fidèle au poste : tu as déjà noté ce produit
+              {current.priorRatingCount > 1 ? ` ${current.priorRatingCount} fois` : ""}.
+              Un nouvel avis, c&apos;est la preuve que le niveau tient — et ça rassure ceux qui hésitent encore. Merci.
+            </p>
+          )}
           <StarPicker label="Qualité" value={form.quality} onChange={(v) => setForm((f) => ({ ...f, quality: v }))} />
           <StarPicker label="Quantité" value={form.quantity} onChange={(v) => setForm((f) => ({ ...f, quantity: v }))} />
           <StarPicker label="Conditionnement" value={form.packaging} onChange={(v) => setForm((f) => ({ ...f, packaging: v }))} />

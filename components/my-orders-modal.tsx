@@ -13,7 +13,8 @@ import {
   markThreadReadForToken,
 } from "@/app/actions/messaging"
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
-import { OrderStatusTimeline } from "@/components/order-status-timeline"
+import { splitThreadForTracking, type OrderTrackingState } from "@/lib/order-timeline"
+import { OrderTrackingCard } from "@/components/order-tracking-card"
 import { MessageBody } from "@/components/message-body"
 import { BlobMedia } from "@/components/blob-media"
 import { ProductRatingModal } from "@/components/product-rating-modal"
@@ -70,6 +71,8 @@ type Thread = {
   xmrWallet?: string | null
   createdAt: Date | string
   updatedAt: Date | string
+  tracking?: OrderTrackingState | null
+  colissimoNumber?: string | null
 }
 
 type Message = {
@@ -162,6 +165,9 @@ export function MyOrdersModal({
         const data = await getThreadForToken(selectedRef.current, token)
         if (data) {
           setMessages(data.messages as Message[])
+          if (data.thread) {
+            setSelected((s) => (s && s.id === data.thread.id ? { ...s, ...data.thread } : s))
+          }
           await markThreadReadForToken(selectedRef.current, token)
         }
       }
@@ -216,7 +222,10 @@ export function MyOrdersModal({
         getThreadForToken(thread.id, token),
         markThreadReadForToken(thread.id, token),
       ])
-      if (data) setMessages(data.messages as Message[])
+      if (data) {
+        setMessages(data.messages as Message[])
+        if (data.thread) setSelected((s) => (s ? { ...s, ...data.thread } : s))
+      }
       // Si c'est un fil TRK : le supprimer maintenant que le client l'a ouvert
       if (isTrkMessage(thread)) {
         await consumeTrkThread(thread.id)
@@ -232,7 +241,7 @@ export function MyOrdersModal({
     if (!data) return
     setMessages(data.messages as Message[])
     const now = data.thread?.updatedAt ?? new Date().toISOString()
-    setSelected((s) => (s && s.id === threadId ? { ...s, updatedAt: now } : s))
+    setSelected((s) => (s && s.id === threadId ? { ...s, ...data.thread, updatedAt: now } : s))
     setThreads((prev) =>
       sortByActivityDesc(prev.map((t) => (t.id === threadId ? { ...t, updatedAt: now } : t))),
     )
@@ -601,30 +610,44 @@ export function MyOrdersModal({
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {!isTrkSelected && selected.status !== "notification" && selected.status !== "trk_token" && (
-                    <OrderStatusTimeline
-                      status={selected.status}
-                      fulfillment={selected.fulfillment}
-                      className="mb-2"
-                    />
-                  )}
-                  {messages.map((m) => {
-                    const isClient = m.sender === "client"
-                    return (
-                      <div
-                        key={m.id}
-                        className={`max-w-[85%] rounded-2xl p-3 text-sm ${isClient ? "self-end bg-accent text-accent-foreground" : "self-start border border-border bg-background/60 text-foreground"}`}
-                      >
-                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                          {isClient ? "Vous" : "Le Chimiste"} · {formatMessageTime(m.createdAt)}
+                  {(() => {
+                    const { recap, rest } = splitThreadForTracking(messages)
+                    const bubble = (m: Message) => {
+                      const isClient = m.sender === "client"
+                      return (
+                        <div
+                          key={m.id}
+                          className={`max-w-[85%] rounded-2xl p-3 text-sm ${isClient ? "self-end bg-accent text-accent-foreground" : "self-start border border-border bg-background/60 text-foreground"}`}
+                        >
+                          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                            {isClient ? "Vous" : "Le Chimiste"} · {formatMessageTime(m.createdAt)}
+                          </div>
+                          <MessageBody
+                            body={m.body}
+                            onRateProducts={selected ? () => setRatingThreadId(selected.id) : undefined}
+                          />
                         </div>
-                        <MessageBody
-                          body={m.body}
-                          onRateProducts={selected ? () => setRatingThreadId(selected.id) : undefined}
-                        />
-                      </div>
+                      )
+                    }
+                    return (
+                      <>
+                        {recap && bubble(recap)}
+                        {!isTrkSelected && selected.status !== "notification" && selected.status !== "trk_token" && (
+                          <OrderTrackingCard
+                            orderId={selected.id}
+                            status={selected.status}
+                            fulfillment={selected.fulfillment}
+                            tracking={selected.tracking}
+                            createdAt={selected.createdAt}
+                            scheduledSlot={selected.scheduledSlot}
+                            colissimoNumber={selected.colissimoNumber}
+                            className="sticky top-0 z-10 mb-1"
+                          />
+                        )}
+                        {rest.map(bubble)}
+                      </>
                     )
-                  })}
+                  })()}
                 </div>
               )}
             </div>
