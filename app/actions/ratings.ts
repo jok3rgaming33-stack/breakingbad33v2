@@ -21,6 +21,8 @@ export type RatableProduct = {
   productTitle: string
   threadId: number
   alreadyRated: boolean
+  /** Avis déjà laissés par ce client sur ce produit (autres commandes). */
+  priorRatingCount: number
 }
 
 export type ProductRatingSummary = {
@@ -78,8 +80,9 @@ function normalizeProductIds(raw: unknown): number[] {
 function buildRatingInviteBody(): string {
   return [
     RATING_INVITE_TAG,
-    "Ta satisfaction est importante.",
-    "Prends 1 minute pour noter tes produits — ça aide vraiment le labo !",
+    "Chaque avis compte — surtout le tien.",
+    "Même si tu as déjà noté ce produit, un nouveau retour à chaque commande montre que tu reviens, et ça rassure ceux qui découvrent encore le labo.",
+    "1 minute, et tu aides tout le monde.",
   ].join("\n")
 }
 
@@ -184,6 +187,10 @@ export async function getRatableProducts(customerToken: string): Promise<Ratable
     )
 
   const ratedSet = new Set(alreadyRated.map((r) => `${r.productId}:${r.threadId}`))
+  const priorByProduct = new Map<number, number>()
+  for (const r of alreadyRated) {
+    priorByProduct.set(r.productId, (priorByProduct.get(r.productId) ?? 0) + 1)
+  }
 
   // Construire la liste des produits éligibles avec noms
   const allProductIds = new Set<number>()
@@ -203,11 +210,14 @@ export async function getRatableProducts(customerToken: string): Promise<Ratable
   const result: RatableProduct[] = []
   for (const thread of withProducts) {
     for (const pid of thread.productIds) {
+      const ratedHere = ratedSet.has(`${pid}:${thread.id}`)
+      const totalOnProduct = priorByProduct.get(pid) ?? 0
       result.push({
         productId: pid,
         productTitle: productMap.get(pid) ?? `Produit #${pid}`,
         threadId: thread.id,
-        alreadyRated: ratedSet.has(`${pid}:${thread.id}`),
+        alreadyRated: ratedHere,
+        priorRatingCount: Math.max(0, totalOnProduct - (ratedHere ? 1 : 0)),
       })
     }
   }
@@ -616,7 +626,7 @@ export async function sendRatingInvites(
             order.fulfillment === "locker" ? ("locker" as const) : ("orders" as const)
           await notifyCustomer(token, {
             title: "Note ton expérience ⭐",
-            body: "Un message t'attend pour noter les produits de ta commande livrée.",
+            body: "Même si tu l'as déjà fait : un nouvel avis à chaque commande, ça compte.",
             url: clientThreadUrl(open, id),
             tag: `rating-invite-${id}-${Date.now()}`,
             threadId: id,

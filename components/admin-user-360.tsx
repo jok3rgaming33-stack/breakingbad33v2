@@ -491,7 +491,12 @@ export function AdminUser360({ userId, onClose }: Props) {
                               {meta.label}
                             </span>
                           </div>
-                          <OrderStatusTimeline status={o.status} fulfillment={o.fulfillment} compact />
+                          <OrderStatusTimeline
+                            orderId={o.id}
+                            status={o.status}
+                            fulfillment={o.fulfillment}
+                            compact
+                          />
                         </li>
                       )
                     })}

@@ -85,6 +85,16 @@ async function ensureOrderSchema() {
         await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_points_awarded INTEGER`)
         // Lecture messages côté client
         await db.execute(sql`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS client_read_at TIMESTAMPTZ`)
+        // Suivi graphique (historique + ETA) + lien Mode tournée
+        await db.execute(sql`
+          ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS tracking JSONB NOT NULL DEFAULT '{}'::jsonb
+        `)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS run_token TEXT`)
+        await db.execute(sql`
+          CREATE UNIQUE INDEX IF NOT EXISTS order_threads_run_token_uidx
+          ON order_threads (run_token)
+          WHERE run_token IS NOT NULL
+        `)
       } catch (e) {
         orderSchemaPromise = null
         console.error("[messaging] ensureOrderSchema:", e)
@@ -183,6 +193,7 @@ export async function createOrderThread(input: NewOrderInput) {
         status: "en_attente",
         paymentMethod,
         loyaltyDiscount,
+        tracking: { history: { en_attente: new Date().toISOString() } },
       })
       .returning()
 
@@ -670,83 +681,127 @@ export async function addMessage(
   return { ok: true }
 }
 
-// Met à jour le statut d'un fil et envoie automatiquement un message au client avec les infos à jour.
+// Met à jour le statut d'un fil.
+// Plus de message texte auto : le suivi graphique + une notification push/cloche suffisent.
+// Exception : invitation de notation à la livraison (CTA, pas un statut).
 // Optionnellement met à jour le numéro Colissimo quand la commande est expédiée.
-// Pour "livree", c'est aussi le moment où les points de fidélité sont crédités (voir getCustomerStats).
-// Pour "annulee", un motif facultatif saisi par l'admin est inclus dans le message.
+// Pour "livree", les points de fidélité sont crédités (voir getCustomerStats).
 export async function updateThreadStatus(
   threadId: number,
   status: string,
   reason?: string,
   colissimoNumber?: string
 ) {
+  await ensureOrderSchema()
   const [current] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
   if (!current) return { ok: false }
 
   const prevKey = normalizeStatus(current.status)
   const nextKey = normalizeStatus(status)
 
-  // Mise à jour du statut et optionnellement du numéro Colissimo
-  const updateData: any = { status, updatedAt: sql`now()` }
+  const prevTracking =
+    current.tracking && typeof current.tracking === "object" ? current.tracking : {}
+  const history: Record<string, string> = {
+    ...((prevTracking as { history?: Record<string, string> }).history ?? {}),
+  }
+  if (!history.en_attente && current.createdAt) {
+    history.en_attente = new Date(current.createdAt).toISOString()
+  }
+  if (nextKey !== prevKey) {
+    history[nextKey] = new Date().toISOString()
+  }
+
+  const tracking: {
+    history: Record<string, string>
+    etaMin?: number | null
+    etaAt?: string | null
+    etaArriveBy?: string | null
+    cancelReason?: string | null
+  } = {
+    ...prevTracking,
+    history,
+  }
+
+  if (reason?.trim()) tracking.cancelReason = reason.trim()
+
+  // Mise à jour du statut et optionnellement du numéro Colissimo / token tournée
+  const updateData: Record<string, unknown> = {
+    status,
+    updatedAt: sql`now()`,
+    tracking,
+  }
   if (colissimoNumber?.trim()) {
     updateData.colissimoNumber = colissimoNumber.trim()
   }
 
-  await db
-    .update(orderThreads)
-    .set(updateData)
-    .where(eq(orderThreads.id, threadId))
+  let runToken = current.runToken
+  if ((nextKey === "livraison" || nextKey === "arrivee") && !runToken) {
+    runToken = `RUN_${crypto.randomUUID().replace(/-/g, "")}`
+    updateData.runToken = runToken
+  }
 
-  // Message automatique au client, uniquement quand le statut change réellement.
+  let notifyBody: string | null = null
+  let etaMin: number | null = null
+
   if (nextKey !== prevKey) {
-    let body: string | null = null
     switch (nextKey) {
       case "pris_en_charge":
-        body = "Ta demande a bien été reçue et est en cours de traitement."
+        notifyBody = "Ta demande a bien été reçue et est en cours de traitement."
         break
       case "ouvert":
-        body = "Ta discussion est ouverte. Tu peux continuer à échanger."
+        notifyBody = "Ta discussion est ouverte."
         break
       case "ferme":
-        body = "Cette discussion a été clôturée. Tu peux toujours la consulter ici."
+        notifyBody = "Cette discussion a été clôturée."
         break
       case "validee":
-        body = "✅ Ta commande a été validée et prise en charge."
+        notifyBody = "Ta commande a été validée et prise en charge."
         break
       case "preparation":
-        body = "⚙️ Nous sommes en train de préparer tes articles."
+        notifyBody = "Tes articles sont en cours de préparation."
         break
       case "pret_meetup":
-        body = "Ton colis est prêt. Tu peux venir le récupérer lors de notre rendez-vous."
+        notifyBody = "Ton colis est prêt à récupérer."
         break
       case "bientot_livraison":
-        body = "🚚 Ton colis sera bientôt pris en charge par le livreur. Reste joignable, la livraison approche !"
+        notifyBody = "Ton colis sera bientôt pris en charge. Reste joignable."
         break
       case "livraison": {
-        // Inclure le numéro de suivi Colissimo s'il existe
-        const colNum = current.colissimoNumber || colissimoNumber
-        // ETA : point de départ carte → client (+3 min). Si pas de GPS, géocode l'adresse.
-        // Multi-arrêt : mets à jour le point de départ carte avant de passer en livraison.
-        let etaLine = ""
         if (current.fulfillment === "livraison") {
           try {
             const { getDeliveryEtaForThread } = await import("@/app/actions/drive-eta")
-            const { formatEtaMessageLine } = await import("@/lib/drive-eta")
+            const { formatEtaNotifyLine } = await import("@/lib/drive-eta")
             const eta = await getDeliveryEtaForThread(threadId)
             if (eta) {
-              etaLine = `\n${formatEtaMessageLine(eta.etaMin)}`
+              etaMin = eta.etaMin
+              tracking.etaMin = eta.etaMin
+              tracking.etaAt = new Date().toISOString()
+              tracking.etaArriveBy = new Date(Date.now() + eta.etaMin * 60 * 1000).toISOString()
+              updateData.tracking = tracking
+              notifyBody = `Le livreur est en route. ${formatEtaNotifyLine(eta.etaMin)}`
             }
           } catch (e) {
             console.error("[updateThreadStatus] ETA failed:", e)
           }
         }
-        body = colNum
-          ? `📦 C'est parti ! Le livreur est en route.${etaLine}\nNuméro de suivi : ${colNum}\nReste joignable.`
-          : `📦 Le livreur est en route.${etaLine}\nReste joignable.`
+        if (!notifyBody) {
+          notifyBody =
+            current.fulfillment === "locker"
+              ? "Ton colis est déposé en locker."
+              : "Le livreur est en route. Reste joignable."
+        }
         break
       }
+      case "arrivee":
+        notifyBody = "Le livreur est arrivé à destination. Sors ou reste joignable."
+        break
       case "livree": {
-        const mode = current.fulfillment === "meetup" ? "en meet-up" : current.fulfillment === "locker" ? "en Locker Mondial Relay" : "en livraison"
+        const mode =
+          current.fulfillment === "meetup"
+            ? "en meet-up"
+            : current.fulfillment === "locker"
+              ? "en locker"
+              : "en livraison"
         let points = computeLoyaltyPoints(current.total ?? 0)
         let multiLine = ""
         try {
@@ -764,86 +819,85 @@ export async function updateThreadStatus(
         } catch {
           /* multi non bloquant — base 1€=1pt */
         }
-        // Bonus parrainage : uniquement à la 1ʳᵉ livraison du filleul
         let referralLine = ""
         try {
           const { grantReferralBonusOnFirstDelivery } = await import("@/app/actions/account")
           const ref = await grantReferralBonusOnFirstDelivery(current.customerToken)
           if (ref.granted && ref.refereeBonus) {
-            referralLine = `\n🎁 Bonus parrainage : +${ref.refereeBonus} points (1ʳᵉ livraison).`
+            referralLine = ` Bonus parrainage : +${ref.refereeBonus} pts.`
           }
         } catch {
           /* non bloquant */
         }
-        body =
-          `✨ Ta commande t'a bien été livrée (${mode}). Merci pour ta confiance !` +
+        notifyBody =
+          `Commande livrée (${mode}).` +
           (points > 0
-            ? `\n${points} point${points > 1 ? "s" : ""} de fidélité viennent d'être crédités${multiLine}.`
+            ? ` +${points} pt${points > 1 ? "s" : ""} fidélité${multiLine}.`
             : "") +
           referralLine
         break
       }
       case "annulee": {
         const motif = reason?.trim()
-        body = motif
-          ? `❌ Ta commande a été annulée.\nMotif : ${motif}`
-          : "❌ Ta commande a été annulée."
+        notifyBody = motif ? `Commande annulée. Motif : ${motif}` : "Commande annulée."
         break
       }
     }
-    if (body) {
-      await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
+  }
 
-      // Invitation notation : EN DERNIER (visible en bas du fil) + push dédiée.
-      // Le tag [NOTER_PRODUITS] est détecté côté client pour afficher le bouton.
-      if (nextKey === "livree") {
-        const ratingBody =
-          `[NOTER_PRODUITS]\nTa satisfaction est importante. Prends 1 minute pour noter tes produits — ça aide vraiment !`
-        try {
-          await db.insert(threadMessages).values({
-            threadId,
-            sender: "vendeur",
-            body: ratingBody,
-          })
-          await db
-            .update(orderThreads)
-            .set({ updatedAt: sql`now()` })
-            .where(eq(orderThreads.id, threadId))
-          await notifyCustomer(current.customerToken, {
-            title: "Note ton expérience ⭐",
-            body: "Un message t'attend pour noter les produits de ta commande livrée.",
-            url: clientThreadUrl(
-              current.fulfillment === "locker" ? "locker" : "orders",
-              threadId,
-            ),
-            tag: `rating-invite-${threadId}`,
-            threadId,
-            open: current.fulfillment === "locker" ? "locker" : "orders",
-          }).catch(() => {})
-        } catch (e) {
-          console.error("[updateThreadStatus] rating invite failed:", e)
-        }
-      }
+  await db
+    .update(orderThreads)
+    .set(updateData)
+    .where(eq(orderThreads.id, threadId))
 
-      // Notifie le client du changement de statut de sa commande.
-      await notifyCustomer(current.customerToken, {
-        title: `Commande #${threadId} — ${statusMeta(nextKey).label}`,
-        body,
-        url: clientThreadUrl(
-          current.fulfillment === "locker" ? "locker" : "orders",
+  if (nextKey !== prevKey && notifyBody) {
+    // Invitation notation : reste un message (CTA), pas un statut.
+    if (nextKey === "livree") {
+      const ratingBody = [
+        "[NOTER_PRODUITS]",
+        "Chaque avis compte — surtout le tien.",
+        "Même si tu as déjà noté ce produit, un nouveau retour à chaque commande montre que tu reviens, et ça rassure ceux qui découvrent encore le labo.",
+        "1 minute, et tu aides tout le monde.",
+      ].join("\n")
+      try {
+        await db.insert(threadMessages).values({
           threadId,
-        ),
-        tag: `status-${threadId}`,
-        threadId,
-        open: current.fulfillment === "locker" ? "locker" : "orders",
-      }).catch(() => {})
+          sender: "vendeur",
+          body: ratingBody,
+        })
+        await notifyCustomer(current.customerToken, {
+          title: "Note ton expérience ⭐",
+          body: "Même si tu l'as déjà fait : un nouvel avis à chaque commande, ça compte.",
+          url: clientThreadUrl(
+            current.fulfillment === "locker" ? "locker" : "orders",
+            threadId,
+          ),
+          tag: `rating-invite-${threadId}`,
+          threadId,
+          open: current.fulfillment === "locker" ? "locker" : "orders",
+        }).catch(() => {})
+      } catch (e) {
+        console.error("[updateThreadStatus] rating invite failed:", e)
+      }
     }
+
+    await notifyCustomer(current.customerToken, {
+      title: `Commande #${threadId} — ${statusMeta(nextKey).label}`,
+      body: notifyBody,
+      url: clientThreadUrl(
+        current.fulfillment === "locker" ? "locker" : "orders",
+        threadId,
+      ),
+      tag: `status-${threadId}`,
+      threadId,
+      open: current.fulfillment === "locker" ? "locker" : "orders",
+    }).catch(() => {})
   }
 
   revalidatePath("/messagerie")
   revalidatePath(`/messagerie/${threadId}`)
   revalidatePath("/admin")
-  return { ok: true }
+  return { ok: true, runToken: runToken ?? null, etaMin }
 }
 
 // Vue client : ses fils filtrés par pseudo (compat héritée)
@@ -1166,6 +1220,7 @@ export async function getThreadByTrackingToken(trackingToken: string) {
     scheduledDate: thread.scheduledDate,
     scheduledSlot: thread.scheduledSlot,
     colissimoNumber: thread.colissimoNumber,
+    tracking: thread.tracking ?? {},
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
     messages: statusMessages,

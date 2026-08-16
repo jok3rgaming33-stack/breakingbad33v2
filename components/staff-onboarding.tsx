@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { completeStaffOnboarding } from "@/app/actions/staff"
+import { savePushSubscription } from "@/app/actions/push"
 import { PASSWORD_RULES } from "@/lib/password-rules"
 import { Eye, EyeOff, ShieldCheck, CheckCircle2, Loader2, AlertTriangle, Users, Bell } from "lucide-react"
 import { BbLogo } from "@/components/bb-logo"
@@ -59,26 +60,39 @@ export function StaffOnboarding({
     setNotifStep("asking")
     try {
       const result = await Notification.requestPermission()
-      setNotifStep(result === "granted" ? "granted" : "denied")
-      if (result === "granted") {
-        // Enregistrement du service worker pour les push (même flux que push-toggle)
-        const reg = await navigator.serviceWorker.ready
-        const existing = await reg.pushManager.getSubscription()
-        if (existing) return // déjà abonné
-        const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-        if (!vapidKey) return
-        const sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: vapidKey,
-        })
-        if (customerToken) {
-          await fetch("/api/push/subscribe", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ subscription: sub, role: "client", customerToken }),
+      if (result !== "granted") {
+        setNotifStep("denied")
+        return
+      }
+      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+      if (vapidKey && "serviceWorker" in navigator && "PushManager" in window) {
+        const padding = "=".repeat((4 - (vapidKey.length % 4)) % 4)
+        const base64 = (vapidKey + padding).replace(/-/g, "+").replace(/_/g, "/")
+        const raw = atob(base64)
+        const key = new Uint8Array(raw.length)
+        for (let i = 0; i < raw.length; i++) key[i] = raw.charCodeAt(i)
+
+        const reg = await navigator.serviceWorker.register("/sw.js")
+        await navigator.serviceWorker.ready
+        let sub = await reg.pushManager.getSubscription()
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: key,
+          })
+        }
+        const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } }
+        if (json.endpoint && json.keys?.p256dh && json.keys?.auth) {
+          await savePushSubscription({
+            endpoint: json.endpoint,
+            p256dh: json.keys.p256dh,
+            auth: json.keys.auth,
+            role: canAdmin ? "vendeur" : "client",
+            customerToken: customerToken ?? null,
           })
         }
       }
+      setNotifStep("granted")
     } catch {
       setNotifStep("denied")
     }

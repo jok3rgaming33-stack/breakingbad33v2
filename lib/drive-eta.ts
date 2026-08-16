@@ -102,7 +102,7 @@ export async function estimateDriveEtaBetween(
   return approxEta(origin, dest, bufferMin)
 }
 
-/** Phrase prête pour le message client. */
+/** Phrase prête pour le message client (legacy) ou notification. */
 export function formatEtaMessageLine(etaMin: number): string {
   if (etaMin < 60) {
     return `⏱ Temps de trajet estimé : environ ${etaMin} min.`
@@ -111,4 +111,13 @@ export function formatEtaMessageLine(etaMin: number): string {
   const m = etaMin % 60
   const human = m ? `${h} h ${m} min` : `${h} h`
   return `⏱ Temps de trajet estimé : environ ${human}.`
+}
+
+/** Phrase courte pour le suivi graphique / notification. */
+export function formatEtaNotifyLine(etaMin: number): string {
+  if (etaMin < 60) return `Arrivée estimée dans ~${etaMin} min.`
+  const h = Math.floor(etaMin / 60)
+  const m = etaMin % 60
+  const human = m ? `${h} h ${m} min` : `${h} h`
+  return `Arrivée estimée dans ~${human}.`
 }

@@ -9,6 +9,7 @@ export const VENDOR_STATUS_OPTIONS = [
   "pret_meetup",
   "bientot_livraison",
   "livraison",
+  "arrivee",
   "livree",
   "annulee",
 ] as const
@@ -31,6 +32,7 @@ export type OrderStatusKey =
   | "pret_meetup"
   | "bientot_livraison"
   | "livraison"
+  | "arrivee"
   | "livree"
   | "annulee"
 
@@ -92,6 +94,11 @@ export const STATUS_META: Record<string, StatusMeta> = {
     label: "En livraison",
     badge: "bg-indigo-500/15 text-indigo-300 border border-indigo-500/30",
     accent: "text-indigo-300",
+  },
+  arrivee: {
+    label: "Arrivé à destination",
+    badge: "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30",
+    accent: "text-cyan-300",
   },
   livree: {
     label: "Livrée",

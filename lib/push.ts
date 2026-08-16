@@ -2,7 +2,7 @@ import "server-only"
 import webpush from "web-push"
 import { db } from "@/lib/db"
 import { pushSubscriptions } from "@/lib/db/schema"
-import { eq, and } from "drizzle-orm"
+import { eq, and, inArray } from "drizzle-orm"
 
 const PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
 const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY
@@ -76,18 +76,29 @@ export async function notifyCustomer(customerToken: string | null | undefined, p
   const rows = await db
     .select()
     .from(pushSubscriptions)
-    .where(and(eq(pushSubscriptions.role, "client"), eq(pushSubscriptions.customerToken, customerToken)))
+    .where(
+      and(
+        inArray(pushSubscriptions.role, ["client", "both"]),
+        eq(pushSubscriptions.customerToken, customerToken),
+      ),
+    )
   await sendToRows(rows, payload)
 }
 
 // Notifie tous les appareils du vendeur (admin).
 export async function notifyVendor(payload: PushPayload) {
-  const rows = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.role, "vendeur"))
+  const rows = await db
+    .select()
+    .from(pushSubscriptions)
+    .where(inArray(pushSubscriptions.role, ["vendeur", "both"]))
   await sendToRows(rows, payload)
 }
 
 // Notifie tous les clients abonnés (diffusion, ex. publication d'une news).
 export async function notifyAllClients(payload: PushPayload) {
-  const rows = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.role, "client"))
+  const rows = await db
+    .select()
+    .from(pushSubscriptions)
+    .where(inArray(pushSubscriptions.role, ["client", "both"]))
   await sendToRows(rows, payload)
 }

@@ -1,8 +1,16 @@
+"use client"
+
+import { usePathname } from "next/navigation"
+
 /**
  * Pied de page global — crédit développeur HeisenWeb.
  * Discret, présent sur toutes les pages via app/layout.tsx.
+ * Masqué sur /run (mode tournée plein écran / raccourci accueil).
  */
 export function SiteFooter() {
+  const pathname = usePathname()
+  if (pathname === "/run" || pathname?.startsWith("/run/")) return null
+
   const year = new Date().getFullYear()
 
   return (

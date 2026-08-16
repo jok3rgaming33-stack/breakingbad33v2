@@ -8,11 +8,12 @@ import type { OrderProductItem, AdminOrderPromo } from "@/app/actions/messaging"
 import { listProducts } from "@/app/actions/products"
 import { listPromoCodes } from "@/app/actions/promo"
 import { computePromoDiscount } from "@/lib/promo-calc"
-import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock, Ticket } from "lucide-react"
+import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock, Ticket, ExternalLink, Copy, Navigation } from "lucide-react"
 import { VoiceNoteButton } from "@/components/voice-note-button"
 import { grantRestoreAccess, getRestoreStatus } from "@/app/actions/restore-access"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
-import { OrderStatusTimeline } from "@/components/order-status-timeline"
+import { splitThreadForTracking, type OrderTrackingState } from "@/lib/order-timeline"
+import { OrderTrackingCard } from "@/components/order-tracking-card"
 import { MessageBody } from "@/components/message-body"
 import { AdminCreateOrderModal } from "@/components/admin-create-order-modal"
 import {
@@ -54,6 +55,7 @@ export function VendorInbox({
   const [colissimoOpen, setColissimoOpen] = useState(false)
   const [etaPreview, setEtaPreview] = useState<{ etaMin: number; driveMin: number } | null>(null)
   const [etaLoading, setEtaLoading] = useState(false)
+  const [runCopied, setRunCopied] = useState(false)
   // Modale wallet XMR (locker validée)
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
   const [xmrWalletInput, setXmrWalletInput] = useState("")
@@ -548,6 +550,9 @@ export function VendorInbox({
       await updateThreadStatus(selectedId, status)
       setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status } : t)))
       const data = await getThread(selectedId)
+      if (data?.thread) {
+        setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, ...data.thread } : t)))
+      }
       setMessages(data?.messages ?? [])
     })
   }
@@ -558,8 +563,12 @@ export function VendorInbox({
     setColissimoOpen(false)
     startTransition(async () => {
       await updateThreadStatus(selectedId, "livraison", undefined, colissimo || undefined)
-      setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status: "livraison" } : t)))
       const data = await getThread(selectedId)
+      if (data?.thread) {
+        setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, ...data.thread } : t)))
+      } else {
+        setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status: "livraison" } : t)))
+      }
       setMessages(data?.messages ?? [])
     })
   }
@@ -618,10 +627,27 @@ export function VendorInbox({
     setCancelOpen(false)
     startTransition(async () => {
       await updateThreadStatus(selectedId, "annulee", reason)
-      setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status: "annulee" } : t)))
       const data = await getThread(selectedId)
+      if (data?.thread) {
+        setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, ...data.thread } : t)))
+      } else {
+        setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, status: "annulee" } : t)))
+      }
       setMessages(data?.messages ?? [])
     })
+  }
+
+  const copyRunLink = async () => {
+    const token = (selected as { runToken?: string | null } | null)?.runToken
+    if (!token || typeof window === "undefined") return
+    const url = `${window.location.origin}/run/${token}`
+    try {
+      await navigator.clipboard.writeText(url)
+      setRunCopied(true)
+      window.setTimeout(() => setRunCopied(false), 2000)
+    } catch {
+      /* ignore */
+    }
   }
 
   return (
@@ -828,15 +854,42 @@ export function VendorInbox({
               </div>
             </div>
 
-            {mode !== "messages" && (
-              <div className="border-b border-border px-4 py-2">
-                <OrderStatusTimeline
-                  status={selected.status}
-                  fulfillment={selected.fulfillment}
-                  compact
-                />
-              </div>
-            )}
+            {mode !== "messages" &&
+              (normalizeStatus(selected.status) === "livraison" ||
+                normalizeStatus(selected.status) === "arrivee") &&
+              (selected as { runToken?: string | null }).runToken && (
+                <div className="flex flex-wrap items-center gap-2 border-b border-cyan-500/20 bg-cyan-500/10 px-4 py-2.5">
+                  <Navigation className="h-3.5 w-3.5 shrink-0 text-cyan-300" aria-hidden="true" />
+                  <p className="min-w-0 flex-1 text-xs text-cyan-100">
+                    Mode tournée — ouvre le lien, puis « Ajouter à l&apos;écran d&apos;accueil ».
+                  </p>
+                  <a
+                    href="/run"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-lg border border-cyan-400/40 px-2.5 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-500/15"
+                  >
+                    Feuille
+                  </a>
+                  <a
+                    href={`/run/${(selected as { runToken?: string }).runToken}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-lg border border-cyan-400/40 px-2.5 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-500/15"
+                  >
+                    <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                    Ouvrir
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => void copyRunLink()}
+                    className="inline-flex items-center gap-1 rounded-lg border border-cyan-400/40 px-2.5 py-1 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-500/15"
+                  >
+                    <Copy className="h-3 w-3" aria-hidden="true" />
+                    {runCopied ? "Copié" : "Copier"}
+                  </button>
+                </div>
+              )}
 
             {/* Bandeau statut rétablissement d'accès */}
             {mode === "messages" && restoreStatus && !restoreStatus.done && (
@@ -872,7 +925,9 @@ export function VendorInbox({
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
                 </div>
               ) : (
-                messages.map((m) => {
+                (() => {
+                  const { recap, rest } = splitThreadForTracking(messages)
+                  const renderBubble = (m: (typeof messages)[number]) => {
                   const isVendeur = m.sender === "vendeur"
                   const readAt = (m as any).clientReadAt as string | null | undefined
                   const isConfirming = confirmDeleteMsgId === m.id
@@ -958,7 +1013,25 @@ export function VendorInbox({
                       </span>
                     </div>
                   )
-                })
+                  }
+                  return (
+                    <>
+                      {recap && renderBubble(recap)}
+                      {mode !== "messages" && (
+                        <OrderTrackingCard
+                          orderId={selected.id}
+                          status={selected.status}
+                          fulfillment={selected.fulfillment}
+                          tracking={(selected as { tracking?: OrderTrackingState }).tracking}
+                          createdAt={selected.createdAt}
+                          scheduledSlot={selected.scheduledSlot}
+                          colissimoNumber={selected.colissimoNumber}
+                        />
+                      )}
+                      {rest.map(renderBubble)}
+                    </>
+                  )
+                })()
               )}
             </div>
 
@@ -1173,7 +1246,7 @@ export function VendorInbox({
           >
             <h3 className="text-base font-semibold">Annuler la commande</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Indique le motif de l&apos;annulation. Il sera envoyé au client dans la messagerie.
+              Indique le motif de l&apos;annulation. Il s&apos;affiche sur le suivi et part en notification — pas dans le fil.
             </p>
             <textarea
               value={cancelReason}
@@ -1573,10 +1646,10 @@ export function VendorInbox({
           >
             <h3 className="text-base font-semibold">Passer en livraison</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Saisis le numéro de suivi transporteur (Colissimo, Chronopost…). Il sera transmis au client dans la messagerie.
+              Saisis le numéro de suivi transporteur (optionnel). Il s&apos;affiche sur le suivi graphique — plus de message auto dans le fil.
             </p>
 
-            {/* Aperçu ETA (carte / OSRM + 3 min) — intégré au message auto */}
+            {/* Aperçu ETA (carte / OSRM + 3 min) — persisté sur le suivi */}
             {(etaLoading || etaPreview) && (
               <div className="mt-3 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2.5 text-sm">
                 {etaLoading ? (
@@ -1589,7 +1662,7 @@ export function VendorInbox({
                     <span className="font-semibold text-accent">⏱ ETA client : ~{etaPreview.etaMin} min</span>
                     <span className="mt-0.5 block text-xs text-muted-foreground">
                       Trajet ~{Math.round(etaPreview.driveMin)} min + 3 min de marge.
-                      Inclus automatiquement dans le message.
+                      Calculé en interne et affiché sur le suivi client.
                       En multi-arrêt, mets à jour le point de départ sur la carte avant de confirmer.
                     </span>
                   </p>
@@ -1599,7 +1672,7 @@ export function VendorInbox({
             {!etaLoading && !etaPreview && selected?.fulfillment === "livraison" && (
               <p className="mt-3 text-xs text-amber-400/90">
                 Impossible de calculer l&apos;ETA (adresse manquante ou géocode en échec).
-                Le message partira sans estimation — vérifie l&apos;adresse de la commande.
+                Pas d&apos;ETA (adresse manquante ou géocode en échec). Vérifie l&apos;adresse de la commande.
               </p>
             )}
 
