@@ -1040,20 +1040,6 @@ export function LoginPage({
               <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
               Clé perdue
             </button>
-            <a
-              href="https://wa.me/33766970439"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-5 flex items-center justify-center gap-3 rounded-2xl border border-border bg-background/50 px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:border-accent/50 hover:text-foreground"
-            >
-              <img
-                src="https://thesvg.org/icons/whatsapp/default.svg"
-                alt=""
-                aria-hidden="true"
-                className="size-5"
-              />
-              <span>Besoin d&apos;aide ? Contacter le support WhatsApp</span>
-            </a>
           </div>
         </div>
       </div>
