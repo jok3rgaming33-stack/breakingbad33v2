@@ -736,6 +736,8 @@ export type AdminUserRow = {
   token: string
   // Surnom interne admin uniquement — jamais exposé côté client.
   nickname: string | null
+  excludeNews: boolean
+  excludeNotifications: boolean
   createdAt: Date | string
   orderCount: number
   /** CA des commandes livrées uniquement (base des points fidélité) */
@@ -761,6 +763,8 @@ export async function listUsers(): Promise<AdminUserRow[]> {
       pseudo: users.pseudo,
       token: users.token,
       nickname: users.nickname,
+      excludeNews: users.excludeNews,
+      excludeNotifications: users.excludeNotifications,
       createdAt: users.createdAt,
       loyaltyAdjustment: users.loyaltyAdjustment,
       loyaltySpent: users.loyaltySpent,
@@ -781,6 +785,8 @@ export async function listUsers(): Promise<AdminUserRow[]> {
       users.pseudo,
       users.token,
       users.nickname,
+      users.excludeNews,
+      users.excludeNotifications,
       users.createdAt,
       users.loyaltyAdjustment,
       users.loyaltySpent,
@@ -822,6 +828,21 @@ export async function setUserNickname(id: number, nickname: string) {
   await db.update(users).set({ nickname: value }).where(eq(users.id, id))
   revalidatePath("/admin")
   return { ok: true as const, nickname: value }
+}
+
+// Met à jour les préférences d'envoi d'un compte client (réservé admin).
+export async function setUserDeliveryPreferences(
+  id: number,
+  preference: "excludeNews" | "excludeNotifications",
+  value: boolean,
+) {
+  if (!id || !["excludeNews", "excludeNotifications"].includes(preference)) {
+    return { ok: false as const, error: "Paramètres invalides." }
+  }
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "unauthorized" }
+  await db.update(users).set({ [preference]: Boolean(value) }).where(eq(users.id, id))
+  revalidatePath("/admin")
+  return { ok: true as const, preference, value: Boolean(value) }
 }
 
 // Met à jour les étiquettes (flags) d'un compte client (réservé admin).

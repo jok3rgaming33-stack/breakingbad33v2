@@ -6,6 +6,7 @@ import {
   newsSlides,
   promoUsages,
   userNewsReads,
+  users,
   type MediaAttachment,
 } from "@/lib/db/schema"
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
@@ -254,6 +255,14 @@ export async function publishAndNotify(newsId: number) {
 export async function getActiveNewsForUser(userToken: string | null | undefined) {
   await ensureNewsSchema()
   const token = userToken?.trim()
+  if (token) {
+    const [user] = await db
+      .select({ excludeNews: users.excludeNews })
+      .from(users)
+      .where(eq(users.token, token))
+      .limit(1)
+    if (user?.excludeNews) return null
+  }
   const active = await db
     .select()
     .from(news)

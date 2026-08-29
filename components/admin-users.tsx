@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useRef, useEffect } from "react"
 import type { AdminUserRow } from "@/app/actions/account"
-import { deleteUserAccount, setLoyaltyAdjustment, setUserFlags, setUserNickname } from "@/app/actions/account"
+import { deleteUserAccount, setLoyaltyAdjustment, setUserDeliveryPreferences, setUserFlags, setUserNickname } from "@/app/actions/account"
 import {
   Users,
   Search,
@@ -24,6 +24,8 @@ import {
   MoreHorizontal,
   ShieldCheck,
   ShieldAlert,
+  BellOff,
+  Newspaper,
 } from "lucide-react"
 import { AdminUser360 } from "@/components/admin-user-360"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
@@ -56,6 +58,27 @@ function formatDate(value: Date | string) {
 function shortToken(token: string) {
   if (token.length <= 14) return token
   return `${token.slice(0, 8)}…${token.slice(-4)}`
+}
+
+function DeliveryPreferences({
+  user,
+  onChange,
+}: {
+  user: AdminUserRow
+  onChange: (u: AdminUserRow, preference: "excludeNews" | "excludeNotifications") => void
+}) {
+  return (
+    <div className="flex items-center gap-1" aria-label={`Préférences d'envoi de ${user.pseudo}`}>
+      <button type="button" onClick={() => onChange(user, "excludeNews")} title={user.excludeNews ? "Réactiver les news" : "Retirer des news"} aria-pressed={user.excludeNews} className={`rounded-md border p-1.5 transition-colors ${user.excludeNews ? "border-amber-500/40 bg-amber-500/15 text-amber-400" : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
+        <Newspaper className="h-3.5 w-3.5" aria-hidden="true" />
+        <span className="sr-only">{user.excludeNews ? "Réactiver les news" : "Retirer des news"}</span>
+      </button>
+      <button type="button" onClick={() => onChange(user, "excludeNotifications")} title={user.excludeNotifications ? "Réactiver les notifications" : "Retirer des notifications"} aria-pressed={user.excludeNotifications} className={`rounded-md border p-1.5 transition-colors ${user.excludeNotifications ? "border-amber-500/40 bg-amber-500/15 text-amber-400" : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground"}`}>
+        <BellOff className="h-3.5 w-3.5" aria-hidden="true" />
+        <span className="sr-only">{user.excludeNotifications ? "Réactiver les notifications" : "Retirer des notifications"}</span>
+      </button>
+    </div>
+  )
 }
 
 function FlagSelector({
@@ -277,6 +300,13 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
     if (!res.ok) {
       setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, flags: u.flags } : x)))
     }
+  }
+
+  const toggleDeliveryPreference = async (u: AdminUserRow, preference: "excludeNews" | "excludeNotifications") => {
+    const value = !u[preference]
+    setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, [preference]: value } : x)))
+    const res = await setUserDeliveryPreferences(u.id, preference, value)
+    if (!res.ok) setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, [preference]: !value } : x)))
   }
 
   const startEdit = (u: AdminUserRow) => {
@@ -563,6 +593,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                   )}
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <FlagSelector user={u} onToggle={toggleFlag} compact />
+                    <DeliveryPreferences user={u} onChange={toggleDeliveryPreference} />
                     <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                       <ShoppingBag className="h-3 w-3 text-accent" />
                       {u.orderCount}
@@ -640,6 +671,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
               <tr className="border-b border-border bg-background/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Client</th>
                 <th className="px-3 py-3 font-medium">Signalement</th>
+                <th className="px-3 py-3 font-medium">Envois</th>
                 <th className="hidden px-3 py-3 font-medium xl:table-cell">Token</th>
                 <th className="px-3 py-3 font-medium">Cmd</th>
                 <th className="px-3 py-3 font-medium">KYC</th>
@@ -652,7 +684,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                     Aucun compte à afficher.
                   </td>
                 </tr>
@@ -700,6 +732,9 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                     </td>
                     <td className="px-3 py-3">
                       <FlagSelector user={u} onToggle={toggleFlag} compact />
+                    </td>
+                    <td className="px-3 py-3">
+                      <DeliveryPreferences user={u} onChange={toggleDeliveryPreference} />
                     </td>
                     <td className="hidden px-3 py-3 xl:table-cell">
                       <button

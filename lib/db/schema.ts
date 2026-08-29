@@ -13,6 +13,9 @@ export const users = pgTable("users", {
   flags: jsonb("flags").$type<string[]>().notNull().default([]),
   // Surnom interne visible uniquement de l'admin, jamais exposé au client.
   nickname: text("nickname"),
+  // Préférences d'envoi pilotées individuellement depuis l'onglet Utilisateurs.
+  excludeNews: boolean("exclude_news").notNull().default(false),
+  excludeNotifications: boolean("exclude_notifications").notNull().default(false),
   // Mot de passe provisoire envoyé par l'admin (hash, 6h de validité).
   // tempPasswordBlocked = true si la 6h est dépassée et la tentative signalée au vendeur.
   tempPasswordHash: text("temp_password_hash"),
