@@ -101,6 +101,8 @@ export function AdminNews() {
   const [publishedId, setPublishedId] = useState<number | null>(null)
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionOk, setActionOk] = useState<string | null>(null)
   // Suivi de l'état toggle en cours pour éviter double-clic
   const [togglingId, setTogglingId] = useState<number | null>(null)
 
@@ -108,10 +110,29 @@ export function AdminNews() {
     setLoading(true)
     try {
       setList((await listNews()) as NewsRow[])
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Impossible de charger les news.")
     } finally {
       setLoading(false)
     }
   }
+
+  const slideToInput = (s: Slide, order: number): SlideInput => ({
+    id: s.id || undefined,
+    order,
+    title: s.title,
+    content: s.content,
+    imageUrl: s.media[0]?.url ?? s.imageUrl,
+    media: s.media,
+    buttonText: s.buttonText,
+    buttonLink: s.buttonLink,
+    promoCode: s.promoCode,
+    promoType: (s.promoType as "percent" | "fixed" | "produit" | null) ?? "fixed",
+    promoValue: s.promoValue,
+    productName: s.productName,
+    minAmount: s.minAmount,
+    isSingleUse: s.isSingleUse,
+  })
 
   useEffect(() => {
     refreshList()
@@ -120,12 +141,17 @@ export function AdminNews() {
   const openNews = async (id: number) => {
     setSelectedId(id)
     setLoadingDetail(true)
+    setActionError(null)
     try {
       const data = await getNewsWithSlides(id)
       if (data) {
         setTitle(data.news.title)
         setSlides(data.slides.map((s) => normalizeSlide(s as Slide)))
+      } else {
+        setActionError("Impossible de charger cette news.")
       }
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Impossible de charger cette news.")
     } finally {
       setLoadingDetail(false)
     }
@@ -133,10 +159,17 @@ export function AdminNews() {
 
   const handleCreate = async () => {
     setBusy(true)
+    setActionError(null)
     try {
-      const { id } = await createNews("Nouvelle annonce")
+      const res = await createNews("Nouvelle annonce")
+      if (!res.ok || !res.id) {
+        setActionError(res.error || "Création impossible.")
+        return
+      }
       await refreshList()
-      await openNews(id)
+      await openNews(res.id)
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Création impossible.")
     } finally {
       setBusy(false)
     }
@@ -144,14 +177,23 @@ export function AdminNews() {
 
   const handleSaveTitle = async () => {
     if (!selectedId) return
-    await updateNews(selectedId, { title })
+    const res = await updateNews(selectedId, { title })
+    if (!res.ok) {
+      setActionError(res.error || "Titre non enregistré.")
+      return
+    }
     await refreshList()
   }
 
   const handleDeleteNews = async (id: number) => {
     setBusy(true)
+    setActionError(null)
     try {
-      await deleteNews(id)
+      const res = await deleteNews(id)
+      if (!res.ok) {
+        setActionError(res.error || "Suppression impossible.")
+        return
+      }
       setSelectedId(null)
       await refreshList()
     } finally {
@@ -162,8 +204,13 @@ export function AdminNews() {
   // Toggle actif/inactif directement depuis la liste
   const handleToggleActive = async (id: number, current: boolean) => {
     setTogglingId(id)
+    setActionError(null)
     try {
-      await toggleNewsActive(id, !current)
+      const res = await toggleNewsActive(id, !current)
+      if (!res.ok) {
+        setActionError(res.error || "Activation impossible.")
+        return
+      }
       setList(prev => prev.map(n => n.id === id ? { ...n, isActive: !current } : n))
     } finally {
       setTogglingId(null)
@@ -181,44 +228,74 @@ export function AdminNews() {
     await reorderNews(reordered.map(n => ({ id: n.id, sortOrder: n.sortOrder })))
   }
 
-  const persistAll = async () => {
-    if (!selectedId) return
-    await updateNews(selectedId, { title })
-    for (let i = 0; i < slides.length; i++) {
-      const s = slides[i]
-      const input: SlideInput = {
-        id: s.id || undefined,
-        order: i,
-        title: s.title,
-        content: s.content,
-        imageUrl: s.media[0]?.url ?? s.imageUrl,
-        media: s.media,
-        buttonText: s.buttonText,
-        buttonLink: s.buttonLink,
-        promoCode: s.promoCode,
-        promoType: (s.promoType as "percent" | "fixed" | "produit" | null) ?? "fixed",
-        promoValue: s.promoValue,
-        productName: s.productName,
-        minAmount: s.minAmount,
-        isSingleUse: s.isSingleUse,
+  const persistAll = async (): Promise<{ ok: boolean; error?: string }> => {
+    if (!selectedId) return { ok: false, error: "Aucune news sélectionnée." }
+    try {
+      const titleRes = await updateNews(selectedId, { title })
+      if (!titleRes.ok) return { ok: false, error: titleRes.error || "Titre non enregistré." }
+
+      const next = [...slides]
+      for (let i = 0; i < next.length; i++) {
+        const res = await upsertSlide(selectedId, slideToInput(next[i], i))
+        if (!res.ok) return { ok: false, error: res.error || `Slide ${i + 1} non enregistré.` }
+        if (res.id && next[i].id !== res.id) next[i] = { ...next[i], id: res.id, newsId: selectedId }
       }
-      await upsertSlide(selectedId, input)
+      setSlides(next)
+
+      try {
+        const data = await getNewsWithSlides(selectedId)
+        if (data) setSlides(data.slides.map((s) => normalizeSlide(s as Slide)))
+      } catch (e) {
+        console.error("[news] reload after save:", e)
+      }
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Enregistrement impossible." }
     }
-    const data = await getNewsWithSlides(selectedId)
-    if (data) setSlides(data.slides.map((s) => normalizeSlide(s as Slide)))
+  }
+
+  const handleSaveAll = async () => {
+    if (!selectedId) return
+    setBusy(true)
+    setActionError(null)
+    setActionOk(null)
+    try {
+      const saved = await persistAll()
+      if (!saved.ok) {
+        setActionError(saved.error || "Enregistrement impossible.")
+        return
+      }
+      setActionOk("Annonce enregistrée.")
+      await refreshList()
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Enregistrement impossible.")
+    } finally {
+      setBusy(false)
+    }
   }
 
   const handlePublish = async () => {
     if (!selectedId) return
     setBusy(true)
+    setActionError(null)
+    setActionOk(null)
     try {
-      await persistAll()
-      const res = await publishAndNotify(selectedId)
-      if (res.ok) {
-        setPublishedId(selectedId)
-        setTimeout(() => setPublishedId(null), 3000)
-        await refreshList()
+      const saved = await persistAll()
+      if (!saved.ok) {
+        setActionError(saved.error || "Enregistrement impossible — publication annulée.")
+        return
       }
+      const res = await publishAndNotify(selectedId)
+      if (!res?.ok) {
+        setActionError(res?.error || "Publication impossible.")
+        return
+      }
+      setPublishedId(selectedId)
+      setActionOk(res.error || "News publiée et clients notifiés.")
+      setTimeout(() => setPublishedId(null), 4000)
+      await refreshList()
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Publication impossible.")
     } finally {
       setBusy(false)
     }
@@ -298,27 +375,27 @@ export function AdminNews() {
     if (!selectedId) return
     const s = slides[idx]
     setBusy(true)
+    setActionError(null)
+    setActionOk(null)
     try {
-      const input: SlideInput = {
-        id: s.id || undefined,
-        order: idx,
-        title: s.title,
-        content: s.content,
-        imageUrl: s.media[0]?.url ?? s.imageUrl,
-        media: s.media,
-        buttonText: s.buttonText,
-        buttonLink: s.buttonLink,
-        promoCode: s.promoCode,
-        promoType: (s.promoType as "percent" | "fixed" | "produit" | null) ?? "fixed",
-        promoValue: s.promoValue,
-        productName: s.productName,
-        minAmount: s.minAmount,
-        isSingleUse: s.isSingleUse,
+      const res = await upsertSlide(selectedId, slideToInput(s, idx))
+      if (!res.ok) {
+        setActionError(res.error || `Slide ${idx + 1} non enregistré.`)
+        return
       }
-      await upsertSlide(selectedId, input)
-      const data = await getNewsWithSlides(selectedId)
-      if (data) setSlides(data.slides.map((sl) => normalizeSlide(sl as Slide)))
+      if (res.id && s.id !== res.id) {
+        setSlides((prev) => prev.map((sl, i) => (i === idx ? { ...sl, id: res.id, newsId: selectedId } : sl)))
+      }
+      try {
+        const data = await getNewsWithSlides(selectedId)
+        if (data) setSlides(data.slides.map((sl) => normalizeSlide(sl as Slide)))
+      } catch (e) {
+        console.error("[news] reload after slide save:", e)
+      }
+      setActionOk(`Slide ${idx + 1} enregistré.`)
       await refreshList()
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Enregistrement du slide impossible.")
     } finally {
       setBusy(false)
     }
@@ -365,6 +442,16 @@ export function AdminNews() {
             Nouvelle annonce
           </button>
         </div>
+        {actionError && (
+          <p className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {actionError}
+          </p>
+        )}
+        {actionOk && (
+          <p className="mb-4 rounded-xl border border-accent/40 bg-accent/10 px-3 py-2 text-sm text-accent">
+            {actionOk}
+          </p>
+        )}
 
         {loading ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
@@ -481,6 +568,15 @@ export function AdminNews() {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={handleSaveAll}
+            disabled={busy}
+            className="flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:border-accent disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+            Enregistrer
+          </button>
+          <button
+            type="button"
             onClick={handlePublish}
             disabled={busy}
             className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
@@ -496,6 +592,16 @@ export function AdminNews() {
           </button>
         </div>
       </div>
+      {actionError && (
+        <p className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {actionError}
+        </p>
+      )}
+      {actionOk && (
+        <p className="mb-4 rounded-xl border border-accent/40 bg-accent/10 px-3 py-2 text-sm text-accent">
+          {actionOk}
+        </p>
+      )}
 
       {/* Titre */}
       <div className="mb-6">

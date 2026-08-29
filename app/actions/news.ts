@@ -32,6 +32,12 @@ export type SlideInput = {
 
 let schemaReady: Promise<void> | null = null
 
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message
+  if (typeof e === "string") return e
+  return "erreur inconnue"
+}
+
 /** Colonnes multi-médias + index unique lectures (pas de migrate drizzle en prod). */
 async function ensureNewsSchema() {
   if (!schemaReady) {
@@ -40,14 +46,6 @@ async function ensureNewsSchema() {
         ALTER TABLE news_slides
         ADD COLUMN IF NOT EXISTS media JSONB NOT NULL DEFAULT '[]'::jsonb
       `)
-      // Déduplique avant index unique (évite l'échec si anciennes doubles lectures).
-      await db.execute(sql`
-        DELETE FROM user_news_reads a
-        USING user_news_reads b
-        WHERE a.id < b.id
-          AND a.user_token = b.user_token
-          AND a.news_id = b.news_id
-      `)
       await db.execute(sql`
         CREATE UNIQUE INDEX IF NOT EXISTS user_news_reads_user_token_news_id_idx
         ON user_news_reads (user_token, news_id)
@@ -55,6 +53,7 @@ async function ensureNewsSchema() {
     })().catch((e) => {
       schemaReady = null
       console.error("[news] ensureNewsSchema failed:", e)
+      throw e
     })
   }
   await schemaReady
@@ -82,9 +81,17 @@ function resolveSlideMedia(slide: {
 
 /* ----------------------------- ADMIN : NEWS ----------------------------- */
 
+async function tryEnsureNewsSchema() {
+  try {
+    await ensureNewsSchema()
+  } catch (e) {
+    console.error("[news] schema ensure skipped:", e)
+  }
+}
+
 // Liste toutes les news avec le nombre de slides (pour le panel admin).
 export async function listNews() {
-  await ensureNewsSchema()
+  await tryEnsureNewsSchema()
   const rows = await db
     .select({
       id: news.id,
@@ -104,7 +111,7 @@ export async function listNews() {
 
 // Récupère une news et ses slides (triés par ordre).
 export async function getNewsWithSlides(newsId: number) {
-  await ensureNewsSchema()
+  await tryEnsureNewsSchema()
   const [item] = await db.select().from(news).where(eq(news.id, newsId))
   if (!item) return null
   const slides = await db
@@ -124,136 +131,182 @@ export async function getNewsWithSlides(newsId: number) {
 
 // Crée une news vide (brouillon non publié).
 export async function createNews(title: string) {
-  await ensureNewsSchema()
-  const t = title?.trim() || "Nouvelle annonce"
-  const [row] = await db.insert(news).values({ title: t }).returning()
-  revalidatePath("/admin")
-  return { id: row.id }
+  try {
+    await ensureNewsSchema()
+    const t = title?.trim() || "Nouvelle annonce"
+    const [row] = await db.insert(news).values({ title: t }).returning()
+    if (!row?.id) return { ok: false as const, error: "Création impossible." }
+    return { ok: true as const, id: row.id }
+  } catch (e) {
+    console.error("[news] createNews:", e)
+    return { ok: false as const, error: errMsg(e) }
+  }
 }
 
 // Met à jour le titre et/ou l'état actif d'une news.
 export async function updateNews(id: number, patch: { title?: string; isActive?: boolean }) {
-  if (!id) return { ok: false as const }
-  await db
-    .update(news)
-    .set({ ...patch, updatedAt: sql`now()` })
-    .where(eq(news.id, id))
-  revalidatePath("/admin")
-  return { ok: true as const }
+  if (!id) return { ok: false as const, error: "News invalide." }
+  try {
+    await db
+      .update(news)
+      .set({ ...patch, updatedAt: sql`now()` })
+      .where(eq(news.id, id))
+    if (typeof patch.isActive === "boolean") revalidatePath("/")
+    return { ok: true as const }
+  } catch (e) {
+    console.error("[news] updateNews:", e)
+    return { ok: false as const, error: errMsg(e) }
+  }
 }
 
 // Supprime une news, ses slides et les lectures associées.
 export async function deleteNews(id: number) {
-  if (!id) return { ok: false as const }
-  await db.delete(newsSlides).where(eq(newsSlides.newsId, id))
-  await db.delete(userNewsReads).where(eq(userNewsReads.newsId, id))
-  await db.delete(news).where(eq(news.id, id))
-  revalidatePath("/admin")
-  return { ok: true as const }
+  if (!id) return { ok: false as const, error: "News invalide." }
+  try {
+    await db.delete(newsSlides).where(eq(newsSlides.newsId, id))
+    await db.delete(userNewsReads).where(eq(userNewsReads.newsId, id))
+    await db.delete(news).where(eq(news.id, id))
+    revalidatePath("/")
+    return { ok: true as const }
+  } catch (e) {
+    console.error("[news] deleteNews:", e)
+    return { ok: false as const, error: errMsg(e) }
+  }
 }
 
 /* ---------------------------- ADMIN : SLIDES ---------------------------- */
 
 // Crée ou met à jour un slide (selon présence de l'id).
 export async function upsertSlide(newsId: number, input: SlideInput) {
-  await ensureNewsSchema()
-  if (!newsId) return { ok: false as const }
+  if (!newsId) return { ok: false as const, error: "News invalide." }
+  try {
+    await ensureNewsSchema()
 
-  const media = sanitizeMedia(input.media)
-  // Rétrocompat : si media vide mais imageUrl fourni, on le convertit.
-  const resolved =
-    media.length > 0
-      ? media
-      : input.imageUrl?.trim()
-        ? resolveSlideMedia({ imageUrl: input.imageUrl, media: [] })
-        : []
-  const primaryUrl = resolved[0]?.url ?? null
+    const media = sanitizeMedia(input.media)
+    // Rétrocompat : si media vide mais imageUrl fourni, on le convertit.
+    const resolved =
+      media.length > 0
+        ? media
+        : input.imageUrl?.trim()
+          ? resolveSlideMedia({ imageUrl: input.imageUrl, media: [] })
+          : []
+    const primaryUrl = resolved[0]?.url ?? null
 
-  const values = {
-    newsId,
-    order: input.order ?? 0,
-    title: input.title?.trim() || null,
-    content: input.content ?? null,
-    imageUrl: primaryUrl,
-    media: resolved,
-    buttonText: input.buttonText?.trim() || null,
-    buttonLink: input.buttonLink?.trim() || null,
-    promoCode: input.promoCode?.trim()?.toUpperCase() || null,
-    promoType: input.promoType ?? null,
-    promoValue: input.promoValue ?? null,
-    productName: input.promoType === "produit" ? input.productName?.trim() || null : null,
-    minAmount: input.minAmount ?? null,
-    isSingleUse: input.isSingleUse ?? true,
+    const values = {
+      newsId,
+      order: input.order ?? 0,
+      title: input.title?.trim() || null,
+      content: input.content ?? null,
+      imageUrl: primaryUrl,
+      media: resolved,
+      buttonText: input.buttonText?.trim() || null,
+      buttonLink: input.buttonLink?.trim() || null,
+      promoCode: input.promoCode?.trim()?.toUpperCase() || null,
+      promoType: input.promoType ?? null,
+      promoValue: input.promoValue ?? null,
+      productName: input.promoType === "produit" ? input.productName?.trim() || null : null,
+      minAmount: input.minAmount ?? null,
+      isSingleUse: input.isSingleUse ?? true,
+    }
+    if (input.id) {
+      await db.update(newsSlides).set(values).where(eq(newsSlides.id, input.id))
+      await db.update(news).set({ updatedAt: sql`now()` }).where(eq(news.id, newsId))
+      return { ok: true as const, id: input.id }
+    }
+    const [row] = await db.insert(newsSlides).values(values).returning({ id: newsSlides.id })
+    await db.update(news).set({ updatedAt: sql`now()` }).where(eq(news.id, newsId))
+    return { ok: true as const, id: row?.id ?? 0 }
+  } catch (e) {
+    console.error("[news] upsertSlide:", e)
+    return { ok: false as const, error: errMsg(e) }
   }
-  if (input.id) {
-    await db.update(newsSlides).set(values).where(eq(newsSlides.id, input.id))
-  } else {
-    await db.insert(newsSlides).values(values)
-  }
-  await db.update(news).set({ updatedAt: sql`now()` }).where(eq(news.id, newsId))
-  revalidatePath("/admin")
-  return { ok: true as const }
 }
 
 // Supprime un slide.
 export async function deleteSlide(slideId: number) {
-  if (!slideId) return { ok: false as const }
-  await db.delete(newsSlides).where(eq(newsSlides.id, slideId))
-  revalidatePath("/admin")
-  return { ok: true as const }
+  if (!slideId) return { ok: false as const, error: "Slide invalide." }
+  try {
+    await db.delete(newsSlides).where(eq(newsSlides.id, slideId))
+    return { ok: true as const }
+  } catch (e) {
+    console.error("[news] deleteSlide:", e)
+    return { ok: false as const, error: errMsg(e) }
+  }
 }
 
 // Active/désactive une news individuellement (sans toucher les autres).
 export async function toggleNewsActive(newsId: number, isActive: boolean) {
-  if (!newsId) return { ok: false as const }
-  await db
-    .update(news)
-    .set({ isActive, updatedAt: sql`now()` })
-    .where(eq(news.id, newsId))
-  revalidatePath("/admin")
-  revalidatePath("/")
-  return { ok: true as const }
+  if (!newsId) return { ok: false as const, error: "News invalide." }
+  try {
+    await db
+      .update(news)
+      .set({ isActive, updatedAt: sql`now()` })
+      .where(eq(news.id, newsId))
+    revalidatePath("/")
+    return { ok: true as const }
+  } catch (e) {
+    console.error("[news] toggleNewsActive:", e)
+    return { ok: false as const, error: errMsg(e) }
+  }
 }
 
 // Met à jour l'ordre d'affichage d'une liste de news [{ id, sortOrder }].
 export async function reorderNews(items: { id: number; sortOrder: number }[]) {
   if (!items.length) return { ok: true as const }
-  for (const item of items) {
-    await db.update(news).set({ sortOrder: item.sortOrder }).where(eq(news.id, item.id))
+  try {
+    for (const item of items) {
+      await db.update(news).set({ sortOrder: item.sortOrder }).where(eq(news.id, item.id))
+    }
+    revalidatePath("/")
+    return { ok: true as const }
+  } catch (e) {
+    console.error("[news] reorderNews:", e)
+    return { ok: false as const, error: errMsg(e) }
   }
-  revalidatePath("/admin")
-  revalidatePath("/")
-  return { ok: true as const }
 }
 
 // Publie une news (active) et envoie une notification push.
 // Réinitialise les lectures pour que tout le monde la revoie (y compris « ne plus afficher »).
 export async function publishAndNotify(newsId: number) {
-  if (!newsId) return { ok: false as const }
-  const [item] = await db.select().from(news).where(eq(news.id, newsId))
-  if (!item) return { ok: false as const }
+  if (!newsId) return { ok: false as const, error: "News invalide." }
+  try {
+    const [item] = await db.select().from(news).where(eq(news.id, newsId))
+    if (!item) return { ok: false as const, error: "News introuvable." }
 
-  // Active cette news sans toucher les autres — plusieurs peuvent être actives simultanément.
-  await db.update(news).set({ isActive: true, updatedAt: sql`now()` }).where(eq(news.id, newsId))
-  await db.delete(userNewsReads).where(eq(userNewsReads.newsId, newsId))
+    // Active cette news sans toucher les autres — plusieurs peuvent être actives simultanément.
+    await db.update(news).set({ isActive: true, updatedAt: sql`now()` }).where(eq(news.id, newsId))
+    await db.delete(userNewsReads).where(eq(userNewsReads.newsId, newsId))
 
-  await notifyAllClients({
-    title: "Nouvelle annonce BreakingBad33",
-    body: item.title,
-    url: "/",
-    tag: `news-${newsId}`,
-  })
+    let notified = true
+    try {
+      await notifyAllClients({
+        title: "Nouvelle annonce BreakingBad33",
+        body: item.title,
+        url: "/",
+        tag: `news-${newsId}`,
+      })
+    } catch (e) {
+      notified = false
+      console.error("[news] notifyAllClients:", e)
+    }
 
-  revalidatePath("/admin")
-  revalidatePath("/")
-  return { ok: true as const }
+    revalidatePath("/")
+    return {
+      ok: true as const,
+      notified,
+      error: notified ? undefined : "News en ligne, mais les notifications push ont échoué.",
+    }
+  } catch (e) {
+    console.error("[news] publishAndNotify:", e)
+    return { ok: false as const, error: errMsg(e) }
+  }
 }
 
 /* ----------------------------- CLIENT : POPUP --------------------------- */
 
 // Renvoie les news actives non encore dismissées par ce client (ordre sortOrder).
 export async function getActiveNewsForUser(userToken: string | null | undefined) {
-  await ensureNewsSchema()
+  await tryEnsureNewsSchema()
   const token = userToken?.trim()
   if (token) {
     const [user] = await db
@@ -353,7 +406,7 @@ export async function getActiveNewsForUser(userToken: string | null | undefined)
 
 // Marque une news comme « ne plus afficher » pour ce client.
 export async function markNewsRead(userToken: string | null | undefined, newsId: number) {
-  await ensureNewsSchema()
+  await tryEnsureNewsSchema()
   const token = userToken?.trim()
   if (!token || !newsId) return { ok: false as const }
   const [existing] = await db
