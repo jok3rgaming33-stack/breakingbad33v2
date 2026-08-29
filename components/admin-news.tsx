@@ -806,9 +806,11 @@ export function AdminNews() {
                       </select>
                       <input
                         type="number"
+                        step="any"
+                        min="0"
                         value={s.promoValue ?? ""}
-                        onChange={e => updateSlideField(idx, { promoValue: e.target.value ? Number(e.target.value) : null })}
-                        placeholder={s.promoType === "produit" ? "Nb offert" : "Valeur"}
+                        onChange={e => updateSlideField(idx, { promoValue: e.target.value ? Number(e.target.value.replace(",", ".")) : null })}
+                        placeholder={s.promoType === "produit" ? "Nb / qté offerte (ex. 0.5)" : "Valeur"}
                         className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
                       />
                       <input

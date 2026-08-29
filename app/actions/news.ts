@@ -33,9 +33,24 @@ export type SlideInput = {
 let schemaReady: Promise<void> | null = null
 
 function errMsg(e: unknown): string {
-  if (e instanceof Error) return e.message
+  if (e && typeof e === "object") {
+    const any = e as { message?: string; cause?: unknown; detail?: string }
+    if (any.cause instanceof Error && any.cause.message) return any.cause.message
+    if (any.cause && typeof any.cause === "object" && "message" in any.cause) {
+      const m = (any.cause as { message?: unknown }).message
+      if (typeof m === "string" && m.trim()) return m
+    }
+    if (typeof any.detail === "string" && any.detail.trim()) return any.detail
+    if (typeof any.message === "string" && any.message.trim()) return any.message
+  }
   if (typeof e === "string") return e
   return "erreur inconnue"
+}
+
+function toNullableNumber(value: number | string | null | undefined): number | null {
+  if (value == null || value === "") return null
+  const n = typeof value === "number" ? value : Number(String(value).replace(",", "."))
+  return Number.isFinite(n) ? n : null
 }
 
 /** Colonnes multi-médias + index unique lectures (pas de migrate drizzle en prod). */
@@ -45,6 +60,11 @@ async function ensureNewsSchema() {
       await db.execute(sql`
         ALTER TABLE news_slides
         ADD COLUMN IF NOT EXISTS media JSONB NOT NULL DEFAULT '[]'::jsonb
+      `)
+      await db.execute(sql`
+        ALTER TABLE news_slides
+        ALTER COLUMN promo_value TYPE double precision
+        USING promo_value::double precision
       `)
       await db.execute(sql`
         CREATE UNIQUE INDEX IF NOT EXISTS user_news_reads_user_token_news_id_idx
@@ -203,9 +223,12 @@ export async function upsertSlide(newsId: number, input: SlideInput) {
       buttonLink: input.buttonLink?.trim() || null,
       promoCode: input.promoCode?.trim()?.toUpperCase() || null,
       promoType: input.promoType ?? null,
-      promoValue: input.promoValue ?? null,
+      promoValue: toNullableNumber(input.promoValue),
       productName: input.promoType === "produit" ? input.productName?.trim() || null : null,
-      minAmount: input.minAmount ?? null,
+      minAmount: (() => {
+        const n = toNullableNumber(input.minAmount)
+        return n == null ? null : Math.max(0, Math.round(n))
+      })(),
       isSingleUse: input.isSingleUse ?? true,
     }
     if (input.id) {
