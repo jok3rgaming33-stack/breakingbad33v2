@@ -104,7 +104,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       const target = items.find((i) => i.title.toLowerCase() === (promo.productName ?? "").trim().toLowerCase())
       if (!target) return 0
       const freeQty = Math.min(promo.value, target.qty)
-      return Math.min(target.price * freeQty, subtotal)
+      return Math.min(Math.round(target.price * freeQty), subtotal)
     }
     const raw = promo.type === "percent" ? Math.round((subtotal * promo.value) / 100) : promo.value
     return Math.min(raw, subtotal)

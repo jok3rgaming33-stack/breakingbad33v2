@@ -28,8 +28,8 @@ export function computePromoDiscount(
     if (!name) return 0
     const target = items.find((i) => i.title.toLowerCase() === name)
     if (!target) return 0
-    const freeQty = Math.min(Math.trunc(value), target.qty)
-    return Math.min(target.price * freeQty, subtotal)
+    const freeQty = Math.min(value, target.qty)
+    return Math.min(Math.round(target.price * freeQty), subtotal)
   }
   const raw =
     promo.type === "percent" ? Math.round((subtotal * value) / 100) : Math.trunc(value)

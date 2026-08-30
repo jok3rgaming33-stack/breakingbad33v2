@@ -285,7 +285,8 @@ export const newsSlides = pgTable("news_slides", {
   buttonLink: text("button_link"),
   promoCode: text("promo_code"),
   promoType: text("promo_type"),
-  promoValue: integer("promo_value"),
+  // Décimal : % / € / quantité offerte (ex. 0.5g pour une offre 1+½).
+  promoValue: doublePrecision("promo_value"),
   productName: text("product_name"),
   minAmount: integer("min_amount"),
   isSingleUse: boolean("is_single_use").notNull().default(true),
