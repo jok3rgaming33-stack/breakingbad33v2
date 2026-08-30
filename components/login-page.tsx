@@ -423,8 +423,10 @@ export function LoginPage({
       if (name === "NotAllowedError") {
         setBioEnrollMsg("Activation annulée — aucun souci, ta clé fonctionne toujours.")
       } else if (name === "InvalidStateError") {
-        setBioEnrollMsg("Déjà enregistré sur cet appareil.")
-        setBioReady(true)
+        setBioEnrollMsg(
+          "Cette biométrie est encore liée à l’ancien compte sur cet appareil. Supprime l’ancienne passkey dans les réglages de ton appareil ou navigateur, puis réessaie.",
+        )
+        setBioReady(false)
       } else {
         setBioEnrollMsg("Activation impossible ici. Continue avec ta clé, sans impact.")
       }
