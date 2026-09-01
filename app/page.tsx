@@ -21,6 +21,7 @@ import { Hero } from "@/components/hero"
 import { ShopSections } from "@/components/shop-sections"
 import { RecoveryBanner } from "@/components/recovery-banner"
 import { AppBadgeSync } from "@/components/app-badge-sync"
+import { InstallAppPrompt } from "@/components/install-app-prompt"
 import { setAppBadgeCount } from "@/lib/app-badge"
 import type { OrderNotification } from "@/components/notifications-provider"
 import type { ClientOpenSection } from "@/lib/deep-links"
@@ -385,6 +386,8 @@ export default function Home() {
 
       {isAuthenticated && <CheckoutCart userData={userData} />}
 
+      {/* Proposition d'install PWA — visiteurs navigateur uniquement */}
+      {!isAdmin && <InstallAppPrompt enabled />}
 
       </NotificationsProvider>
     </CartProvider>

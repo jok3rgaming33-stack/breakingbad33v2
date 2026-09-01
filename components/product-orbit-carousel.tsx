@@ -70,16 +70,16 @@ function minPriceLabel(product: Product): string {
 }
 
 function computeLayout(width: number, n: number) {
-  // Largeur carte responsive
+  // Vignettes un peu plus grandes → badges lisibles sans se marcher dessus
   const cardW =
-    width < 380 ? 118 : width < 480 ? 132 : width < 768 ? 150 : width < 1024 ? 168 : 186
+    width < 380 ? 136 : width < 480 ? 152 : width < 768 ? 172 : width < 1024 ? 192 : 210
   // Rayon : assez large pour éviter le chevauchement (surtout mobile)
   const angle = Math.PI / Math.max(n, 3)
-  const minR = (cardW * 0.62) / Math.tan(angle)
-  const rFromWidth = width * (width < 480 ? 0.36 : width < 768 ? 0.34 : 0.3)
-  const radius = Math.round(Math.min(Math.max(minR, rFromWidth, 130), 360))
+  const minR = (cardW * 0.64) / Math.tan(angle)
+  const rFromWidth = width * (width < 480 ? 0.38 : width < 768 ? 0.36 : 0.32)
+  const radius = Math.round(Math.min(Math.max(minR, rFromWidth, 148), 400))
   const stageH = Math.round(
-    Math.min(520, Math.max(280, cardW * 1.55 + (width < 480 ? 70 : 110))),
+    Math.min(560, Math.max(310, cardW * 1.58 + (width < 480 ? 78 : 120))),
   )
   return { cardW, radius, stageH }
 }
@@ -368,7 +368,7 @@ export function ProductOrbitCarousel({
                 <FlaskConical className="h-10 w-10" />
               </div>
             )}
-            <ProductBadges badges={badges} />
+            <ProductBadges badges={badges} compact max={2} />
           </div>
           <p className="truncate text-[10px] font-medium uppercase tracking-[0.16em] text-[#3e6757]">
             {minPriceLabel(product)}
@@ -501,12 +501,8 @@ export function ProductOrbitCarousel({
                       </div>
                     )}
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-[#0a0a0a] to-transparent" />
-                    <ProductBadges badges={badges} />
-                    {featured && !out && (
-                      <span className="absolute left-1.5 top-1.5 z-20 rounded-full bg-sky-400/90 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wider text-black">
-                        À la une
-                      </span>
-                    )}
+                    {/* Badges uniquement à droite (évite double « À la une » / Arrivage) */}
+                    <ProductBadges badges={badges} compact max={2} />
                   </div>
                   <div className="mt-1.5 min-w-0 px-0.5 pb-0.5">
                     <p className="truncate text-[9px] font-medium uppercase tracking-[0.14em] text-[#3e6757] sm:text-[10px]">
