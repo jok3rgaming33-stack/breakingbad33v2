@@ -146,9 +146,15 @@ export function ProductSection({ config }: { config: SectionConfig }) {
   }, [isModalOpen, isAnimating])
 
   const Icon = config.icon === "flask" ? FlaskConical : Sparkles
+  const isFirst = config.anchor === "featured"
   const sectionProps = config.anchor
-    ? { id: config.anchor, className: "w-full overflow-x-clip pb-10 pt-6 scroll-mt-20 sm:pb-14 sm:pt-8" }
-    : { className: "w-full overflow-x-clip py-8 sm:py-12" }
+    ? {
+        id: config.anchor,
+        className: isFirst
+          ? "w-full overflow-x-clip scroll-mt-20 pb-8 pt-2 sm:pb-10 sm:pt-3"
+          : "w-full overflow-x-clip scroll-mt-20 pb-8 pt-4 sm:pb-10 sm:pt-6",
+      }
+    : { className: "w-full overflow-x-clip py-6 sm:py-8" }
 
   const ordered = products ? sortProductsFeaturedFirst(products) : null
 

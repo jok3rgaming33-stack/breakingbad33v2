@@ -55,24 +55,24 @@ export function Hero() {
   }, [])
 
   return (
-    <section className="relative flex min-h-[60vh] items-center justify-center overflow-hidden md:min-h-[68vh]">
-      <Image src="/images/hero-rv.png" alt="RV" fill className="object-cover" priority />
+    <section className="relative flex min-h-[32vh] items-center justify-center overflow-hidden py-10 sm:min-h-[34vh] sm:py-12 md:min-h-[36vh] md:py-14">
+      <Image src="/images/hero-rv.png" alt="RV" fill className="object-cover object-[center_35%]" priority />
       <canvas ref={canvasRef} className="absolute inset-0 z-10 pointer-events-none" />
-      <div className="absolute inset-0 bg-black/45 z-20" />
-      <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/35 to-[#050505] z-20" />
+      <div className="absolute inset-0 z-20 bg-black/45" />
+      <div className="absolute inset-0 z-20 bg-gradient-to-b from-black/10 via-black/35 to-[#050505]" />
 
       {/* === LOGO BR 35 + TEXTE === */}
-      <div className="relative z-40 mx-auto flex max-w-5xl flex-col items-center px-6 text-center">
-        <div className="mb-5 flex items-center justify-center gap-3">
+      <div className="relative z-40 mx-auto flex max-w-5xl flex-col items-center px-4 text-center sm:px-6">
+        <div className="flex items-center justify-center gap-2.5 sm:gap-3">
           {/* Carré Br 35 style tableau périodique */}
-          <div className="relative flex h-20 w-20 items-center justify-center rounded-xl bg-[#3e6757] text-white shadow-[0_0_40px_rgba(62,103,87,0.5)] md:h-24 md:w-24">
-            <span className="text-[56px] font-black tracking-tighter md:text-[68px]">Br</span>
-            <span className="absolute right-2 top-1 text-sm font-bold">35</span>
+          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[#3e6757] text-white shadow-[0_0_40px_rgba(62,103,87,0.5)] sm:h-16 sm:w-16 md:h-20 md:w-20">
+            <span className="text-[40px] font-black tracking-tighter sm:text-[46px] md:text-[56px]">Br</span>
+            <span className="absolute right-1.5 top-0.5 text-[10px] font-bold sm:right-2 sm:top-1 sm:text-xs">35</span>
           </div>
 
-          <div className="flex items-baseline font-bold tracking-[-3.5px] text-white">
-            <span className="text-[50px] md:text-[64px]">eakingBad</span>
-            <span className="ml-1 text-[50px] text-[#3e6757] md:text-[64px]">33</span>
+          <div className="flex items-baseline font-bold tracking-[-2.5px] text-white sm:tracking-[-3.5px]">
+            <span className="text-[34px] sm:text-[44px] md:text-[56px]">eakingBad</span>
+            <span className="ml-0.5 text-[34px] text-[#3e6757] sm:ml-1 sm:text-[44px] md:text-[56px]">33</span>
           </div>
         </div>
       </div>

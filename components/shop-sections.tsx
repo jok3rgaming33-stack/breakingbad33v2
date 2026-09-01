@@ -18,12 +18,8 @@ export function ShopSections() {
 
   if (!categories) {
     return (
-      <div className="mx-auto w-full max-w-[1100px] px-4 py-16">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-64 animate-pulse rounded-2xl border border-white/10 bg-[#0a0a0a]" />
-          ))}
-        </div>
+      <div className="mx-auto w-full max-w-[1100px] px-4 py-6">
+        <div className="mx-auto h-[280px] max-w-lg animate-pulse rounded-3xl border border-white/10 bg-[#0a0a0a] sm:h-[340px]" />
       </div>
     )
   }
