@@ -4,7 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { DemoShop } from "@/app/demo/_components/demo-shop"
 import { DemoAdmin } from "@/app/demo/_components/demo-admin"
-import { Store, Settings2, Layers2 } from "lucide-react"
+import { Store, Settings2, Layers2, Orbit } from "lucide-react"
 
 type View = "boutique" | "admin"
 
@@ -39,7 +39,14 @@ export default function DemoPage() {
             className="flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold text-muted-foreground transition-all hover:text-foreground"
           >
             <Layers2 className="h-3.5 w-3.5" aria-hidden="true" />
-            Labo / Fumoir
+            Labo / Fumoir + Admin dual
+          </Link>
+          <Link
+            href="/demo/orbit"
+            className="flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold text-muted-foreground transition-all hover:text-foreground"
+          >
+            <Orbit className="h-3.5 w-3.5" aria-hidden="true" />
+            Orbite 3D
           </Link>
         </div>
       </div>
