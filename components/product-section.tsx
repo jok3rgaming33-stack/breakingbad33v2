@@ -7,10 +7,12 @@ import { FlaskConical, Sparkles, X as CloseIcon, BellRing, BellPlus, ChevronLeft
 import { sortProductsFeaturedFirst } from "@/lib/badges"
 import { BlobMedia } from "@/components/blob-media"
 import { ProductOrbitCarousel } from "@/components/product-orbit-carousel"
+import { RatingBadge } from "@/components/product-rating-badge"
 import { getProductsBySection, decrementStock } from "@/app/actions/products"
 import { requestRestockAlert, hasRestockAlert } from "@/app/actions/restock"
 import { reserveProduct, getMyReservation } from "@/app/actions/product-reservations"
 import { getCustomerStats } from "@/app/actions/account"
+import { getProductRatingSummaries, type ProductRatingSummary } from "@/app/actions/ratings"
 import type { Product, ProductVariant } from "@/lib/db/schema"
 
 type SectionConfig = {
@@ -79,6 +81,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
   const [reserveBusy, setReserveBusy] = useState(false)
   const [reserveMsg, setReserveMsg] = useState<string | null>(null)
   const [reservedUntil, setReservedUntil] = useState<string | null>(null)
+  const [ratings, setRatings] = useState<Record<number, ProductRatingSummary>>({})
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null
@@ -145,6 +148,11 @@ export function ProductSection({ config }: { config: SectionConfig }) {
     return () => clearTimeout(timer)
   }, [isModalOpen, isAnimating])
 
+  useEffect(() => {
+    if (!products?.length) return
+    void getProductRatingSummaries(products.map((p) => p.id)).then(setRatings)
+  }, [products])
+
   const Icon = config.icon === "flask" ? FlaskConical : Sparkles
   const isFirst = config.anchor === "featured"
   const sectionProps = config.anchor
@@ -190,6 +198,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
           <ProductOrbitCarousel
             products={ordered}
             sectionKey={config.section}
+            ratings={ratings}
             onOpen={(product, variantIdx = 0) => {
               const avail = availableVariants(product)
               const idx =
@@ -327,6 +336,11 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                 </span>
               )}
               <h3 className="mb-4 text-3xl font-bold text-white sm:text-4xl">{selected.title}</h3>
+              {ratings[selected.id] && (
+                <div className="mb-4">
+                  <RatingBadge summary={ratings[selected.id]} productTitle={selected.title} />
+                </div>
+              )}
               <p className="mb-6 leading-relaxed text-zinc-400">
                 {selected.fullDescription || selected.description}
               </p>

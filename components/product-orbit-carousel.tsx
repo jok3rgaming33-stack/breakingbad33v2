@@ -8,10 +8,12 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react"
-import { ChevronLeft, ChevronRight, FlaskConical, Pause, Play } from "lucide-react"
+import { ChevronLeft, ChevronRight, FlaskConical, Pause, Play, Star } from "lucide-react"
 import { BlobMedia } from "@/components/blob-media"
 import { ProductBadges } from "@/components/product-badge"
+import { RatingBadge } from "@/components/product-rating-badge"
 import { resolveBadges, isFeaturedProduct } from "@/lib/badges"
+import type { ProductRatingSummary } from "@/app/actions/ratings"
 import type { Product } from "@/lib/db/schema"
 
 export type OrbitProductOpen = (product: Product, variantIdx?: number) => void
@@ -24,6 +26,7 @@ type ProductOrbitCarouselProps = {
   className?: string
   /** Section key — pour les deep-links catalogue. */
   sectionKey?: string
+  ratings?: Record<number, ProductRatingSummary>
 }
 
 function getMediaType(
@@ -94,6 +97,7 @@ export function ProductOrbitCarousel({
   autoSpeed = 10,
   className = "",
   sectionKey,
+  ratings = {},
 }: ProductOrbitCarouselProps) {
   const n = products.length
   const rootRef = useRef<HTMLDivElement>(null)
@@ -503,6 +507,17 @@ export function ProductOrbitCarousel({
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-[#0a0a0a] to-transparent" />
                     {/* Badges uniquement à droite (évite double « À la une » / Arrivage) */}
                     <ProductBadges badges={badges} compact max={2} />
+                    {ratings[product.id] && (
+                      <span
+                        className="pointer-events-none absolute bottom-1 left-1 z-20 inline-flex items-center gap-0.5 rounded-full bg-black/75 px-1.5 py-0.5 ring-1 ring-amber-400/30"
+                        aria-label={`Note ${ratings[product.id].avgScore}/5`}
+                      >
+                        <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" aria-hidden="true" />
+                        <span className="font-mono text-[9px] font-bold tabular-nums leading-none text-amber-300">
+                          {ratings[product.id].avgScore.toFixed(1)}
+                        </span>
+                      </span>
+                    )}
                   </div>
                   <div className="mt-1.5 min-w-0 px-0.5 pb-0.5">
                     <p className="truncate text-[9px] font-medium uppercase tracking-[0.14em] text-[#3e6757] sm:text-[10px]">
@@ -521,10 +536,23 @@ export function ProductOrbitCarousel({
 
       {/* Contrôles */}
       <div className="mt-1 flex flex-col items-center gap-2.5 px-1 sm:mt-2 sm:gap-3">
-        <p className="max-w-md px-2 text-center text-xs text-zinc-400 sm:text-sm">
-          <span className="font-semibold text-white">{products[active]?.title}</span>
-          <span className="text-zinc-500"> · {minPriceLabel(products[active]!)}</span>
-        </p>
+        <div className="flex max-w-md flex-col items-center gap-1.5 px-2 text-center">
+          <p className="text-xs text-zinc-400 sm:text-sm">
+            <span className="font-semibold text-white">{products[active]?.title}</span>
+            <span className="text-zinc-500"> · {minPriceLabel(products[active]!)}</span>
+          </p>
+          {products[active] && ratings[products[active].id] && (
+            <div
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <RatingBadge
+                summary={ratings[products[active].id]}
+                productTitle={products[active].title}
+              />
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
