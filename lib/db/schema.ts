@@ -34,6 +34,10 @@ export const users = pgTable("users", {
   peakTier: text("peak_tier").notNull().default("bronze"),
   // Livraison offerte Platine : fin de la fenêtre d'1 mois
   freeDeliveryUntil: timestamp("free_delivery_until", { withTimezone: true }),
+  /** Message + notif envoyés au démarrage de la fenêtre */
+  freeDeliveryStartNotifiedAt: timestamp("free_delivery_start_notified_at", { withTimezone: true }),
+  /** Rappel J-7 avant la fin */
+  freeDeliveryEndingNotifiedAt: timestamp("free_delivery_ending_notified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 

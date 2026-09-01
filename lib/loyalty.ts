@@ -87,6 +87,10 @@ export type LoyaltyTier = {
   perks: string[]
 }
 
+/**
+ * Seuils de palier en **points de statut** (1€ payé hors remise fidélité = 1 pt statut).
+ * Le solde de points (avec multi) peut différer ; le palier suit ces pts de statut cumulés.
+ */
 export const LOYALTY_TIERS: LoyaltyTier[] = [
   {
     id: "bronze",
@@ -100,7 +104,7 @@ export const LOYALTY_TIERS: LoyaltyTier[] = [
     freeDeliveryMinOrder: 0,
     color: "bg-amber-700/20 text-amber-600 border-amber-700/40",
     perks: [
-      "1€ payé = 1 point",
+      "1€ payé = 1 point (base)",
       "Échange de points en bons -10 / -20 / -30€",
       "Parrainage à la 1ʳᵉ livraison du filleul",
     ],
@@ -117,6 +121,7 @@ export const LOYALTY_TIERS: LoyaltyTier[] = [
     freeDeliveryMinOrder: 0,
     color: "bg-zinc-400/20 text-zinc-300 border-zinc-400/40",
     perks: [
+      "Dès 100 pts de statut",
       "+10 % de points sur chaque commande livrée",
       "Bon -10€ toujours à 300 pts",
       "Tous les avantages Bronze",
@@ -134,6 +139,7 @@ export const LOYALTY_TIERS: LoyaltyTier[] = [
     freeDeliveryMinOrder: 0,
     color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/40",
     perks: [
+      "Dès 300 pts de statut",
       "+20 % de points sur chaque commande livrée",
       "Priorité messagerie (file admin + badge)",
       "Emoji 🥇 à côté de ton pseudo",
@@ -153,6 +159,7 @@ export const LOYALTY_TIERS: LoyaltyTier[] = [
     freeDeliveryMinOrder: 90,
     color: "bg-cyan-400/20 text-cyan-300 border-cyan-400/40",
     perks: [
+      "Dès 600 pts de statut",
       "+30 % de points sur chaque commande livrée",
       "Emoji 💎 — statut premium",
       "Réservation produit (sécurise ton article 48 h)",
@@ -311,4 +318,13 @@ export function buildReferralCode(pseudo: string, userId: number): string {
     .padEnd(4, "X")
   const suffix = (userId * 7919 + 42).toString(36).toUpperCase().slice(-4).padStart(4, "0")
   return `${clean}-${suffix}`
+}
+
+/** Normalise une saisie code parrain (casse, espaces, tirets unicode). */
+export function normalizeReferralCode(raw: string | null | undefined): string {
+  return String(raw || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-")
+    .replace(/\s+/g, "")
 }

@@ -31,7 +31,15 @@ type UserDashboardModalProps = {
 
 export function UserDashboardModal({ isOpen, onClose, userData, onLogout }: UserDashboardModalProps) {
   const token = userData?.token ?? ""
-  const [stats, setStats] = useState<{ points: number; active: number; past: number } | null>(null)
+  const [stats, setStats] = useState<{
+    points: number
+    active: number
+    past: number
+    tierId?: string
+    tierLabel?: string
+    tierEmoji?: string
+    referralCode?: string | null
+  } | null>(null)
   const [bioAvailable, setBioAvailable] = useState(false)
   const [bioLocal, setBioLocal] = useState(false)
   const [bioList, setBioList] = useState<{ id: string; deviceLabel: string | null; createdAt: string }[]>([])
@@ -43,7 +51,7 @@ export function UserDashboardModal({ isOpen, onClose, userData, onLogout }: User
     setStats(null)
     getCustomerStats(token)
       .then((s) => setStats(s))
-      .catch(() => setStats({ points: 0, active: 0, past: 0 }))
+      .catch(() => setStats({ points: 0, active: 0, past: 0, tierLabel: "Bronze", tierId: "bronze" }))
   }, [isOpen, token])
 
   useEffect(() => {
@@ -179,7 +187,33 @@ export function UserDashboardModal({ isOpen, onClose, userData, onLogout }: User
 
         <div className="mb-6 rounded-2xl border border-border bg-background/60 p-6">
           <div className="text-sm text-muted-foreground">Pseudo anonyme</div>
-          <div className="mt-1 font-mono text-2xl font-bold">{userData?.pseudo ?? "Invité"}</div>
+          <div className="mt-1 font-mono text-2xl font-bold">
+            {stats?.tierEmoji ? `${stats.tierEmoji} ` : ""}
+            {userData?.pseudo ?? "Invité"}
+          </div>
+          {stats?.tierLabel && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                  stats.tierId === "platinum"
+                    ? "border-cyan-400/40 bg-cyan-500/15 text-cyan-300"
+                    : stats.tierId === "gold"
+                      ? "border-yellow-500/40 bg-yellow-500/15 text-yellow-400"
+                      : stats.tierId === "silver"
+                        ? "border-zinc-400/40 bg-zinc-500/15 text-zinc-300"
+                        : "border-amber-700/40 bg-amber-700/15 text-amber-600"
+                }`}
+              >
+                {stats.tierEmoji ? `${stats.tierEmoji} ` : ""}
+                {stats.tierLabel}
+              </span>
+              {stats.referralCode && (
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  Code parrain : <strong className="text-foreground">{stats.referralCode}</strong>
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="mb-6 grid grid-cols-3 gap-4 text-center">

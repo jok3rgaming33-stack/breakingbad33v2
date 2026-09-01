@@ -17,6 +17,7 @@ import {
   replayLoyaltyOrders,
   maxTierId,
   buildReferralCode,
+  normalizeReferralCode,
   PLATINUM_FREE_DELIVERY_MIN,
   PLATINUM_FREE_DELIVERY_POINTS_COST,
   shouldGrantPlatinumFreeMonth,
@@ -97,16 +98,26 @@ export async function createAccount(token: string, pseudo: string, referralCode?
   // Parrain optionnel : code invalide / vide = on crée quand même le compte (non bloquant)
   let referrer: typeof users.$inferSelect | null = null
   let referralIgnored = false
-  const refCode = referralCode?.trim().toUpperCase() || ""
+  const refCode = normalizeReferralCode(referralCode)
   if (refCode) {
     try {
-      const refRows = await db.select().from(users).where(eq(users.referralCode, refCode)).limit(1)
+      // 1) Match normalisé (casse / espaces / tirets)
+      let refRows = await db
+        .select()
+        .from(users)
+        .where(sql`upper(replace(trim(${users.referralCode}), ' ', '')) = ${refCode}`)
+        .limit(1)
+      // 2) Fallback exact (codes déjà stockés en majuscules)
+      if (!refRows[0]) {
+        refRows = await db.select().from(users).where(eq(users.referralCode, refCode)).limit(1)
+      }
       if (refRows[0] && refRows[0].token !== t) {
         referrer = refRows[0]
       } else {
         referralIgnored = true // saisi mais inconnu / auto-réf
       }
-    } catch {
+    } catch (e) {
+      console.error("[account] referral lookup failed:", e)
       referralIgnored = true
     }
   }
@@ -498,7 +509,7 @@ export type CustomerStats = {
 }
 
 const VOUCHER_POLICY_HINT =
-  "Les bons baissent les points de la commande (montant payé), mais ton palier ne redescend jamais. Le CA statut compte le panier avant remise fidélité."
+  "Les bons baissent les points de la commande (montant payé), mais ton palier ne redescend jamais. Les paliers suivent tes points de statut (1€ hors remise fidélité = 1 pt statut)."
 
 // Statistiques réelles du client, calculées depuis ses commandes (clé secrète).
 export async function getCustomerStats(token: string): Promise<CustomerStats> {
@@ -583,22 +594,23 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
   } catch (e) {
     console.error("[account] getCustomerStats user select:", e)
     try {
-      const fallback = await db
-        .select({
-          id: users.id,
-          pseudo: users.pseudo,
-          loyaltyAdjustment: users.loyaltyAdjustment,
-          loyaltySpent: users.loyaltySpent,
-          referralCode: users.referralCode,
-        })
-        .from(users)
-        .where(eq(users.token, t))
-        .limit(1)
-      if (fallback[0]) {
+      // Fallback SQL brut — ne jamais perdre le peak_tier Platine
+      const raw = await db.execute(sql`
+        SELECT id, pseudo, loyalty_adjustment, loyalty_spent, referral_code, peak_tier, free_delivery_until
+        FROM users WHERE token = ${t} LIMIT 1
+      `)
+      const row = ((raw as { rows?: Record<string, unknown>[] }).rows ?? [])[0]
+      if (row) {
         u = {
-          ...fallback[0],
-          peakTier: "bronze",
-          freeDeliveryUntil: null,
+          id: Number(row.id),
+          pseudo: String(row.pseudo),
+          loyaltyAdjustment: Number(row.loyalty_adjustment ?? 0),
+          loyaltySpent: Number(row.loyalty_spent ?? 0),
+          referralCode: row.referral_code != null ? String(row.referral_code) : null,
+          peakTier: String(row.peak_tier || "bronze"),
+          freeDeliveryUntil: row.free_delivery_until
+            ? new Date(String(row.free_delivery_until))
+            : null,
         }
       }
     } catch (e2) {
@@ -639,13 +651,25 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
         patch.freeDeliveryUntil = computeFreeDeliveryUntil()
       }
     }
+    let grantedFreeMonth = false
     if (Object.keys(patch).length > 0) {
       try {
         await db.update(users).set(patch).where(eq(users.id, u.id))
         if (patch.peakTier) (u as { peakTier: string }).peakTier = patch.peakTier as string
-        if (patch.freeDeliveryUntil) (u as { freeDeliveryUntil: Date }).freeDeliveryUntil = patch.freeDeliveryUntil as Date
+        if (patch.freeDeliveryUntil) {
+          ;(u as { freeDeliveryUntil: Date }).freeDeliveryUntil = patch.freeDeliveryUntil as Date
+          grantedFreeMonth = true
+        }
       } catch {
         /* ignore */
+      }
+    }
+    if (grantedFreeMonth) {
+      try {
+        const { onPlatinumFreeMonthGranted } = await import("@/app/actions/platinum-delivery-notifs")
+        await onPlatinumFreeMonthGranted(u.id)
+      } catch {
+        /* soft */
       }
     }
   }
@@ -744,11 +768,21 @@ export async function awardLoyaltyOnDelivery(opts: {
         patch.freeDeliveryUntil = computeFreeDeliveryUntil()
       }
     }
+    let grantedFreeMonth = false
     if (Object.keys(patch).length > 0) {
       try {
         await db.update(users).set(patch).where(eq(users.id, u.id))
+        if (patch.freeDeliveryUntil) grantedFreeMonth = true
       } catch {
         /* ignore */
+      }
+    }
+    if (grantedFreeMonth) {
+      try {
+        const { onPlatinumFreeMonthGranted } = await import("@/app/actions/platinum-delivery-notifs")
+        await onPlatinumFreeMonthGranted(u.id)
+      } catch {
+        /* soft */
       }
     }
   }

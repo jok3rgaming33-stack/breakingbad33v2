@@ -191,7 +191,7 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
             <div className="mt-3">
               <div className="mb-1 flex justify-between text-[10px] text-muted-foreground">
                 <span>Progression vers {stats.nextTierLabel}</span>
-                <span>{stats.spentToNext}€ restants</span>
+                <span>{stats.spentToNext} pts restants</span>
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
                 <div
@@ -200,9 +200,14 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
                 />
               </div>
               <p className="mt-1 text-[10px] text-muted-foreground">
-                CA statut : {stats.qualifyingSpend}€ · payé : {stats.totalSpentDelivered}€
+                Pts statut : {stats.qualifyingSpend} · solde points : {balance}
               </p>
             </div>
+          )}
+          {tierId === "platinum" && !stats?.nextTierLabel && (
+            <p className="mt-2 text-[10px] font-semibold text-cyan-300">
+              💎 Palier Platine atteint — pts statut : {stats?.qualifyingSpend ?? 0}
+            </p>
           )}
           {stats?.tierId === "platinum" && stats.freeDeliveryActive && stats.freeDeliveryUntil && (
             <div className="mt-2 space-y-1.5 rounded-xl border border-cyan-500/35 bg-cyan-500/10 px-3 py-2.5 text-cyan-200">
@@ -274,9 +279,9 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
           {view === "paliers" ? (
             <div className="flex flex-col gap-2.5">
               <p className="text-xs text-muted-foreground">
-                Les paliers se basent sur ton <strong className="text-foreground">CA statut</strong> (panier
-                avant remise fidélité). Utiliser un bon réduit les <em>points</em> de la commande, jamais ton
-                palier déjà atteint.
+                Les paliers se basent sur tes <strong className="text-foreground">points de statut</strong>{" "}
+                (1€ hors remise fidélité = 1 pt statut). Utiliser un bon réduit le solde de points de la
+                commande, jamais un palier déjà atteint.
               </p>
               {LOYALTY_TIERS.map((t) => {
                 const active = t.id === tierId
@@ -294,7 +299,7 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
                         {active ? " · toi" : ""}
                       </span>
                       <span className="text-[10px] text-muted-foreground">
-                        dès {t.minSpent}€ · ×{t.pointsMultiplier} pts
+                        dès {t.minSpent} pts · ×{t.pointsMultiplier}
                       </span>
                     </div>
                     <ul className="space-y-0.5 text-[11px] text-muted-foreground">

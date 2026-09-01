@@ -60,14 +60,19 @@ export async function getAdminDashboard(): Promise<AdminDashboardData | null> {
   const d7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
   const d30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
 
-  // Rappels locker en arrière-plan : NE PAS await (web-push peut pendre → spinner infini).
-  // Le cron Vercel reste la source principale ; ici c'est un bonus soft.
+  // Rappels locker + notifs Platine en arrière-plan : NE PAS await (web-push peut pendre).
   const lockerReminders = { sent: 0, checked: 0 }
   void processLockerReminders()
     .then((r) => {
       if (r.sent > 0) console.log("[dashboard] locker reminders sent:", r.sent)
     })
     .catch((e) => console.error("[dashboard] locker reminders:", e))
+  void import("@/app/actions/platinum-delivery-notifs")
+    .then(({ processPlatinumFreeDeliveryNotifs }) => processPlatinumFreeDeliveryNotifs())
+    .then((r) => {
+      if (r.startSent || r.endingSent) console.log("[dashboard] platinum notifs:", r)
+    })
+    .catch((e) => console.error("[dashboard] platinum notifs:", e))
 
   const [
     ordersActiveRow,

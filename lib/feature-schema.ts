@@ -33,6 +33,8 @@ export async function ensureFeatureSchema(): Promise<void> {
         // Paliers fidélité avancés
         await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS peak_tier TEXT NOT NULL DEFAULT 'bronze'`)
         await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS free_delivery_until TIMESTAMPTZ`)
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS free_delivery_start_notified_at TIMESTAMPTZ`)
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS free_delivery_ending_notified_at TIMESTAMPTZ`)
         await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_discount INTEGER NOT NULL DEFAULT 0`)
         await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_points_awarded INTEGER`)
         await db.execute(sql`

@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/locker-reminders",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/platinum-delivery",
+      "schedule": "0 9 * * *"
     }
   ]
 }
