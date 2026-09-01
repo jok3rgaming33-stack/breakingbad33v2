@@ -75,6 +75,15 @@ export function Hero() {
             <span className="ml-0.5 text-[34px] text-[#3e6757] sm:ml-1 sm:text-[44px] md:text-[56px]">33</span>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            document.getElementById("featured")?.scrollIntoView({ behavior: "smooth", block: "start" })
+          }}
+          className="mt-5 rounded-full border border-white/20 bg-white/10 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.18em] text-white backdrop-blur-sm transition-colors hover:border-[#3e6757]/60 hover:bg-[#3e6757]/25 sm:mt-6 sm:text-[11px]"
+        >
+          Voir les produits
+        </button>
       </div>
     </section>
   )

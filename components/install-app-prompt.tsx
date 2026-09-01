@@ -10,7 +10,8 @@ type BeforeInstallPromptEvent = Event & {
 
 const STORAGE_KEY = "bb33_install_prompt_dismissed_at"
 const DISMISS_DAYS = 14
-const SHOW_DELAY_MS = 9000
+/** Délai après que l'UI soit « calme » (pas de news / panier / toast). */
+const SHOW_DELAY_MS = 14000
 
 function isStandalone() {
   if (typeof window === "undefined") return false
@@ -46,18 +47,48 @@ function markDismissed() {
 /**
  * Toast in-app proposant d'installer la PWA (visiteurs navigateur uniquement).
  * Android/Chrome : beforeinstallprompt. iOS : tutoriel Partager → Écran d'accueil.
+ * Attend que news / panier / toast soient calmés avant d'apparaître.
  */
 export function InstallAppPrompt({ enabled = true }: { enabled?: boolean }) {
   const [visible, setVisible] = useState(false)
   const [iosGuide, setIosGuide] = useState(false)
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null)
   const [hint, setHint] = useState<string | null>(null)
+  const [uiBusy, setUiBusy] = useState(false)
+  const [newsPending, setNewsPending] = useState(true)
 
   useEffect(() => {
     if (!enabled) return
     if (typeof window === "undefined") return
     if (isStandalone()) return
     if (wasDismissedRecently()) return
+
+    const busySources = new Set<string>()
+    const syncBusy = () => setUiBusy(busySources.size > 0)
+
+    const onBusy = (e: Event) => {
+      const d = (e as CustomEvent).detail as { source?: string; busy?: boolean } | undefined
+      if (!d?.source) return
+      if (d.busy) busySources.add(d.source)
+      else busySources.delete(d.source)
+      syncBusy()
+    }
+    const onNewsOpen = () => {
+      setNewsPending(true)
+      busySources.add("news")
+      syncBusy()
+    }
+    const onNewsClosed = () => {
+      setNewsPending(false)
+      busySources.delete("news")
+      syncBusy()
+    }
+    // Si aucune news n'arrive sous 4s, on considère la file vide
+    const newsFallback = window.setTimeout(() => setNewsPending(false), 4000)
+
+    window.addEventListener("bb33:ui-busy", onBusy as EventListener)
+    window.addEventListener("bb33:news-open", onNewsOpen)
+    window.addEventListener("bb33:news-closed", onNewsClosed)
 
     const onPrompt = (e: Event) => {
       e.preventDefault()
@@ -72,16 +103,28 @@ export function InstallAppPrompt({ enabled = true }: { enabled?: boolean }) {
     }
     window.addEventListener("appinstalled", onInstalled)
 
-    const t = window.setTimeout(() => setVisible(true), SHOW_DELAY_MS)
-
     return () => {
-      window.clearTimeout(t)
+      window.clearTimeout(newsFallback)
+      window.removeEventListener("bb33:ui-busy", onBusy as EventListener)
+      window.removeEventListener("bb33:news-open", onNewsOpen)
+      window.removeEventListener("bb33:news-closed", onNewsClosed)
       window.removeEventListener("beforeinstallprompt", onPrompt)
       window.removeEventListener("appinstalled", onInstalled)
     }
   }, [enabled])
 
-  if (!enabled || !visible) return null
+  // Affiche seulement quand l'UI est calme
+  useEffect(() => {
+    if (!enabled || isStandalone() || wasDismissedRecently()) return
+    if (uiBusy || newsPending) {
+      setVisible(false)
+      return
+    }
+    const t = window.setTimeout(() => setVisible(true), SHOW_DELAY_MS)
+    return () => window.clearTimeout(t)
+  }, [enabled, uiBusy, newsPending])
+
+  if (!enabled || !visible || uiBusy) return null
 
   const dismiss = () => {
     markDismissed()

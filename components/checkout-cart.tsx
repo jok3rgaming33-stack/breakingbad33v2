@@ -142,6 +142,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const isLocker = fulfillmentMode === "locker"
   const [meetupHour, setMeetupHour] = useState("")
   const [lockerAddress, setLockerAddress] = useState("")
+  const [lockerConfirmed, setLockerConfirmed] = useState(false)
   /** Locker : XMR ou Paysafecard */
   const [lockerPayMethod, setLockerPayMethod] = useState<"xmr" | "paysafecard">("xmr")
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
@@ -357,7 +358,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   const canValidate =
     items.length > 0 &&
     (isLocker
-      ? !!lockerAddress.trim() && payConfirmed
+      ? !!lockerAddress.trim() && lockerConfirmed && payConfirmed
       : !!date && (isMeetup ? !!meetupHour : !!address.trim() && !!slot && distanceKm != null))
 
   // Point d'entrée : à la 1re commande, on impose d'abord la vérification d'identité.
@@ -692,8 +693,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                 </div>
               )}
 
-              {/* Mode de réception */}
-              <div className="mt-6 grid grid-cols-2 gap-3">
+              {/* Mode de réception — 3 chips claires + frais anticipés */}
+              <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
                 <button
                   type="button"
                   onClick={() => deliveryAllowed && setFulfillmentMode("livraison")}
@@ -704,32 +705,51 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                       ? `Livraison disponible à partir de ${config.minDeliveryAmount}€ d'achat`
                       : undefined
                   }
-                  className={`flex items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-colors ${
-                    fulfillmentMode === "livraison" ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
+                  className={`flex flex-col items-start gap-1 rounded-2xl border p-3 text-left transition-colors ${
+                    fulfillmentMode === "livraison"
+                      ? "border-accent bg-accent/10 text-foreground"
+                      : "border-border text-muted-foreground"
                   } ${!deliveryAllowed ? "cursor-not-allowed opacity-40" : ""}`}
                 >
-                  <Truck className="h-4 w-4" aria-hidden="true" />
-                  Livraison
+                  <span className="flex items-center gap-2 text-sm font-semibold">
+                    <Truck className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    Livraison
+                  </span>
+                  <span className="text-[11px] leading-snug opacity-80">
+                    {isPlatinum && freeDeliveryActive
+                      ? `Offerte 💎 si panier ≥ ${freeDeliveryMin}€`
+                      : "Dès 10€ selon distance"}
+                  </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setFulfillmentMode("meetup")}
-                  className={`flex items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-colors ${
-                    fulfillmentMode === "meetup" ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
+                  className={`flex flex-col items-start gap-1 rounded-2xl border p-3 text-left transition-colors ${
+                    fulfillmentMode === "meetup"
+                      ? "border-accent bg-accent/10 text-foreground"
+                      : "border-border text-muted-foreground"
                   }`}
                 >
-                  <Store className="h-4 w-4" aria-hidden="true" />
-                  Retrait (meet-up)
+                  <span className="flex items-center gap-2 text-sm font-semibold">
+                    <Store className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    Meet-up
+                  </span>
+                  <span className="text-[11px] leading-snug opacity-80">Gratuit — retrait sur place</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setFulfillmentMode("locker")}
-                  className={`flex items-center justify-center gap-2 rounded-2xl border p-3 text-sm font-medium transition-colors ${
-                    fulfillmentMode === "locker" ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
+                  className={`flex flex-col items-start gap-1 rounded-2xl border p-3 text-left transition-colors ${
+                    fulfillmentMode === "locker"
+                      ? "border-accent bg-accent/10 text-foreground"
+                      : "border-border text-muted-foreground"
                   }`}
                 >
-                  <Package className="h-4 w-4" aria-hidden="true" />
-                  Locker Mondial Relay
+                  <span className="flex items-center gap-2 text-sm font-semibold">
+                    <Package className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    Locker
+                  </span>
+                  <span className="text-[11px] leading-snug opacity-80">Mondial Relay · {FEE_LOCKER}€</span>
                 </button>
               </div>
               {!deliveryAllowed && (
@@ -739,8 +759,42 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   <span className="font-semibold text-foreground">
                     {Math.max(0, config.minDeliveryAmount - subtotal)}€
                   </span>{" "}
-                  pour y accéder, ou choisis le retrait (meet-up).
+                  pour y accéder, ou choisis meet-up / locker.
                 </p>
+              )}
+
+              {/* Bannière Platine dès l'ouverture du panier (avant géocode) */}
+              {isPlatinum && fulfillmentMode === "livraison" && (
+                <div className="mt-3 rounded-2xl border border-cyan-500/35 bg-cyan-500/10 px-3 py-2.5 text-xs leading-relaxed text-cyan-100">
+                  {freeDeliveryActive ? (
+                    <>
+                      <strong className="text-cyan-200">💎 Mois Platine actif</strong> — livraison offerte sur
+                      les commandes ≥ <strong>{freeDeliveryMin}€</strong>. Les frais exacts s&apos;affichent
+                      après l&apos;adresse.
+                    </>
+                  ) : (
+                    <>
+                      <strong className="text-cyan-200">💎 Avantage Platine</strong> — hors fenêtre offerte, tu
+                      peux rendre la livraison gratuite pour{" "}
+                      <strong>{freeDeliveryPointsCost} pts</strong>
+                      {loyaltyPoints < freeDeliveryPointsCost
+                        ? ` (solde insuffisant : ${loyaltyPoints} pts)`
+                        : ` (solde : ${loyaltyPoints} pts)`}
+                      .
+                      {loyaltyPoints >= freeDeliveryPointsCost && (
+                        <label className="mt-2 flex cursor-pointer items-start gap-2">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-3.5 w-3.5 accent-cyan-400"
+                            checked={redeemPtsForDelivery}
+                            onChange={(e) => setRedeemPtsForDelivery(e.target.checked)}
+                          />
+                          <span>Utiliser {freeDeliveryPointsCost} pts pour cette commande</span>
+                        </label>
+                      )}
+                    </>
+                  )}
+                </div>
               )}
 
               {/* Adresse Locker Mondial Relay */}
@@ -750,12 +804,23 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     <Package className="h-4 w-4 text-accent" aria-hidden="true" />
                     Adresse du Locker Mondial Relay
                   </label>
+                  <a
+                    href="https://www.mondialrelay.fr/trouver-le-point-relais-le-plus-proche/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mb-2 inline-flex min-h-10 items-center gap-2 rounded-xl border border-accent/35 bg-accent/10 px-3 py-2 text-xs font-semibold text-accent hover:bg-accent/15"
+                  >
+                    Trouver un point Locker près de moi ↗
+                  </a>
                   <textarea
                     id="locker-address"
                     value={lockerAddress}
-                    onChange={(e) => setLockerAddress(e.target.value)}
+                    onChange={(e) => {
+                      setLockerAddress(e.target.value)
+                      setLockerConfirmed(false)
+                    }}
                     rows={2}
-                    placeholder="Ex. Locker Le Clerc — 12 rue de la Paix, 75001 Paris"
+                    placeholder="Ex. Locker Leclerc — 12 rue de la Paix, 33000 Bordeaux"
                     className="w-full resize-none rounded-2xl border border-border bg-background/60 p-3 text-sm outline-none transition-colors focus:border-accent"
                   />
                   <div className="mt-2 flex items-center gap-1.5 rounded-xl bg-accent/10 px-3 py-2">
@@ -763,8 +828,22 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                     <p className="text-xs text-accent">Adresse transmise chiffrée — jamais stockée en clair</p>
                   </div>
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    Frais d&apos;envoi Locker : <span className="font-semibold text-foreground">{FEE_LOCKER}€</span>. Saisis l&apos;adresse exacte du point Locker Mondial Relay choisi.
+                    Frais d&apos;envoi Locker :{" "}
+                    <span className="font-semibold text-foreground">{FEE_LOCKER}€</span>. Colle l&apos;adresse
+                    exacte du point choisi sur Mondial Relay.
                   </p>
+                  <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-border bg-background/50 px-3 py-2.5 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-3.5 w-3.5 accent-[hsl(var(--accent))]"
+                      checked={lockerConfirmed}
+                      onChange={(e) => setLockerConfirmed(e.target.checked)}
+                    />
+                    <span>
+                      Je confirme avoir choisi un <strong className="text-foreground">Locker Mondial Relay</strong>{" "}
+                      et collé son adresse complète ci-dessus.
+                    </span>
+                  </label>
 
                   {/* Choix paiement Locker : XMR ou Paysafecard */}
                   <div className="mt-3 rounded-2xl border border-border bg-background/60 p-4">

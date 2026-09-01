@@ -76,6 +76,15 @@ export function NewsPopup({ token }: { token?: string }) {
   const [dismissing, setDismissing] = useState(false)
   const touchStartX = useRef<number | null>(null)
 
+  // Signale aux autres toasts (install PWA) qu'une news est ouverte / fermée.
+  useEffect(() => {
+    if (open) {
+      window.dispatchEvent(new CustomEvent("bb33:news-open"))
+    } else {
+      window.dispatchEvent(new CustomEvent("bb33:news-closed"))
+    }
+  }, [open])
+
   // Charge toutes les news actives à l'entrée (hors déjà dismissées).
   useEffect(() => {
     let cancelled = false

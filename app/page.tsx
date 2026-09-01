@@ -379,6 +379,7 @@ export default function Home() {
         onFocusConsumed={() => {
           setFocusThreadId(null)
         }}
+        onOpenHowItWorks={() => setIsHowItWorksOpen(true)}
       />
 
       {/* Popup News à l'entrée du site (client connecté non admin) */}
@@ -386,8 +387,8 @@ export default function Home() {
 
       {isAuthenticated && <CheckoutCart userData={userData} />}
 
-      {/* Proposition d'install PWA — visiteurs navigateur uniquement */}
-      {!isAdmin && <InstallAppPrompt enabled />}
+      {/* Proposition d'install PWA — après login, UI calme (pas de news/panier) */}
+      {isAuthenticated && !isAdmin && <InstallAppPrompt enabled />}
 
       </NotificationsProvider>
     </CartProvider>

@@ -571,8 +571,8 @@ export function ProductOrbitCarousel({
             />
           ))}
         </div>
-        <p className="hidden text-[10px] text-zinc-600 sm:block">
-          Glisse · flèches · clic carte pour ouvrir
+        <p className="px-2 text-center text-[10px] leading-snug text-zinc-500 sm:text-zinc-600">
+          Glisse · flèches · clique la carte face avant pour ouvrir
         </p>
       </div>
     </div>

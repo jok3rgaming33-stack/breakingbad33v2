@@ -49,6 +49,8 @@ type MessagerieModalProps = {
   /** Deep-link : ouvrir directement ce fil (ex. depuis notif / push) */
   focusThreadId?: number | null
   onFocusConsumed?: () => void
+  /** Ouvre le guide « Comment ça marche » depuis un empty state */
+  onOpenHowItWorks?: () => void
 }
 
 type Thread = {
@@ -77,6 +79,7 @@ export function MessagerieModal({
   autoOpenLatest = false,
   focusThreadId = null,
   onFocusConsumed,
+  onOpenHowItWorks,
 }: MessagerieModalProps) {
   const token = userData?.token ?? ""
   const name = userData?.pseudo ?? "Client"
@@ -387,6 +390,30 @@ export function MessagerieModal({
                         <li className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
                           <Package className="h-10 w-10" aria-hidden="true" />
                           <p className="text-sm">Aucune commande pour le moment.</p>
+                          <div className="mt-1 flex flex-col items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTab("discussions")
+                                setView("compose")
+                              }}
+                              className="rounded-xl bg-accent px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-accent-foreground"
+                            >
+                              Écrire au chimiste
+                            </button>
+                            {onOpenHowItWorks && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onClose()
+                                  onOpenHowItWorks()
+                                }}
+                                className="text-xs font-medium text-accent underline-offset-2 hover:underline"
+                              >
+                                Comment ça marche ?
+                              </button>
+                            )}
+                          </div>
                         </li>
                       ) : orderThreads.map((t) => {
                         const meta = statusMeta(t.status)
@@ -424,6 +451,27 @@ export function MessagerieModal({
                         <li className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
                           <MessageSquare className="h-10 w-10" aria-hidden="true" />
                           <p className="text-sm">Aucune discussion pour le moment.</p>
+                          <div className="mt-1 flex flex-col items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setView("compose")}
+                              className="rounded-xl bg-accent px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-accent-foreground"
+                            >
+                              Contacter le chimiste
+                            </button>
+                            {onOpenHowItWorks && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onClose()
+                                  onOpenHowItWorks()
+                                }}
+                                className="text-xs font-medium text-accent underline-offset-2 hover:underline"
+                              >
+                                Comment ça marche ?
+                              </button>
+                            )}
+                          </div>
                         </li>
                       ) : discussionThreads.map((t) => {
                         const meta = statusMeta(t.status)
