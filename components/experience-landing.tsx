@@ -54,7 +54,8 @@ const TIERS = [
     perks: [
       "+30 % de points",
       "Réservation produit 48 h",
-      "Livraison offerte* ≥ 90€ · bon -30€ à 900 pts",
+      "Fenêtre 30 j. livraison offerte ≥ 90€ · puis 150 pts / commande",
+      "Bon -30€ à 900 pts",
     ],
   },
 ]
@@ -310,13 +311,14 @@ export function ExperienceLanding() {
           <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 sm:flex-row sm:items-center sm:gap-4">
             <Truck className="h-6 w-6 shrink-0 text-cyan-400" aria-hidden="true" />
             <p className="text-sm text-zinc-300">
-              <strong className="text-cyan-300">Platine</strong> : livraison offerte pendant 1 mois sur
-              les commandes ≥ 90€ · réservation d’un produit 48 h pour le sécuriser avant les autres.
+              <strong className="text-cyan-300">Platine</strong> : fenêtre de 30 jours avec livraison
+              offerte sur commandes ≥ 90€ · hors fenêtre, livraison offerte possible contre 150 points
+              par commande · réservation d’un produit 48 h.
             </p>
           </div>
           <p className="mt-3 text-[11px] text-zinc-600">
-            * Avantages soumis aux conditions affichées dans l’Espace fidélité. Points crédités à la
-            livraison. Le multi s’applique selon ton palier.
+            Avantages détaillés dans l’Espace fidélité. Points crédités à la livraison. Le multi
+            s’applique selon ton palier.
           </p>
         </div>
       </section>

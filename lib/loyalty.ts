@@ -156,7 +156,8 @@ export const LOYALTY_TIERS: LoyaltyTier[] = [
       "+30 % de points sur chaque commande livrée",
       "Emoji 💎 — statut premium",
       "Réservation produit (sécurise ton article 48 h)",
-      "Livraison offerte 1 mois sur commandes ≥ 90€",
+      "Fenêtre Platine : livraison offerte 30 jours sur commandes ≥ 90€",
+      "Hors fenêtre : livraison offerte contre 150 pts par commande (si solde OK)",
       "Bon -30€ à 900 pts",
       "Bonus parrainage renforcé",
       "Tous les avantages Or",
@@ -275,7 +276,24 @@ export function formatPseudoWithTier(
 
 export const FREE_DELIVERY_DAYS = 30
 export const PLATINUM_FREE_DELIVERY_MIN = 90
+/** Après le mois offert : coût en points pour une livraison gratuite (Platine). */
+export const PLATINUM_FREE_DELIVERY_POINTS_COST = 150
 export const PRODUCT_RESERVE_HOURS = 48
+
+/** Démarre le mois offert uniquement à la 1ʳᵉ atteinte Platine (jamais de renouvellement auto). */
+export function shouldGrantPlatinumFreeMonth(opts: {
+  wasAlreadyPlatinum: boolean
+  freeDeliveryUntil: Date | string | null | undefined
+}): boolean {
+  // Déjà eu une date (même expirée) → ne jamais re-accorder automatiquement
+  if (opts.freeDeliveryUntil) return false
+  // Première fois platine OU platine legacy sans date → accorder 30 jours
+  return true
+}
+
+export function computeFreeDeliveryUntil(from = new Date()): Date {
+  return new Date(from.getTime() + FREE_DELIVERY_DAYS * 86400000)
+}
 
 // ─── Parrainage ───────────────────────────────────────────────────────────────
 

@@ -17,8 +17,10 @@ import {
   replayLoyaltyOrders,
   maxTierId,
   buildReferralCode,
-  FREE_DELIVERY_DAYS,
   PLATINUM_FREE_DELIVERY_MIN,
+  PLATINUM_FREE_DELIVERY_POINTS_COST,
+  shouldGrantPlatinumFreeMonth,
+  computeFreeDeliveryUntil,
   type LoyaltyTierId,
   REFERRAL_BONUS_REFEREE,
   REFERRAL_BONUS_REFERRER,
@@ -478,8 +480,14 @@ export type CustomerStats = {
   priorityMessaging: boolean
   canReserve: boolean
   freeDeliveryActive: boolean
+  /** Fin du mois offert (ISO) — présent même si expiré, pour l'UI */
   freeDeliveryUntil: string | null
   freeDeliveryMinOrder: number
+  /** Platine + mois offert terminé */
+  freeDeliveryExpired: boolean
+  /** Peut payer 150 pts pour une livraison offerte (platine hors mois gratuit) */
+  canRedeemFreeDelivery: boolean
+  freeDeliveryPointsCost: number
   fromPeak: boolean
   referralCode: string | null
   nextTierLabel: string | null
@@ -509,6 +517,9 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
     freeDeliveryActive: false,
     freeDeliveryUntil: null,
     freeDeliveryMinOrder: PLATINUM_FREE_DELIVERY_MIN,
+    freeDeliveryExpired: false,
+    canRedeemFreeDelivery: false,
+    freeDeliveryPointsCost: PLATINUM_FREE_DELIVERY_POINTS_COST,
     fromPeak: false,
     referralCode: null,
     nextTierLabel: "Argent",
@@ -615,12 +626,17 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
     const patch: Partial<typeof users.$inferInsert> = {}
     if (newPeak !== peakTier) patch.peakTier = newPeak
 
-    if (resolved.tier.id === "platinum" || newPeak === "platinum") {
-      const until = u.freeDeliveryUntil ? new Date(u.freeDeliveryUntil) : null
-      const now = new Date()
-      if (!until || until.getTime() < now.getTime()) {
-        const next = new Date(now.getTime() + FREE_DELIVERY_DAYS * 86400000)
-        patch.freeDeliveryUntil = next
+    const isPlatinum = resolved.tier.id === "platinum" || newPeak === "platinum"
+    if (isPlatinum) {
+      const wasAlreadyPlatinum = peakTier === "platinum"
+      if (
+        shouldGrantPlatinumFreeMonth({
+          wasAlreadyPlatinum,
+          freeDeliveryUntil: u.freeDeliveryUntil,
+        })
+      ) {
+        // 1ʳᵉ fois platine OU platine legacy sans date → démarre le mois offert (une seule fois)
+        patch.freeDeliveryUntil = computeFreeDeliveryUntil()
       }
     }
     if (Object.keys(patch).length > 0) {
@@ -635,8 +651,13 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
   }
 
   const freeUntil = u?.freeDeliveryUntil ? new Date(u.freeDeliveryUntil) : null
+  const isPlatinumNow = resolved.tier.id === "platinum"
   const freeDeliveryActive =
-    resolved.tier.freeDelivery && !!freeUntil && freeUntil.getTime() > Date.now()
+    isPlatinumNow && !!freeUntil && freeUntil.getTime() > Date.now()
+  const freeDeliveryExpired =
+    isPlatinumNow && !!freeUntil && freeUntil.getTime() <= Date.now()
+  const canRedeemFreeDelivery =
+    isPlatinumNow && !freeDeliveryActive && points >= PLATINUM_FREE_DELIVERY_POINTS_COST
 
   return {
     points,
@@ -651,8 +672,11 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
     priorityMessaging: resolved.tier.priorityMessaging,
     canReserve: resolved.tier.canReserve,
     freeDeliveryActive,
-    freeDeliveryUntil: freeUntil && freeDeliveryActive ? freeUntil.toISOString() : null,
+    freeDeliveryUntil: freeUntil ? freeUntil.toISOString() : null,
     freeDeliveryMinOrder: resolved.tier.freeDeliveryMinOrder || PLATINUM_FREE_DELIVERY_MIN,
+    freeDeliveryExpired,
+    canRedeemFreeDelivery,
+    freeDeliveryPointsCost: PLATINUM_FREE_DELIVERY_POINTS_COST,
     fromPeak: resolved.fromPeak,
     referralCode,
     nextTierLabel: resolved.next?.label ?? null,
@@ -711,9 +735,13 @@ export async function awardLoyaltyOnDelivery(opts: {
     const patch: Record<string, unknown> = {}
     if (newPeak !== peakTier) patch.peakTier = newPeak
     if (afterTier.tier.id === "platinum" || newPeak === "platinum") {
-      const until = u.freeDeliveryUntil ? new Date(u.freeDeliveryUntil) : null
-      if (!until || until.getTime() < Date.now()) {
-        patch.freeDeliveryUntil = new Date(Date.now() + FREE_DELIVERY_DAYS * 86400000)
+      if (
+        shouldGrantPlatinumFreeMonth({
+          wasAlreadyPlatinum: peakTier === "platinum",
+          freeDeliveryUntil: u.freeDeliveryUntil,
+        })
+      ) {
+        patch.freeDeliveryUntil = computeFreeDeliveryUntil()
       }
     }
     if (Object.keys(patch).length > 0) {

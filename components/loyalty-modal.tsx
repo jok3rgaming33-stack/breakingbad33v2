@@ -1,11 +1,27 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { X, Gift, Check, Copy, Loader2, Ticket, AlertCircle, Crown, Truck } from "lucide-react"
+import { X, Gift, Check, Copy, Loader2, Ticket, AlertCircle, Crown, Truck, Timer } from "lucide-react"
 import { ensureReferralCode, getCustomerStats, type CustomerStats } from "@/app/actions/account"
 import { generateLoyaltyCode, listLoyaltyCodes } from "@/app/actions/promo"
 import type { LoyaltyCode } from "@/lib/db/schema"
-import { LOYALTY_REWARDS, LOYALTY_TIERS, type LoyaltyReward } from "@/lib/loyalty"
+import {
+  LOYALTY_REWARDS,
+  LOYALTY_TIERS,
+  PLATINUM_FREE_DELIVERY_POINTS_COST,
+  type LoyaltyReward,
+} from "@/lib/loyalty"
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return "00j 00h 00m 00s"
+  const totalSec = Math.floor(ms / 1000)
+  const d = Math.floor(totalSec / 86400)
+  const h = Math.floor((totalSec % 86400) / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${pad(d)}j ${pad(h)}h ${pad(m)}m ${pad(s)}s`
+}
 
 type UserData = { pseudo?: string; token?: string } | null
 
@@ -25,6 +41,7 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
   const [copied, setCopied] = useState<string | null>(null)
   const [referralCode, setReferralCode] = useState<string | null>(null)
   const [referralLoading, setReferralLoading] = useState(false)
+  const [nowTick, setNowTick] = useState(() => Date.now())
 
   const loadReferralCode = async () => {
     if (!token) return
@@ -63,6 +80,13 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
     refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, token])
+
+  // Timer live (1s) tant que le mois offert Platine est actif
+  useEffect(() => {
+    if (!isOpen || !stats?.freeDeliveryActive || !stats.freeDeliveryUntil) return
+    const id = window.setInterval(() => setNowTick(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [isOpen, stats?.freeDeliveryActive, stats?.freeDeliveryUntil])
 
   // Recharge le code dès qu'on ouvre l'onglet Parrainage
   useEffect(() => {
@@ -180,13 +204,38 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
               </p>
             </div>
           )}
-          {stats?.freeDeliveryActive && (
-            <div className="mt-2 flex items-center gap-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5 text-[11px] text-cyan-300">
-              <Truck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Livraison offerte sur commandes ≥ {stats.freeDeliveryMinOrder}€
-              {stats.freeDeliveryUntil
-                ? ` · jusqu’au ${new Date(stats.freeDeliveryUntil).toLocaleDateString("fr-FR")}`
-                : ""}
+          {stats?.tierId === "platinum" && stats.freeDeliveryActive && stats.freeDeliveryUntil && (
+            <div className="mt-2 space-y-1.5 rounded-xl border border-cyan-500/35 bg-cyan-500/10 px-3 py-2.5 text-cyan-200">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold">
+                <Truck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Fenêtre Platine — livraison offerte · commandes ≥ {stats.freeDeliveryMinOrder}€
+              </div>
+              <div className="flex items-center gap-2 font-mono text-sm font-bold tracking-wide text-cyan-100">
+                <Timer className="h-4 w-4 shrink-0 text-cyan-300" aria-hidden="true" />
+                {formatCountdown(new Date(stats.freeDeliveryUntil).getTime() - nowTick)}
+              </div>
+              <p className="text-[10px] text-cyan-300/80">
+                Actif jusqu’au {new Date(stats.freeDeliveryUntil).toLocaleString("fr-FR")}. Hors fenêtre :
+                livraison offerte possible contre{" "}
+                {stats.freeDeliveryPointsCost ?? PLATINUM_FREE_DELIVERY_POINTS_COST} pts par commande.
+              </p>
+            </div>
+          )}
+          {stats?.tierId === "platinum" && stats.freeDeliveryExpired && (
+            <div className="mt-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2.5 text-[11px] text-cyan-200">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <Truck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                Avantage Platine — livraison
+              </div>
+              <p className="mt-1 text-cyan-100/90">
+                Ta fenêtre de 30 jours est close. Tu peux toujours offrir la livraison sur une commande en
+                dépensant{" "}
+                <strong>{stats.freeDeliveryPointsCost ?? PLATINUM_FREE_DELIVERY_POINTS_COST} points</strong>{" "}
+                (au panier), aussi souvent que ton solde le permet.
+                {balance < (stats.freeDeliveryPointsCost ?? PLATINUM_FREE_DELIVERY_POINTS_COST)
+                  ? ` Solde : ${balance} pts.`
+                  : ` Solde : ${balance} pts.`}
+              </p>
             </div>
           )}
         </div>

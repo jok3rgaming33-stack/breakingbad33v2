@@ -227,22 +227,36 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     if (meetupHour && !availableMeetupSlots.some((s) => s.label === meetupHour)) setMeetupHour("")
   }, [availableMeetupSlots, meetupHour])
 
-  // Avantages Platine (livraison offerte ≥ min)
+  // Avantages Platine (mois offert OU rachat 150 pts)
   const [freeDeliveryActive, setFreeDeliveryActive] = useState(false)
   const [freeDeliveryMin, setFreeDeliveryMin] = useState(90)
+  const [canRedeemFreeDelivery, setCanRedeemFreeDelivery] = useState(false)
+  const [freeDeliveryPointsCost, setFreeDeliveryPointsCost] = useState(150)
+  const [loyaltyPoints, setLoyaltyPoints] = useState(0)
+  const [isPlatinum, setIsPlatinum] = useState(false)
+  const [redeemPtsForDelivery, setRedeemPtsForDelivery] = useState(false)
   useEffect(() => {
     if (!isOpen) return
     const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null
     if (!token) {
       setFreeDeliveryActive(false)
+      setCanRedeemFreeDelivery(false)
+      setIsPlatinum(false)
       return
     }
     getCustomerStats(token)
       .then((s) => {
         setFreeDeliveryActive(!!s.freeDeliveryActive)
         setFreeDeliveryMin(s.freeDeliveryMinOrder || 90)
+        setCanRedeemFreeDelivery(!!s.canRedeemFreeDelivery)
+        setFreeDeliveryPointsCost(s.freeDeliveryPointsCost || 150)
+        setLoyaltyPoints(s.points ?? 0)
+        setIsPlatinum(s.tierId === "platinum")
       })
-      .catch(() => setFreeDeliveryActive(false))
+      .catch(() => {
+        setFreeDeliveryActive(false)
+        setCanRedeemFreeDelivery(false)
+      })
   }, [isOpen])
 
   // Frais de livraison selon la distance (+ offre Platine)
@@ -253,13 +267,24 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     return calcDeliveryFee(distanceKm)
   }, [isMeetup, isLocker, distanceKm])
 
-  const freeDeliveryApplied =
+  const monthFreeApplied =
     freeDeliveryActive &&
     !isMeetup &&
     !isLocker &&
     fulfillmentMode === "livraison" &&
     subtotal >= freeDeliveryMin &&
     rawDeliveryFee > 0
+
+  const ptsFreeApplied =
+    !monthFreeApplied &&
+    redeemPtsForDelivery &&
+    canRedeemFreeDelivery &&
+    !isMeetup &&
+    !isLocker &&
+    fulfillmentMode === "livraison" &&
+    rawDeliveryFee > 0
+
+  const freeDeliveryApplied = monthFreeApplied || ptsFreeApplied
 
   const deliveryFee = freeDeliveryApplied ? 0 : rawDeliveryFee
 
@@ -403,9 +428,11 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       ? `Retrait sur place (meet-up) à ${meetupHour}`
         : isLocker
         ? `Retrait en Locker Mondial Relay — ${lockerAddress} (frais ${FEE_LOCKER}€)`
-        : freeDeliveryApplied
-          ? `Livraison à ${address} — créneau ${slot} (💎 livr. offerte Platine ≥${freeDeliveryMin}€)`
-          : `Livraison à ${address} — créneau ${slot} (frais ${deliveryFee}€)`
+        : monthFreeApplied
+          ? `Livraison à ${address} — créneau ${slot} (💎 mois offert Platine ≥${freeDeliveryMin}€)`
+          : ptsFreeApplied
+            ? `Livraison à ${address} — créneau ${slot} (💎 -${freeDeliveryPointsCost} pts Platine)`
+            : `Livraison à ${address} — créneau ${slot} (frais ${deliveryFee}€)`
 
     const payLine = isLocker
       ? `Paiement : ${lockerPayMethod === "paysafecard" ? "Paysafecard" : "Monero (XMR)"}`
@@ -423,7 +450,8 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       ``,
       `Sous-total : ${subtotal}€`,
       (!isMeetup && deliveryFee > 0) ? `${isLocker ? "Locker" : "Livraison"} : ${deliveryFee}€` : null,
-      freeDeliveryApplied ? `Livraison : offerte (Platine)` : null,
+      monthFreeApplied ? `Livraison : offerte (mois Platine)` : null,
+      ptsFreeApplied ? `Livraison : offerte (−${freeDeliveryPointsCost} pts)` : null,
       promo && promoDiscount > 0 ? `Reduction (${promo.code}) : -${promoDiscount}€` : null,
       `TOTAL : ${total}€`,
     ]
@@ -450,6 +478,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
         scheduledDate: isLocker ? undefined : date,
         scheduledSlot: isLocker ? undefined : isMeetup ? meetupHour : slot,
         paymentMethod: isLocker ? lockerPayMethod : null,
+        redeemFreeDeliveryPoints: ptsFreeApplied,
       })
       if (!orderRes || (typeof orderRes === "object" && "ok" in orderRes && orderRes.ok === false)) {
         const errMsg =
@@ -861,13 +890,39 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                       <span className="text-muted-foreground">
                         ≈ {distanceKm.toFixed(1)} km —{" "}
                         {freeDeliveryApplied ? (
-                          <span className="text-accent">livraison offerte 💎</span>
+                          <span className="text-accent">
+                            livraison offerte 💎
+                            {ptsFreeApplied ? ` (−${freeDeliveryPointsCost} pts)` : ""}
+                          </span>
                         ) : (
                           <>frais {deliveryFee}€</>
                         )}
                       </span>
                     )}
                     {geoStatus === "notfound" && <span className="text-destructive">Adresse introuvable</span>}
+                    {isPlatinum &&
+                      !freeDeliveryActive &&
+                      !isMeetup &&
+                      !isLocker &&
+                      fulfillmentMode === "livraison" &&
+                      rawDeliveryFee > 0 && (
+                        <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2.5 text-xs text-cyan-200">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-3.5 w-3.5 accent-cyan-400"
+                            checked={redeemPtsForDelivery}
+                            disabled={loyaltyPoints < freeDeliveryPointsCost}
+                            onChange={(e) => setRedeemPtsForDelivery(e.target.checked)}
+                          />
+                          <span>
+                            <strong>💎 Avantage Platine</strong> — livraison offerte pour{" "}
+                            <strong>{freeDeliveryPointsCost} pts</strong>
+                            {loyaltyPoints < freeDeliveryPointsCost
+                              ? ` (solde insuffisant : ${loyaltyPoints} pts)`
+                              : ` (solde : ${loyaltyPoints} pts)`}
+                          </span>
+                        </label>
+                      )}
                     {geoStatus === "error" && <span className="text-destructive">Erreur du service de géocodage</span>}
                   </div>
                 )}

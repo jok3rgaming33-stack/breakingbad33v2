@@ -40,6 +40,38 @@ export async function ensureFeatureSchema(): Promise<void> {
         `)
         await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS run_token TEXT`)
 
+        // Platine : démarre le mois de livraison offerte SANS attendre une visite client
+        // 1) Déjà peak_tier = platinum sans date
+        await db.execute(sql`
+          UPDATE users
+          SET free_delivery_until = NOW() + INTERVAL '30 days'
+          WHERE lower(peak_tier) = 'platinum'
+            AND free_delivery_until IS NULL
+        `)
+        // 2) CA livré ≥ 600€ (seuil Platine) : pose peak + démarre le mois si pas encore daté
+        await db.execute(sql`
+          UPDATE users u
+          SET
+            peak_tier = 'platinum',
+            free_delivery_until = CASE
+              WHEN u.free_delivery_until IS NULL THEN NOW() + INTERVAL '30 days'
+              ELSE u.free_delivery_until
+            END
+          FROM (
+            SELECT customer_token AS token
+            FROM order_threads
+            WHERE status = 'livree'
+              AND customer_token IS NOT NULL
+            GROUP BY customer_token
+            HAVING SUM(COALESCE(total, 0) + COALESCE(loyalty_discount, 0)) >= 600
+          ) s
+          WHERE u.token = s.token
+            AND (
+              lower(COALESCE(u.peak_tier, 'bronze')) <> 'platinum'
+              OR u.free_delivery_until IS NULL
+            )
+        `)
+
         // Journal connexions : heure de déconnexion
         await db.execute(sql`ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS logged_out_at TIMESTAMPTZ`)
 

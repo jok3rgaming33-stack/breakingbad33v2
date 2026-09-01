@@ -1,11 +1,12 @@
 "use server"
 
 import { db } from "@/lib/db"
-import { orderThreads, threadMessages, products } from "@/lib/db/schema"
+import { orderThreads, threadMessages, products, users } from "@/lib/db/schema"
 import { and, desc, eq, gt, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { normalizeStatus, statusMeta } from "@/lib/order-status"
-import { computeLoyaltyPoints } from "@/lib/loyalty"
+import { computeLoyaltyPoints, PLATINUM_FREE_DELIVERY_POINTS_COST } from "@/lib/loyalty"
+import { getCustomerStats } from "@/app/actions/account"
 // computeLoyaltyPoints encore utilisé ailleurs ; award multi via account
 import { notifyCustomer, notifyVendor } from "@/lib/push"
 import { adjustStock } from "@/app/actions/products"
@@ -36,6 +37,8 @@ export type NewOrderInput = {
   promoDiscount?: number
   /** Remise code fidélité (€) — pour CA statut sans rétrograder le palier */
   loyaltyDiscount?: number
+  /** Platine hors mois offert : déduire 150 pts pour livraison gratuite */
+  redeemFreeDeliveryPoints?: boolean
   fulfillment: "livraison" | "meetup" | "locker"
   address?: string
   lat?: number | null
@@ -173,12 +176,38 @@ export async function createOrderThread(input: NewOrderInput) {
       : null
 
     const loyaltyDiscount = Math.max(0, Math.trunc(Number(input.loyaltyDiscount) || 0))
+    const token = input.customerToken?.trim() || null
+
+    // Platine hors mois offert : débit 150 pts pour livraison gratuite
+    let redeemedFreeDelivery = false
+    if (input.redeemFreeDeliveryPoints && token && input.fulfillment === "livraison") {
+      const stats = await getCustomerStats(token)
+      if (
+        stats.tierId === "platinum" &&
+        !stats.freeDeliveryActive &&
+        stats.points >= PLATINUM_FREE_DELIVERY_POINTS_COST
+      ) {
+        const [u] = await db.select().from(users).where(eq(users.token, token)).limit(1)
+        if (u) {
+          await db
+            .update(users)
+            .set({ loyaltySpent: (u.loyaltySpent ?? 0) + PLATINUM_FREE_DELIVERY_POINTS_COST })
+            .where(eq(users.id, u.id))
+          redeemedFreeDelivery = true
+        }
+      } else {
+        return {
+          ok: false as const,
+          error: "Solde insuffisant ou palier Platine / mois offert non éligible pour la livraison à 150 pts.",
+        }
+      }
+    }
 
     const [thread] = await db
       .insert(orderThreads)
       .values({
         customerName: name,
-        customerToken: input.customerToken?.trim() || null,
+        customerToken: token,
         trackingToken,
         summary: input.summary,
         products: input.products?.trim() || null,
@@ -203,6 +232,14 @@ export async function createOrderThread(input: NewOrderInput) {
       sender: "client",
       body: input.summary,
     })
+
+    if (redeemedFreeDelivery) {
+      await db.insert(threadMessages).values({
+        threadId: thread.id,
+        sender: "vendeur",
+        body: `💎 Livraison offerte — ${PLATINUM_FREE_DELIVERY_POINTS_COST} points Platine débités.`,
+      })
+    }
 
     if (isLocker) {
       // Locker : pas de token TRK tout de suite — envoyé après confirmation du paiement.
