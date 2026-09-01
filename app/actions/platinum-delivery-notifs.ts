@@ -1,8 +1,8 @@
 "use server"
 
 import { db } from "@/lib/db"
-import { users, orderThreads, threadMessages } from "@/lib/db/schema"
-import { and, eq, gt, isNull, lte, sql } from "drizzle-orm"
+import { orderThreads, threadMessages } from "@/lib/db/schema"
+import { sql } from "drizzle-orm"
 import { notifyCustomer } from "@/lib/push"
 import { clientThreadUrl } from "@/lib/deep-links"
 import { ensureFeatureSchema } from "@/lib/feature-schema"
@@ -22,20 +22,19 @@ async function ensureNotifColumns() {
   }
 }
 
-/** Trouve ou crée un fil discussion vendeur ↔ client. */
+/** Trouve ou crée un fil discussion vendeur ↔ client (le plus récent d'abord). */
 async function ensureDiscussionThread(token: string, pseudo: string): Promise<number | null> {
-  const existing = await db
-    .select({ id: orderThreads.id })
-    .from(orderThreads)
-    .where(
-      and(
-        eq(orderThreads.customerToken, token),
-        sql`${orderThreads.status} IN ('discussion', 'pris_en_charge', 'ouvert')`,
-      ),
-    )
-    .limit(1)
-
-  if (existing[0]?.id) return existing[0].id
+  const existing = await db.execute(sql`
+    SELECT id FROM order_threads
+    WHERE customer_token = ${token}
+      AND status IN ('discussion', 'pris_en_charge', 'ouvert')
+    ORDER BY COALESCE(updated_at, created_at) DESC
+    LIMIT 1
+  `)
+  const existingId = Number(
+    ((existing as { rows?: { id: number }[] }).rows ?? [])[0]?.id ?? 0,
+  )
+  if (existingId > 0) return existingId
 
   const [thread] = await db
     .insert(orderThreads)
@@ -253,6 +252,7 @@ export async function processPlatinumFreeDeliveryNotifs(): Promise<{
   }
 
   // Démarrage : fenêtre encore active, pas encore notifié
+  const justStarted = new Set<number>()
   try {
     const starters = await db.execute(sql`
       SELECT id FROM users
@@ -262,13 +262,17 @@ export async function processPlatinumFreeDeliveryNotifs(): Promise<{
       LIMIT 100
     `)
     for (const id of parseIds(starters)) {
-      if (await notifyPlatinumFreeDeliveryStarted(id)) startSent += 1
+      if (await notifyPlatinumFreeDeliveryStarted(id)) {
+        startSent += 1
+        justStarted.add(id)
+      }
     }
   } catch (e) {
     console.error("[platinum-notifs] starters:", e)
   }
 
   // J-7 : entre maintenant et +7.5j, pas encore rappel
+  // Skip si on vient d'envoyer le message de démarrage (évite start + J-7 le même jour)
   try {
     const ending = await db.execute(sql`
       SELECT id FROM users
@@ -276,9 +280,12 @@ export async function processPlatinumFreeDeliveryNotifs(): Promise<{
         AND free_delivery_until > NOW()
         AND free_delivery_until <= NOW() + INTERVAL '7 days 12 hours'
         AND free_delivery_ending_notified_at IS NULL
+        AND free_delivery_start_notified_at IS NOT NULL
+        AND free_delivery_start_notified_at < NOW() - INTERVAL '1 day'
       LIMIT 100
     `)
     for (const id of parseIds(ending)) {
+      if (justStarted.has(id)) continue
       if (await notifyPlatinumFreeDeliveryEnding(id)) endingSent += 1
     }
   } catch (e) {
