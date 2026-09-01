@@ -36,9 +36,10 @@ export function ShopSections() {
         icon: idx === 0 ? "flask" : "sparkles",
         eyebrow: idx === 0 ? "Laboratoire Clandestin" : "Sélection",
         title: cat.name,
+        // Conservé pour compat config ; l'affichage est désormais en orbite 3D
         gridCols: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4",
         imageSize: "aspect-square",
-        anchor: idx === 0 ? "featured" : undefined,
+        anchor: idx === 0 ? "featured" : cat.key,
       }}
     />
   ))

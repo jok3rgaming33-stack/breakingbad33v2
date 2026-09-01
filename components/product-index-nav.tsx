@@ -34,9 +34,13 @@ function buildEntries(
 }
 
 function scrollToProduct(id: number) {
+  // Orbite 3D : demande au carousel de la section de centrer le produit
+  window.dispatchEvent(new CustomEvent("bb33:focus-product", { detail: { id } }))
   const el = document.getElementById(`product-${id}`)
   if (!el) return
-  el.scrollIntoView({ behavior: "smooth", block: "start" })
+  // L'ancre est sr-only dans le carousel — remonte au bloc section
+  const section = el.closest("section") ?? el
+  section.scrollIntoView({ behavior: "smooth", block: "start" })
 }
 
 function CatalogList({
