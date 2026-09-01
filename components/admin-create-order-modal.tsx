@@ -129,11 +129,11 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
 
   const addItem = (prod: Product) => {
     const v = prod.variants?.[0]
-    if (!v) return
+    const price = v?.price ?? 0
     setItems((prev) => {
       const ex = prev.find((i) => i.productId === prod.id)
       if (ex) return prev.map((i) => i.productId === prod.id ? { ...i, qty: i.qty + 1 } : i)
-      return [...prev, { productId: prod.id, title: prod.title, qty: 1, price: v.price }]
+      return [...prev, { productId: prod.id, title: prod.title, qty: 1, price }]
     })
     setSearch("")
   }
@@ -222,18 +222,22 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
     )
   }
 
+  const hasOutOfStock = items.some((i) => {
+    const prod = allProducts.find((p) => p.id === i.productId)
+    return prod != null && prod.stock <= 0
+  })
+
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-4 md:items-center"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-0 sm:p-4 md:items-center"
       onClick={onClose}
     >
       <div
-        className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
-        style={{ maxHeight: "92dvh" }}
+        className="flex h-[min(92dvh,100%)] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-border bg-card shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* En-tête */}
-        <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+        <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-4">
           <ShoppingBag className="h-5 w-5 shrink-0 text-accent" aria-hidden="true" />
           <div className="min-w-0">
             <h3 className="text-sm font-semibold">Créer une commande</h3>
@@ -249,11 +253,14 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
           </button>
         </div>
 
-        <div className="flex flex-1 flex-col gap-5 overflow-y-auto p-5">
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain p-5">
 
           {/* Articles */}
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Articles</p>
+            <p className="text-[11px] text-muted-foreground">
+              Les produits hors stock restent ajoutables (précommande).
+            </p>
 
             {/* Ligne article */}
             {items.length > 0 && (
@@ -334,13 +341,12 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                         key={p.id}
                         type="button"
                         onClick={() => addItem(p)}
-                        disabled={p.stock === 0}
-                        className="flex w-full items-center justify-between border-b border-border/50 px-3 py-2.5 text-left text-sm transition-colors last:border-0 hover:bg-secondary disabled:opacity-40"
+                        className="flex w-full items-center justify-between border-b border-border/50 px-3 py-2.5 text-left text-sm transition-colors last:border-0 hover:bg-secondary"
                       >
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{p.title}</span>
                           {p.stock === 0 && (
-                            <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-400">Rupture</span>
+                            <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">Hors stock</span>
                           )}
                           {already && (
                             <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">Ajouté</span>
@@ -683,8 +689,13 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
 
         </div>
 
-        {/* Pied : récap + bouton */}
-        <div className="border-t border-border px-5 py-4 space-y-3">
+        {/* Pied : récap + bouton — toujours visible, hors zone de scroll */}
+        <div className="shrink-0 space-y-3 border-t border-border px-5 py-4">
+          {hasOutOfStock && (
+            <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-400">
+              Un ou plusieurs articles sont hors stock : la commande sera créée quand même (précommande).
+            </p>
+          )}
           {error && (
             <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">{error}</p>
           )}

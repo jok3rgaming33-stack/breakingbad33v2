@@ -270,7 +270,7 @@ export function VendorInbox({
   // Ajoute un produit (qty = 1 pack commandé, price = prix du conditionnement)
   const addProductToOrder = (prod: Product) => {
     const firstVariant = prod.variants?.[0]
-    if (!firstVariant) return
+    const price = firstVariant?.price ?? 0
     setOrderItems((prev) => {
       const existing = prev.find((i) => i.productId === prod.id)
       if (existing) {
@@ -281,7 +281,7 @@ export function VendorInbox({
         productId: prod.id,
         title: prod.title,
         qty: 1,               // 1 pack commandé, pas la taille du conditionnement
-        price: firstVariant.price,
+        price,
         prevQty: 0,
       }]
     })
@@ -753,27 +753,39 @@ export function VendorInbox({
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-              <div>
-                <h2 className="text-sm font-semibold">{selected.customerName}</h2>
-                <p className="text-xs text-muted-foreground">
-                  {selected.fulfillment === "meetup"
-                    ? "Retrait meet-up"
-                    : selected.fulfillment === "locker"
-                      ? "Locker Mondial Relay"
-                      : "Livraison"}
-                  {" · "}
-                  {selected.fulfillment === "locker"
-                    ? selected.scheduledDate ?? "Délai 3–5 jours ouvrés"
-                    : selected.scheduledDate ?? "Date non renseignée"}
-                  {selected.scheduledSlot ? ` · ${selected.scheduledSlot}` : ""}
-                </p>
+            <div className="shrink-0 border-b border-border px-3 py-3 sm:px-4">
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-sm font-semibold">{selected.customerName}</h2>
+                  <p className="text-xs text-muted-foreground">
+                    {selected.fulfillment === "meetup"
+                      ? "Retrait meet-up"
+                      : selected.fulfillment === "locker"
+                        ? "Locker Mondial Relay"
+                        : "Livraison"}
+                    {" · "}
+                    {selected.fulfillment === "locker"
+                      ? selected.scheduledDate ?? "Délai 3–5 jours ouvrés"
+                      : selected.scheduledDate ?? "Date non renseignée"}
+                    {selected.scheduledSlot ? ` · ${selected.scheduledSlot}` : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  disabled={isPending || isDeleting}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-destructive/40 bg-destructive/10 text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
+                  aria-label="Supprimer la commande"
+                  title="Supprimer la commande"
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
               </div>
-              <div className="ml-auto flex flex-col items-end gap-1.5">
+              <div className="mt-2.5 flex flex-col gap-1.5">
                 <label htmlFor="order-status" className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   État notifié au client
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${statusMeta(selected.status).badge}`}>
                     {statusMeta(selected.status).label}
                   </span>
@@ -782,7 +794,7 @@ export function VendorInbox({
                     value={normalizeStatus(selected.status) === "en_attente" ? "" : normalizeStatus(selected.status)}
                     onChange={(e) => e.target.value && changeStatus(e.target.value)}
                     disabled={isPending}
-                    className="rounded-lg border border-input bg-background px-2.5 py-1.5 text-xs font-medium outline-none focus:border-accent disabled:opacity-50"
+                    className="min-w-0 max-w-full flex-1 basis-[10rem] rounded-lg border border-input bg-background px-2.5 py-1.5 text-xs font-medium outline-none focus:border-accent disabled:opacity-50 sm:flex-none"
                   >
                     <option value="" disabled>
                       Changer le statut…
@@ -807,7 +819,6 @@ export function VendorInbox({
                         <ShoppingCart className="h-3.5 w-3.5" aria-hidden="true" />
                         Créer commande
                       </button>
-                      {/* Bouton rétablissement d'accès — visible uniquement dans les fils de discussion (clé perdue) */}
                       <button
                         type="button"
                         onClick={handleRestoreAccess}
@@ -840,16 +851,6 @@ export function VendorInbox({
                       Articles
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => setDeleteConfirmOpen(true)}
-                    disabled={isPending || isDeleting}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-destructive/40 bg-destructive/10 text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
-                    aria-label="Supprimer la commande"
-                    title="Supprimer la commande"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
                 </div>
               </div>
             </div>
@@ -919,7 +920,7 @@ export function VendorInbox({
               </div>
             )}
 
-            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
               {loadingThread ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
@@ -1293,16 +1294,15 @@ export function VendorInbox({
       {/* Panneau : gestion des articles de la commande */}
       {productsOpen && selected && (
         <div
-          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-4 md:items-center"
+          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-0 sm:p-4 md:items-center"
           onClick={() => setProductsOpen(false)}
         >
           <div
-            className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
-            style={{ maxHeight: "90dvh" }}
+            className="flex h-[min(92dvh,100%)] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-border bg-card shadow-2xl sm:h-auto sm:max-h-[90dvh] sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* En-tête */}
-            <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+            <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-4">
               <ShoppingCart className="h-5 w-5 text-accent" aria-hidden="true" />
               <div>
                 <h3 className="text-sm font-semibold">Gérer les articles — Commande #{selected.id}</h3>
@@ -1317,7 +1317,7 @@ export function VendorInbox({
               </div>
             </div>
 
-            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-5">
               {/* Articles en cours */}
               {orderItems.length > 0 && (
                 <div className="space-y-2">
@@ -1403,13 +1403,12 @@ export function VendorInbox({
                             key={p.id}
                             type="button"
                             onClick={() => addProductToOrder(p)}
-                            disabled={p.stock === 0}
-                            className="flex w-full items-center justify-between border-b border-border/50 px-3 py-2.5 text-left text-sm transition-colors last:border-0 hover:bg-secondary disabled:opacity-40"
+                            className="flex w-full items-center justify-between border-b border-border/50 px-3 py-2.5 text-left text-sm transition-colors last:border-0 hover:bg-secondary"
                           >
                             <div className="flex items-center gap-2">
                               <span className="font-medium">{p.title}</span>
                               {p.stock === 0 && (
-                                <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-400">Rupture</span>
+                                <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">Hors stock</span>
                               )}
                               {alreadyAdded && (
                                 <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">Ajouté</span>
@@ -1602,7 +1601,7 @@ export function VendorInbox({
             </div>
 
             {/* Pied de page */}
-            <div className="flex flex-col gap-2 border-t border-border px-5 py-4">
+            <div className="flex shrink-0 flex-col gap-2 border-t border-border px-5 py-4">
               {productsError && (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                   {productsError}

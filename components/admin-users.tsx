@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useState, useRef, useEffect } from "react"
+import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react"
+import { createPortal } from "react-dom"
 import type { AdminUserRow } from "@/app/actions/account"
 import { deleteUserAccount, setLoyaltyAdjustment, setUserDeliveryPreferences, setUserFlags, setUserNickname } from "@/app/actions/account"
 import {
@@ -157,7 +158,7 @@ function FlagSelector({
   )
 }
 
-/** Menu ⋯ pour actions secondaires (évite la troncature) */
+/** Menu ⋯ en portal : le tableau a overflow-x-auto, un dropdown absolute y est coupé. */
 function RowActionsMenu({
   user,
   onContact,
@@ -172,67 +173,123 @@ function RowActionsMenu({
   restoreBusy: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [coords, setCoords] = useState<{ top: number; left: number; openUp: boolean } | null>(null)
+
+  const placeMenu = () => {
+    const btn = btnRef.current
+    if (!btn) return
+    const rect = btn.getBoundingClientRect()
+    const menuW = 192
+    const menuH = menuRef.current?.offsetHeight ?? 148
+    const spaceBelow = window.innerHeight - rect.bottom
+    const openUp = spaceBelow < menuH + 8
+    const left = Math.max(8, Math.min(rect.right - menuW, window.innerWidth - menuW - 8))
+    const top = openUp ? rect.top - menuH - 4 : rect.bottom + 4
+    setCoords({ top, left, openUp })
+  }
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setCoords(null)
+      return
+    }
+    placeMenu()
+  }, [open])
 
   useEffect(() => {
     if (!open) return
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    const onPointer = (e: MouseEvent | PointerEvent) => {
+      const t = e.target as Node
+      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return
+      setOpen(false)
     }
-    document.addEventListener("mousedown", onClick)
-    return () => document.removeEventListener("mousedown", onClick)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false)
+    }
+    const onReposition = () => placeMenu()
+    document.addEventListener("mousedown", onPointer)
+    document.addEventListener("keydown", onKey)
+    window.addEventListener("resize", onReposition)
+    window.addEventListener("scroll", onReposition, true)
+    return () => {
+      document.removeEventListener("mousedown", onPointer)
+      document.removeEventListener("keydown", onKey)
+      window.removeEventListener("resize", onReposition)
+      window.removeEventListener("scroll", onReposition, true)
+    }
   }, [open])
 
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="menu"
         className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background/60 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-        aria-label="Plus d'actions"
+        aria-label={`Plus d'actions pour ${user.pseudo}`}
         title="Plus d'actions"
       >
         <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
       </button>
-      {open && (
-        <div className="absolute right-0 top-full z-40 mt-1 w-48 rounded-xl border border-border bg-card p-1.5 shadow-lg">
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false)
-              onContact()
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            style={{
+              position: "fixed",
+              top: coords?.top ?? -9999,
+              left: coords?.left ?? -9999,
             }}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium hover:bg-secondary"
+            className={`z-[400] w-48 rounded-xl border border-border bg-card p-1.5 shadow-2xl ${
+              coords ? "visible" : "invisible"
+            }`}
           >
-            <MessageSquare className="h-3.5 w-3.5 text-accent" />
-            Contacter
-          </button>
-          <button
-            type="button"
-            disabled={restoreBusy}
-            onClick={() => {
-              setOpen(false)
-              onRestore()
-            }}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-amber-400 hover:bg-secondary disabled:opacity-50"
-          >
-            {restoreBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
-            Lien récupération
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false)
-              onDelete()
-            }}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-destructive hover:bg-secondary"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Supprimer
-          </button>
-        </div>
-      )}
-    </div>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                onContact()
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium hover:bg-secondary"
+            >
+              <MessageSquare className="h-3.5 w-3.5 text-accent" />
+              Contacter
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={restoreBusy}
+              onClick={() => {
+                setOpen(false)
+                onRestore()
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-amber-400 hover:bg-secondary disabled:opacity-50"
+            >
+              {restoreBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
+              Lien récupération
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                onDelete()
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-destructive hover:bg-secondary"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Supprimer
+            </button>
+          </div>,
+          document.body,
+        )}
+    </>
   )
 }
 
