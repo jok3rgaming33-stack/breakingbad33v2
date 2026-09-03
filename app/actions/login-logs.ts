@@ -7,54 +7,108 @@ import { headers } from "next/headers"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { ensureFeatureSchema } from "@/lib/feature-schema"
 
-// Géolocalise une IP (HTTPS gratuit — ip-api.com free n'accepte que HTTP,
-// souvent bloqué en sortie serverless). Best-effort uniquement.
-async function geolocate(ip: string): Promise<{
+type Geo = {
   city: string | null
   country: string | null
   countryCode: string | null
   lat: number | null
   lng: number | null
-}> {
-  const empty = { city: null, country: null, countryCode: null, lat: null, lng: null }
-  if (
-    !ip ||
-    ip === "127.0.0.1" ||
-    ip === "::1" ||
-    ip.startsWith("10.") ||
-    ip.startsWith("192.168.") ||
-    ip.startsWith("172.")
-  ) {
-    return empty
+}
+
+const EMPTY_GEO: Geo = { city: null, country: null, countryCode: null, lat: null, lng: null }
+
+/** IPv4 mappée (::ffff:1.2.3.4) → 1.2.3.4 */
+function normalizeIp(raw: string): string {
+  const ip = raw.trim().replace(/^\[|\]$/g, "")
+  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)
+  return mapped?.[1] ?? ip
+}
+
+function isPrivateIp(ip: string): boolean {
+  const v4 = normalizeIp(ip)
+  if (!v4 || v4 === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0") return true
+  if (v4.startsWith("10.") || v4.startsWith("192.168.") || v4.startsWith("169.254.")) return true
+  const m = /^172\.(\d+)\./.exec(v4)
+  if (m) {
+    const n = Number(m[1])
+    if (n >= 16 && n <= 31) return true
   }
-  try {
-    // ipwho.is : HTTPS gratuit, pas de clé, champs stables
-    const res = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(2000),
-    })
-    if (!res.ok) return empty
-    const d = await res.json()
-    if (d?.success === false) return empty
-    return {
-      city: d.city ?? null,
-      country: d.country ?? null,
-      countryCode: d.country_code ?? null,
-      lat: typeof d.latitude === "number" ? d.latitude : null,
-      lng: typeof d.longitude === "number" ? d.longitude : null,
-    }
-  } catch {
-    return empty
-  }
+  return false
 }
 
 function extractClientIp(h: Headers): string | null {
-  const forwarded = h.get("x-forwarded-for")
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim()
-    if (first) return first
+  const candidates = [
+    h.get("x-forwarded-for")?.split(",")[0],
+    h.get("x-real-ip"),
+    h.get("x-vercel-forwarded-for")?.split(",")[0],
+    h.get("cf-connecting-ip"),
+  ]
+  for (const raw of candidates) {
+    const ip = raw?.trim()
+    if (ip) return normalizeIp(ip)
   }
-  return h.get("x-real-ip")?.trim() || h.get("cf-connecting-ip")?.trim() || null
+  return null
+}
+
+async function fetchJson(url: string, ms: number): Promise<unknown | null> {
+  try {
+    const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(ms) })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Même stratégie que LaCentral : géoloc AVANT l'insert (pas en fire-and-forget).
+ * Sur Vercel, un `void enrich()` après le return de l'action est tué → ville toujours vide.
+ * ipwho.is (HTTPS) puis repli ip-api.com (celui qui marche déjà sur LaCentral).
+ */
+async function geolocate(ip: string): Promise<Geo> {
+  if (!ip || isPrivateIp(ip)) return EMPTY_GEO
+  const enc = encodeURIComponent(ip)
+
+  const who = (await fetchJson(`https://ipwho.is/${enc}`, 3000)) as {
+    success?: boolean
+    city?: string
+    country?: string
+    country_code?: string
+    latitude?: number
+    longitude?: number
+  } | null
+  if (who && who.success !== false && (who.city || who.country)) {
+    return {
+      city: who.city ?? null,
+      country: who.country ?? null,
+      countryCode: who.country_code ?? null,
+      lat: typeof who.latitude === "number" ? who.latitude : null,
+      lng: typeof who.longitude === "number" ? who.longitude : null,
+    }
+  }
+
+  const api = (await fetchJson(
+    `http://ip-api.com/json/${enc}?fields=status,city,country,countryCode,lat,lon`,
+    3000,
+  )) as {
+    status?: string
+    city?: string
+    country?: string
+    countryCode?: string
+    lat?: number
+    lon?: number
+  } | null
+  if (api && api.status === "success") {
+    return {
+      city: api.city ?? null,
+      country: api.country ?? null,
+      countryCode: api.countryCode ?? null,
+      lat: typeof api.lat === "number" ? api.lat : null,
+      lng: typeof api.lon === "number" ? api.lon : null,
+    }
+  }
+
+  return EMPTY_GEO
 }
 
 /** Anti-spam : une seule ligne par token dans cette fenêtre (reloads de session). */
@@ -62,7 +116,7 @@ const DEDUPE_MS = 2 * 60 * 1000
 
 /**
  * Best-effort : ne doit JAMAIS lever d'exception vers l'appelant.
- * Ne doit pas bloquer la connexion : l'INSERT est prioritaire, la géoloc est secondaire.
+ * Géoloc synchrone (comme LaCentral) : ville/pays écrits dans le même INSERT.
  */
 export async function recordLogin(token: string) {
   try {
@@ -129,56 +183,26 @@ export async function recordLogin(token: string) {
       console.error("[login-logs] dedupe failed:", e)
     }
 
-    // INSERT immédiat — ne dépend PAS de la géoloc
-    let logId: number | undefined
+    const geo = ip ? await geolocate(ip) : EMPTY_GEO
+
     try {
-      const inserted = await db
-        .insert(loginLogs)
-        .values({
-          userToken: t,
-          pseudo,
-          ip,
-          city: null,
-          country: null,
-          countryCode: null,
-          lat: null,
-          lng: null,
-          userAgent,
-        })
-        .returning({ id: loginLogs.id })
-      logId = inserted[0]?.id
-    } catch (e) {
-      console.error("[login-logs] insert failed:", e)
-      return
-    }
-
-    // Géoloc en arrière-plan : ne bloque PAS le retour de la server action
-    // (évite d'ajouter jusqu'à 2s de latence à chaque connexion membre).
-    if (logId && ip) {
-      void enrichLoginGeo(logId, ip)
-    }
-  } catch (e) {
-    // Ne jamais faire échouer la connexion
-    console.error("[login-logs] recordLogin failed:", e)
-  }
-}
-
-async function enrichLoginGeo(logId: number, ip: string) {
-  try {
-    const geo = await geolocate(ip)
-    if (!geo.city && !geo.country) return
-    await db
-      .update(loginLogs)
-      .set({
+      await db.insert(loginLogs).values({
+        userToken: t,
+        pseudo,
+        ip,
         city: geo.city,
         country: geo.country,
         countryCode: geo.countryCode,
         lat: geo.lat,
         lng: geo.lng,
+        userAgent,
       })
-      .where(eq(loginLogs.id, logId))
+    } catch (e) {
+      console.error("[login-logs] insert failed:", e)
+    }
   } catch (e) {
-    console.error("[login-logs] geo enrich failed:", e)
+    // Ne jamais faire échouer la connexion
+    console.error("[login-logs] recordLogin failed:", e)
   }
 }
 
