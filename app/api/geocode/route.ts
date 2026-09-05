@@ -1,4 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { getClientIp } from "@/lib/ip-check"
+import { isRateLimited } from "@/lib/rate-limit"
 
 // Coordonnées GPS de référence (point de départ des livraisons)
 const ORIGIN = { lat: 44.841575, lng: -0.581069 }
@@ -15,6 +17,11 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
 }
 
 export async function GET(req: NextRequest) {
+  const ip = (await getClientIp()) || "unknown"
+  if (isRateLimited(`geocode:${ip}`, 40, 10 * 60 * 1000)) {
+    return NextResponse.json({ error: "Trop de recherches." }, { status: 429 })
+  }
+
   const query = req.nextUrl.searchParams.get("q")?.trim()
 
   if (!query) {

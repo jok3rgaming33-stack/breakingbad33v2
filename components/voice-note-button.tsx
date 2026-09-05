@@ -47,6 +47,8 @@ function resolveFromRecorderMime(recorderMime: string, fallback: { mime: string;
 
 type Props = {
   disabled?: boolean
+  /** Clé client — requise côté /api/messages/upload (le vendeur passe par le cookie). */
+  authToken?: string
   /** Appelé avec le corps message prêt à envoyer, ex. [audio]url[/audio] */
   onSent: (body: string) => Promise<void>
   className?: string
@@ -57,7 +59,7 @@ type Props = {
  * Bouton micro : 1er clic = enregistre, 2e clic = stop + envoi.
  * Pendant l'enregistrement : pastille rouge + durée + annuler.
  */
-export function VoiceNoteButton({ disabled, onSent, className = "", size = "md" }: Props) {
+export function VoiceNoteButton({ disabled, authToken, onSent, className = "", size = "md" }: Props) {
   const [supported, setSupported] = useState(false)
   const [recording, setRecording] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -123,6 +125,7 @@ export function VoiceNoteButton({ disabled, onSent, className = "", size = "md" 
         const file = new File([blob], `vocal-${Date.now()}.${ext}`, { type })
         const fd = new FormData()
         fd.append("file", file)
+        if (authToken) fd.append("token", authToken)
         const res = await fetch("/api/messages/upload", { method: "POST", body: fd })
         if (!res.ok) {
           const d = await res.json().catch(() => ({}))
@@ -137,7 +140,7 @@ export function VoiceNoteButton({ disabled, onSent, className = "", size = "md" 
         setUploading(false)
       }
     },
-    [onSent],
+    [onSent, authToken],
   )
 
   const stopRecording = useCallback(

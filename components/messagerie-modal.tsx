@@ -22,9 +22,11 @@ import {
 
 async function uploadMessageMedia(
   file: File,
+  token: string,
 ): Promise<{ url: string; type: "image" | "video" | "audio" }> {
   const fd = new FormData()
   fd.append("file", file)
+  if (token) fd.append("token", token)
   const res = await fetch("/api/messages/upload", { method: "POST", body: fd })
   if (!res.ok) {
     const d = await res.json().catch(() => ({}))
@@ -265,7 +267,7 @@ export function MessagerieModal({
     setUploadErr(null)
     try {
       for (const file of Array.from(files)) {
-        const { url, type } = await uploadMessageMedia(file)
+        const { url, type } = await uploadMessageMedia(file, token)
         await addMessage(selected.id, "client", mediaTag(type, url), token)
       }
       await refreshThreadAfterSend(selected.id)
@@ -643,6 +645,7 @@ export function MessagerieModal({
                 </button>
                 <VoiceNoteButton
                   disabled={uploading || sending}
+                  authToken={token}
                   onSent={handleVoiceSent}
                 />
                 <textarea

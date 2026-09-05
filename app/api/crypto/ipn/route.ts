@@ -65,10 +65,5 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json({
-    ok: true,
-    service: "crypto-ipn-xmr",
-    project: "breakingbad33v2",
-    note: "IPN Secret optionnel : sans secret, le statut est revérifié via API key.",
-  })
+  return NextResponse.json({ ok: true })
 }

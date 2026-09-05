@@ -1,19 +1,15 @@
 import { NextResponse } from "next/server"
 import { processLockerReminders } from "@/app/actions/locker-reminders"
+import { unauthorizedCron } from "@/lib/cron-auth"
 
 /**
  * Cron Vercel : rappels locker.
- * Sécurisé par CRON_SECRET (header Authorization: Bearer …)
- * ou en dev sans secret.
+ * Auth obligatoire en prod : Authorization: Bearer CRON_SECRET
  */
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET
-  if (secret) {
-    const auth = req.headers.get("authorization") || ""
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-  }
+  const denied = unauthorizedCron(req)
+  if (denied) return denied
+
 
   try {
     const result = await processLockerReminders()

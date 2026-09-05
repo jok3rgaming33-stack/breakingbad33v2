@@ -2,6 +2,8 @@
 
 import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
+import { getClientIp } from "@/lib/ip-check"
+import { isRateLimited } from "@/lib/rate-limit"
 
 const COOKIE_NAME = "vendor_session"
 
@@ -13,11 +15,16 @@ export async function vendorLogin(_prevState: { error?: string } | null, formDat
   if (!expected) {
     return { error: "Le code vendeur n'est pas configuré côté serveur." }
   }
+
+  const ip = (await getClientIp()) || "unknown"
+  if (isRateLimited(`vendor-login:${ip}`, 8, 15 * 60 * 1000)) {
+    return { error: "Trop de tentatives. Réessaie dans quelques minutes." }
+  }
   if (code !== expected) {
     return { error: "Code incorrect." }
   }
 
-  // Cookie adaptatif : HTTPS (aperçu v0 en iframe cross-site) vs HTTP local
+  // Cookie first-party (plus de SameSite=None hérité des previews v0 en iframe).
   const hdrs = await headers()
   const isHttps = (hdrs.get("x-forwarded-proto") ?? "http") === "https"
 
@@ -25,7 +32,7 @@ export async function vendorLogin(_prevState: { error?: string } | null, formDat
   store.set(COOKIE_NAME, expected, {
     httpOnly: true,
     secure: isHttps,
-    sameSite: isHttps ? "none" : "lax",
+    sameSite: "lax",
     path: "/",
     // Pas de maxAge → cookie de session : supprimé à la fermeture du navigateur.
   })

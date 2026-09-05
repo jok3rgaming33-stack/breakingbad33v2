@@ -7,6 +7,8 @@ import { adminAccounts } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { verifyPassword } from "@/lib/admin-password"
+import { getClientIp } from "@/lib/ip-check"
+import { isRateLimited } from "@/lib/rate-limit"
 
 const COOKIE_NAME = "admin_session"
 const ADMIN_PSEUDO = "Heisenberg"
@@ -17,6 +19,14 @@ export async function isAdminToken(token: string) {
   if (process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN) return true
   const rows = await db.select().from(adminAccounts).where(eq(adminAccounts.token, token)).limit(1)
   return rows.length > 0 && rows[0].active
+}
+
+async function loginThrottled(): Promise<string | null> {
+  const ip = (await getClientIp()) || "unknown"
+  if (isRateLimited(`admin-login:${ip}`, 8, 15 * 60 * 1000)) {
+    return "Trop de tentatives. Réessaie dans quelques minutes."
+  }
+  return null
 }
 
 async function setSessionCookie(value: string) {
@@ -37,6 +47,8 @@ async function setSessionCookie(value: string) {
 
 // Connexion par token : super-admin (env) ou compte admin actif.
 export async function adminLogin(token: string): Promise<{ ok: boolean; pseudo?: string; error?: string }> {
+  const throttled = await loginThrottled()
+  if (throttled) return { ok: false, error: throttled }
   if (process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN) {
     await setSessionCookie(token)
     return { ok: true, pseudo: ADMIN_PSEUDO }
@@ -53,6 +65,8 @@ export async function adminLoginWithPassword(
   pseudo: string,
   password: string,
 ): Promise<{ ok: boolean; pseudo?: string; error?: string }> {
+  const throttled = await loginThrottled()
+  if (throttled) return { ok: false, error: throttled }
   const p = pseudo?.trim()
   if (!p || !password) return { ok: false, error: "Identifiants requis." }
   const rows = await db.select().from(adminAccounts).where(eq(adminAccounts.pseudo, p)).limit(1)

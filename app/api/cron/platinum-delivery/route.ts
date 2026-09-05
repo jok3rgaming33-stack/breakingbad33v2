@@ -1,18 +1,15 @@
 import { NextResponse } from "next/server"
 import { processPlatinumFreeDeliveryNotifs } from "@/app/actions/platinum-delivery-notifs"
+import { unauthorizedCron } from "@/lib/cron-auth"
 
 /**
  * Cron : notifications fenêtre Platine (démarrage + rappel J-7).
- * Auth : Authorization: Bearer CRON_SECRET
+ * Auth obligatoire en prod : Authorization: Bearer CRON_SECRET
  */
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET
-  if (secret) {
-    const auth = req.headers.get("authorization") || ""
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-  }
+  const denied = unauthorizedCron(req)
+  if (denied) return denied
+
 
   try {
     const result = await processPlatinumFreeDeliveryNotifs()

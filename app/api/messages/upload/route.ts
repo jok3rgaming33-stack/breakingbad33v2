@@ -1,8 +1,15 @@
 import { put } from "@vercel/blob"
 import { type NextRequest, NextResponse } from "next/server"
+import { eq } from "drizzle-orm"
+import { db } from "@/lib/db"
+import { users } from "@/lib/db/schema"
+import { isAdminAuthenticated } from "@/app/actions/admin-auth"
+import { isVendorAuthenticated } from "@/app/actions/vendor-auth"
+import { getClientIp } from "@/lib/ip-check"
+import { isRateLimited } from "@/lib/rate-limit"
 
-// Route d'upload accessible aux clients (pas de vérification admin).
-// Utilisée dans les commandes et discussions côté client.
+// Upload messagerie : client (token compte) OU session vendeur/admin.
+// Utilisée dans les commandes et discussions.
 
 const AUDIO_EXTS = new Set(["webm", "ogg", "opus", "mp3", "m4a", "aac", "wav", "mpeg"])
 const VIDEO_EXTS = new Set(["mp4", "mov", "m4v", "webm"])
@@ -96,9 +103,27 @@ function resolveExt(
   return "jpg"
 }
 
+async function isAuthorizedUploader(formData: FormData): Promise<boolean> {
+  if (await isVendorAuthenticated()) return true
+  if (await isAdminAuthenticated()) return true
+  const token = String(formData.get("token") ?? "").trim()
+  if (!token || token.length < 20) return false
+  const rows = await db.select({ id: users.id }).from(users).where(eq(users.token, token)).limit(1)
+  return rows.length > 0
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const ip = (await getClientIp()) || "unknown"
+    if (isRateLimited(`msg-upload:${ip}`, 40, 15 * 60 * 1000)) {
+      return NextResponse.json({ error: "Trop d'envois. Réessaie plus tard." }, { status: 429 })
+    }
+
     const formData = await request.formData()
+    if (!(await isAuthorizedUploader(formData))) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 401 })
+    }
+
     const file = formData.get("file") as File | null
 
     if (!file) {
