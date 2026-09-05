@@ -178,6 +178,12 @@ export async function createOrderThread(input: NewOrderInput) {
     const loyaltyDiscount = Math.max(0, Math.trunc(Number(input.loyaltyDiscount) || 0))
     const token = input.customerToken?.trim() || null
 
+    if (input.fulfillment === "livraison") {
+      const { assertDeliverySlotAvailable } = await import("@/app/actions/delivery-slots")
+      const slotOk = await assertDeliverySlotAvailable(input.scheduledDate, input.scheduledSlot)
+      if (!slotOk.ok) return slotOk
+    }
+
     // Platine hors mois offert : débit 150 pts pour livraison gratuite
     let redeemedFreeDelivery = false
     if (input.redeemFreeDeliveryPoints && token && input.fulfillment === "livraison") {

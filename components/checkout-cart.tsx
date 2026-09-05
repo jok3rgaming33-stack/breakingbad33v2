@@ -9,6 +9,15 @@ import { needsVerification, submitVerification } from "@/app/actions/verificatio
 import { getCustomerStats } from "@/app/actions/account"
 import { consumeReservationsForOrder } from "@/app/actions/product-reservations"
 import { getCartConfig, type CartConfig, type DeliverySlot, type MeetupSlot } from "@/app/actions/settings"
+import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
+import {
+  DELIVERY_SLOT_CAPACITY,
+  DELIVERY_SLOT_RESERVED,
+  deliverySlotIsFull,
+  deliverySlotRemaining,
+  deliverySlotRemainingLabel,
+  deliverySlotTakenDisplay,
+} from "@/lib/delivery-slots"
 import { SelfieVerificationModal, type VerificationMetadata } from "@/components/selfie-verification-modal"
 import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus, Package, Lock } from "lucide-react"
 
@@ -177,6 +186,14 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
   })
   const config = cfg ?? FALLBACK_CONFIG
 
+  const occupancyKey =
+    date && fulfillmentMode === "livraison" ? `delivery-slot-occ:${date}` : null
+  const { data: slotOccupancy = {} } = useSWR(
+    occupancyKey,
+    () => getDeliverySlotOccupancy(date),
+    { revalidateOnFocus: true, refreshInterval: 20_000 },
+  )
+
   // La livraison n'est proposée qu'au-dessus du montant minimum.
   const deliveryAllowed = subtotal >= config.minDeliveryAmount
 
@@ -220,10 +237,13 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     if (date && date < minDate) setDate("")
   }, [date, minDate])
 
-  // Si le créneau sélectionné n'est plus disponible (ex. changement de date), on le réinitialise.
+  // Si le créneau sélectionné n'est plus disponible (ex. changement de date / complet), on le réinitialise.
   useEffect(() => {
-    if (slot && !availableDeliverySlots.some((s) => s.label === slot)) setSlot("")
-  }, [availableDeliverySlots, slot])
+    if (!slot) return
+    const stillListed = availableDeliverySlots.some((s) => s.label === slot)
+    const full = deliverySlotIsFull(slotOccupancy[slot] ?? 0)
+    if (!stillListed || full) setSlot("")
+  }, [availableDeliverySlots, slot, slotOccupancy])
   useEffect(() => {
     if (meetupHour && !availableMeetupSlots.some((s) => s.label === meetupHour)) setMeetupHour("")
   }, [availableMeetupSlots, meetupHour])
@@ -355,11 +375,17 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
     }
   }
 
+  const selectedSlotRemaining =
+    !isMeetup && !isLocker && slot ? deliverySlotRemaining(slotOccupancy[slot] ?? 0) : 1
+
   const canValidate =
     items.length > 0 &&
     (isLocker
       ? !!lockerAddress.trim() && lockerConfirmed && payConfirmed
-      : !!date && (isMeetup ? !!meetupHour : !!address.trim() && !!slot && distanceKm != null))
+      : !!date &&
+        (isMeetup
+          ? !!meetupHour
+          : !!address.trim() && !!slot && distanceKm != null && selectedSlotRemaining > 0))
 
   // Point d'entrée : à la 1re commande, on impose d'abord la vérification d'identité.
   const handleValidate = async () => {
@@ -1106,6 +1132,12 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   <Clock className="h-4 w-4 text-accent" aria-hidden="true" />
                   {isMeetup ? "Heure de retrait (14H - 00H)" : "Créneau horaire"}
                 </div>
+                {!isMeetup && (
+                  <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+                    {DELIVERY_SLOT_CAPACITY} places max par créneau de 2h — {DELIVERY_SLOT_RESERVED} déjà
+                    réservée, {DELIVERY_SLOT_CAPACITY - DELIVERY_SLOT_RESERVED} restantes à prendre.
+                  </p>
+                )}
                 {!date ? (
                   <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
                     Choisis d&apos;abord une date pour voir les créneaux disponibles.
@@ -1116,19 +1148,44 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                       Aucun créneau de livraison disponible le <span className="font-semibold text-foreground">{dateToFrDay(date)}</span>. Essaie un autre jour.
                     </p>
                   ) : (
-                    <div className="grid grid-cols-3 gap-2">
-                      {availableDeliverySlots.map((s) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => setSlot(s.label)}
-                          className={`rounded-xl border p-2.5 text-xs font-medium transition-colors ${
-                            slot === s.label ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
-                          }`}
-                        >
-                          {s.label}
-                        </button>
-                      ))}
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {availableDeliverySlots.map((s) => {
+                        const real = slotOccupancy[s.label] ?? 0
+                        const remaining = deliverySlotRemaining(real)
+                        const taken = deliverySlotTakenDisplay(real)
+                        const full = remaining <= 0
+                        const selected = slot === s.label
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            disabled={full}
+                            onClick={() => setSlot(s.label)}
+                            className={`rounded-xl border p-2.5 text-left text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                              selected
+                                ? "border-accent bg-accent/10 text-foreground"
+                                : "border-border text-muted-foreground"
+                            }`}
+                          >
+                            <span className="block leading-tight">{s.label}</span>
+                            <span className="mt-1.5 flex items-center gap-1.5">
+                              <span className="flex gap-0.5" aria-hidden="true">
+                                {Array.from({ length: DELIVERY_SLOT_CAPACITY }, (_, i) => (
+                                  <span
+                                    key={i}
+                                    className={`h-1.5 w-1.5 rounded-full ${
+                                      i < taken ? "bg-accent" : "bg-border"
+                                    }`}
+                                  />
+                                ))}
+                              </span>
+                              <span className={`text-[10px] ${full ? "text-destructive" : "text-muted-foreground"}`}>
+                                {deliverySlotRemainingLabel(real)}
+                              </span>
+                            </span>
+                          </button>
+                        )
+                      })}
                     </div>
                   )
                 ) : availableMeetupSlots.length === 0 ? (

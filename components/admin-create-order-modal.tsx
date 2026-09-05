@@ -5,6 +5,8 @@ import useSWR from "swr"
 import type { Product } from "@/lib/db/schema"
 import { listProducts } from "@/app/actions/products"
 import { getCartConfig } from "@/app/actions/settings"
+import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
+import { deliverySlotIsFull, deliverySlotRemainingLabel } from "@/lib/delivery-slots"
 import { listPromoCodes } from "@/app/actions/promo"
 import { adminCreateOrder, type AdminOrderItem, type AdminOrderPromo } from "@/app/actions/messaging"
 import { computePromoDiscount } from "@/lib/promo-calc"
@@ -121,6 +123,10 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
 
   const meetupSlots = config?.meetupSlots ?? []
   const deliverySlots = config?.deliverySlots ?? []
+  const { data: slotOccupancy = {} } = useSWR(
+    fulfillment === "livraison" && deliveryDate ? `admin-delivery-slot-occ:${deliveryDate}` : null,
+    () => getDeliverySlotOccupancy(deliveryDate),
+  )
 
   // Produits filtrés
   const filtered = allProducts.filter((p) =>
@@ -467,9 +473,15 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                         className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
                       >
                         <option value="">Choisir…</option>
-                        {deliverySlots.map((s) => (
-                          <option key={s.id} value={s.label}>{s.label}</option>
-                        ))}
+                        {deliverySlots.map((s) => {
+                          const real = slotOccupancy[s.label] ?? 0
+                          const full = deliverySlotIsFull(real)
+                          return (
+                            <option key={s.id} value={s.label} disabled={full}>
+                              {s.label} — {deliverySlotRemainingLabel(real)}
+                            </option>
+                          )
+                        })}
                       </select>
                     ) : (
                       <input
