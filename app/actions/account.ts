@@ -43,21 +43,20 @@ export async function createAccount(token: string, pseudo: string, referralCode?
   const p = pseudo?.trim()
   if (!t || t.length < 20 || !p) return { ok: false as const, error: "Paramètres invalides." }
 
-  try {
-    await ensureFeatureSchema()
-  } catch {
-    /* soft — ne bloque pas la création */
-  }
-
   const existing = await db.select().from(users).where(eq(users.token, t)).limit(1)
   if (existing.length > 0) {
-    // Journal soft : ne doit jamais empêcher la reconnexion d'un compte existant
     try {
       await recordLogin(t)
     } catch {
       /* soft */
     }
     return { ok: true as const, pseudo: existing[0].pseudo }
+  }
+
+  try {
+    await ensureFeatureSchema()
+  } catch {
+    /* soft — ne bloque pas la création */
   }
 
   // Vérifie que le pseudo n'est pas déjà réservé (compte actif OU supprimé).
@@ -448,15 +447,10 @@ export async function getAccount(token: string) {
   const { normalizeSecretKey } = await import("@/lib/normalize-token")
   const t = normalizeSecretKey(token)
   if (!t) return null
-  try {
-    await ensureFeatureSchema()
-  } catch {
-    /* soft */
-  }
   const rows = await db.select().from(users).where(eq(users.token, t)).limit(1)
   const account = rows[0] ?? null
   if (account) {
-    // Soft total : jamais d'échec de login à cause des logs / géoloc / schéma
+    // Tout de suite : after() ip-api. Le schema ensure ne doit PAS manger le budget Vercel.
     try {
       await recordLogin(t)
     } catch (e) {

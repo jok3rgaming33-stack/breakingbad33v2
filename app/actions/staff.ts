@@ -404,13 +404,6 @@ export async function resolveClientLogin(token: string): Promise<
     return { ok: false, code: "short", error: "Clé trop courte. Colle la clé secrète complète." }
   }
 
-  try {
-    const { ensureFeatureSchema } = await import("@/lib/feature-schema")
-    await ensureFeatureSchema()
-  } catch {
-    /* non bloquant */
-  }
-
   // 1) Compte users classique
   let userRows = await db.select().from(users).where(eq(users.token, t)).limit(1)
   let user = userRows[0]
@@ -463,6 +456,14 @@ export async function resolveClientLogin(token: string): Promise<
     }
   }
 
+  // Journal dès que le compte est valide — avant le reste (schema / fils).
+  try {
+    const { recordLogin } = await import("@/app/actions/login-logs")
+    await recordLogin(t)
+  } catch {
+    /* ignore */
+  }
+
   // Whitelist : imposer le pseudo staff et réparer les fils
   if (staff?.pseudo) {
     if (user.pseudo !== staff.pseudo || flags.length > 0) {
@@ -473,13 +474,6 @@ export async function resolveClientLogin(token: string): Promise<
       user = { ...user, pseudo: staff.pseudo, flags: [] }
     }
     await reattachAccountThreads(t, staff.pseudo)
-    // Journaliser AUSSI les comptes whitelist (avant return — était manquant)
-    try {
-      const { recordLogin } = await import("@/app/actions/login-logs")
-      await recordLogin(t)
-    } catch {
-      /* ignore */
-    }
     return { ok: true, pseudo: staff.pseudo, token: t }
   }
 
@@ -498,14 +492,6 @@ export async function resolveClientLogin(token: string): Promise<
           ),
         ),
       )
-  }
-
-  // Journalise la connexion (await obligatoire sur serverless)
-  try {
-    const { recordLogin } = await import("@/app/actions/login-logs")
-    await recordLogin(t)
-  } catch {
-    /* ignore */
   }
 
   return { ok: true, pseudo: user.pseudo, token: t }
