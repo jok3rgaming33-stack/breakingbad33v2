@@ -159,20 +159,40 @@ export function MyOrdersModal({
 
   useEffect(() => {
     if (!isOpen || !token) return
-    const interval = setInterval(async () => {
+    let cancelled = false
+    const pullList = async () => {
+      if (cancelled) return
       await loadLists()
-      if (selectedRef.current != null) {
+    }
+    const pullThread = async () => {
+      if (selectedRef.current == null) return
+      try {
         const data = await getThreadForToken(selectedRef.current, token)
-        if (data) {
-          setMessages(data.messages as Message[])
-          if (data.thread) {
-            setSelected((s) => (s && s.id === data.thread.id ? { ...s, ...data.thread } : s))
-          }
-          await markThreadReadForToken(selectedRef.current, token)
+        if (!data || cancelled) return
+        setMessages(data.messages as Message[])
+        if (data.thread) {
+          setSelected((s) => (s && s.id === data.thread.id ? { ...s, ...data.thread } : s))
         }
+        await markThreadReadForToken(selectedRef.current, token)
+      } catch {
+        /* silencieux */
       }
-    }, 8000)
-    return () => clearInterval(interval)
+    }
+    const listIv = setInterval(() => void pullList(), 6000)
+    const threadIv = setInterval(() => void pullThread(), 3000)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void pullList()
+        void pullThread()
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      cancelled = true
+      clearInterval(listIv)
+      clearInterval(threadIv)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, token])
 
@@ -217,6 +237,9 @@ export function MyOrdersModal({
     setLoadingThread(true)
     setMessages([])
     setDepositSent(false)
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" })
+    }
     try {
       const [data] = await Promise.all([
         getThreadForToken(thread.id, token),

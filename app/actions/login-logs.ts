@@ -38,16 +38,59 @@ function isPrivateIp(ip: string): boolean {
 
 function extractClientIp(h: Headers): string | null {
   const candidates = [
-    h.get("x-forwarded-for")?.split(",")[0],
     h.get("x-real-ip"),
     h.get("x-vercel-forwarded-for")?.split(",")[0],
     h.get("cf-connecting-ip"),
+    h.get("x-forwarded-for")?.split(",")[0],
   ]
   for (const raw of candidates) {
     const ip = raw?.trim()
     if (ip) return normalizeIp(ip)
   }
   return null
+}
+
+const ISO_COUNTRY: Record<string, string> = {
+  FR: "France",
+  BE: "Belgique",
+  CH: "Suisse",
+  LU: "Luxembourg",
+  DE: "Allemagne",
+  ES: "Espagne",
+  IT: "Italie",
+  GB: "Royaume-Uni",
+  NL: "Pays-Bas",
+  PT: "Portugal",
+  US: "États-Unis",
+  CA: "Canada",
+  MA: "Maroc",
+  DZ: "Algérie",
+  TN: "Tunisie",
+}
+
+/** Geo fournie par Vercel (IP réelle du visiteur, pas celle de la fonction). */
+function geoFromVercelHeaders(h: Headers): Geo | null {
+  const cityRaw = h.get("x-vercel-ip-city")
+  const code = h.get("x-vercel-ip-country")
+  const lat = h.get("x-vercel-ip-latitude")
+  const lng = h.get("x-vercel-ip-longitude")
+  if (!cityRaw && !code) return null
+  let city: string | null = null
+  if (cityRaw) {
+    try {
+      city = decodeURIComponent(cityRaw.replace(/\+/g, " "))
+    } catch {
+      city = cityRaw
+    }
+  }
+  const countryCode = code?.toUpperCase() ?? null
+  return {
+    city,
+    country: (countryCode && ISO_COUNTRY[countryCode]) || countryCode,
+    countryCode,
+    lat: lat != null && lat !== "" ? Number(lat) : null,
+    lng: lng != null && lng !== "" ? Number(lng) : null,
+  }
 }
 
 async function fetchJson(url: string, ms: number): Promise<unknown | null> {
@@ -84,6 +127,24 @@ async function geolocate(ip: string): Promise<Geo> {
       countryCode: who.country_code ?? null,
       lat: typeof who.latitude === "number" ? who.latitude : null,
       lng: typeof who.longitude === "number" ? who.longitude : null,
+    }
+  }
+
+  const apiCo = (await fetchJson(`https://ipapi.co/${enc}/json/`, 3000)) as {
+    error?: boolean
+    city?: string
+    country_name?: string
+    country?: string
+    latitude?: number
+    longitude?: number
+  } | null
+  if (apiCo && !apiCo.error && (apiCo.city || apiCo.country_name)) {
+    return {
+      city: apiCo.city ?? null,
+      country: apiCo.country_name ?? null,
+      countryCode: apiCo.country ?? null,
+      lat: typeof apiCo.latitude === "number" ? apiCo.latitude : null,
+      lng: typeof apiCo.longitude === "number" ? apiCo.longitude : null,
     }
   }
 
@@ -133,10 +194,12 @@ export async function recordLogin(token: string) {
     // Lire les headers AVANT tout await long (contexte requête encore valide).
     let ip: string | null = null
     let userAgent: string | null = null
+    let headerGeo: Geo | null = null
     try {
       const h = await headers()
       ip = extractClientIp(h)
       userAgent = h.get("user-agent") ?? null
+      headerGeo = geoFromVercelHeaders(h)
     } catch (e) {
       console.error("[login-logs] headers() indisponible:", e)
     }
@@ -183,7 +246,12 @@ export async function recordLogin(token: string) {
       console.error("[login-logs] dedupe failed:", e)
     }
 
-    const geo = ip ? await geolocate(ip) : EMPTY_GEO
+    const geo =
+      headerGeo && (headerGeo.city || headerGeo.country)
+        ? headerGeo
+        : ip
+          ? await geolocate(ip)
+          : EMPTY_GEO
 
     try {
       await db.insert(loginLogs).values({

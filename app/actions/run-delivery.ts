@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import { orderThreads } from "@/lib/db/schema"
 import { eq, inArray, sql } from "drizzle-orm"
 import { normalizeStatus } from "@/lib/order-status"
-import { updateThreadStatus } from "@/app/actions/messaging"
+import { notifyArrivingInMinutes, updateThreadStatus } from "@/app/actions/messaging"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 
 export type RunDeliveryView = {
@@ -42,7 +42,7 @@ export async function getRunDelivery(token: string): Promise<RunDeliveryView | n
 
 export async function advanceRunDelivery(
   token: string,
-  action: "arrivee" | "livree",
+  action: "arrivee" | "livree" | "eta5",
 ): Promise<{ ok: boolean; error?: string; view?: RunDeliveryView | null }> {
   const t = token?.trim()
   if (!t || !t.startsWith("RUN_")) return { ok: false, error: "Lien invalide." }
@@ -52,6 +52,15 @@ export async function advanceRunDelivery(
   const current = normalizeStatus(row.status)
   if (current === "livree" || current === "annulee") {
     return { ok: false, error: "Cette commande est déjà clôturée." }
+  }
+  if (action === "eta5") {
+    if (current !== "livraison" && current !== "arrivee") {
+      return { ok: false, error: "La commande n'est pas en tournée." }
+    }
+    const ping = await notifyArrivingInMinutes(row.id, 5)
+    if (!ping.ok) return { ok: false, error: ping.error }
+    const view = await getRunDelivery(t)
+    return { ok: true, view }
   }
   if (action === "arrivee" && current !== "livraison") {
     return { ok: false, error: "Passe d'abord en livraison." }

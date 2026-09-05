@@ -166,10 +166,10 @@ export function AdminLoginLogs({ initialLogs }: { initialLogs: LoginLogRow[] }) 
                       {log.ip ?? <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="px-4 py-3">
-                      {log.country ? (
+                      {log.city || log.country || log.countryCode ? (
                         <div className="flex items-center gap-1.5">
                           <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
-                          <span>{location}</span>
+                          <span>{location || log.countryCode}</span>
                           {log.countryCode && (
                             <span className="rounded bg-secondary px-1.5 py-0.5 text-xs font-mono uppercase">
                               {log.countryCode}

@@ -112,38 +112,55 @@ export function MessagerieModal({
       .finally(() => setLoadingList(false))
   }, [isOpen, token])
 
-  // Rafraîchit la liste et le fil ouvert pendant que la modale est ouverte.
+  // Rafraîchit liste et fil ouvert séparément (le client voyait 8s de retard).
   useEffect(() => {
     if (!isOpen || !token) return
-    const interval = setInterval(async () => {
+    let cancelled = false
+    const pullList = async () => {
       try {
         const list = await getThreadsForToken(token)
-        setThreads(sortByActivityDesc(list as Thread[]))
-        if (selectedRef.current != null) {
-          const data = await getThreadForToken(selectedRef.current, token)
-          if (data) {
-            setMessages(data.messages as Message[])
-            // Un fil ouvert signifie que les réponses reçues sont visibles.
-            await markThreadReadForToken(selectedRef.current, token)
-            // Sync heure d'activité du fil ouvert
-            if (data.thread) {
-              setThreads((prev) =>
-                sortByActivityDesc(
-                  prev.map((t) =>
-                    t.id === data.thread.id
-                      ? { ...t, updatedAt: data.thread.updatedAt, createdAt: data.thread.createdAt }
-                      : t,
-                  ),
-                ),
-              )
-            }
-          }
+        if (!cancelled) setThreads(sortByActivityDesc(list as Thread[]))
+      } catch {
+        /* silencieux */
+      }
+    }
+    const pullThread = async () => {
+      if (selectedRef.current == null) return
+      try {
+        const data = await getThreadForToken(selectedRef.current, token)
+        if (!data || cancelled) return
+        setMessages(data.messages as Message[])
+        await markThreadReadForToken(selectedRef.current, token)
+        if (data.thread) {
+          setThreads((prev) =>
+            sortByActivityDesc(
+              prev.map((t) =>
+                t.id === data.thread.id
+                  ? { ...t, updatedAt: data.thread.updatedAt, createdAt: data.thread.createdAt }
+                  : t,
+              ),
+            ),
+          )
         }
       } catch {
-        // silencieux
+        /* silencieux */
       }
-    }, 8000)
-    return () => clearInterval(interval)
+    }
+    const listIv = setInterval(() => void pullList(), 6000)
+    const threadIv = setInterval(() => void pullThread(), 3000)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void pullList()
+        void pullThread()
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      cancelled = true
+      clearInterval(listIv)
+      clearInterval(threadIv)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
   }, [isOpen, token])
 
   useEffect(() => {
@@ -177,6 +194,9 @@ export function MessagerieModal({
     setView("thread")
     setLoadingThread(true)
     setMessages([])
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" })
+    }
     try {
       const [data] = await Promise.all([
         getThreadForToken(thread.id, token),

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useTransition } from "react"
-import { Check, Home, Loader2, Navigation, Package } from "lucide-react"
+import { Check, Clock, Home, Loader2, Navigation, Package } from "lucide-react"
 import Link from "next/link"
 import {
   advanceRunDelivery,
@@ -37,7 +37,7 @@ export function RunDeliveryClient({ token }: { token: string }) {
     }
   }, [token])
 
-  const act = (action: "arrivee" | "livree") => {
+  const act = (action: "arrivee" | "livree" | "eta5") => {
     startTransition(async () => {
       const res = await advanceRunDelivery(token, action)
       if (!res.ok) {
@@ -124,6 +124,15 @@ export function RunDeliveryClient({ token }: { token: string }) {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={() => act("eta5")}
+              disabled={pending || !canDeliver}
+              className="flex min-h-16 items-center justify-center gap-2 rounded-2xl bg-amber-400 px-4 text-base font-bold text-black transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {pending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Clock className="h-5 w-5" />}
+              Je suis là dans 5 minutes
+            </button>
             <button
               type="button"
               onClick={() => act("arrivee")}

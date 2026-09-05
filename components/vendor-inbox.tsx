@@ -3,12 +3,12 @@
 import { useState, useTransition, useEffect, useRef, useCallback, useMemo } from "react"
 import useSWR from "swr"
 import type { OrderThread, ThreadMessage, Product } from "@/lib/db/schema"
-import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, sendPaysafecardInstructions, confirmDeposit, updateOrderProducts, deleteMessage } from "@/app/actions/messaging"
+import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, sendPaysafecardInstructions, confirmDeposit, updateOrderProducts, deleteMessage, notifyArrivingInMinutes } from "@/app/actions/messaging"
 import type { OrderProductItem, AdminOrderPromo } from "@/app/actions/messaging"
 import { listProducts } from "@/app/actions/products"
 import { listPromoCodes } from "@/app/actions/promo"
 import { computePromoDiscount } from "@/lib/promo-calc"
-import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock, Ticket, ExternalLink, Copy, Navigation } from "lucide-react"
+import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock, Ticket, ExternalLink, Copy, Navigation, ArrowLeft } from "lucide-react"
 import { VoiceNoteButton } from "@/components/voice-note-button"
 import { grantRestoreAccess, getRestoreStatus } from "@/app/actions/restore-access"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
@@ -345,26 +345,31 @@ export function VendorInbox({
   const openThread = async (id: number) => {
     setSelectedId(id)
     setLoadingThread(true)
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" })
+    }
     const data = await getThread(id)
     setMessages(data?.messages ?? [])
     setLoadingThread(false)
   }
 
-  // Rafraîchissement automatique : nouvelles commandes + messages clients en direct
-  const refresh = useCallback(async (isFirst = false) => {
+  // Rafraîchissement automatique : liste et fil ouvert séparés (moins de latence)
+  const refresh = useCallback(async (isFirst = false, scope: "all" | "list" | "thread" = "all") => {
     try {
       if (isFirst) setListLoading(true)
-      const latest =
-        mode === "messages"
-          ? await getDiscussions()
-          : mode === "locker"
-            ? await getLockerOrders()
-            : mode === "past"
-              ? await getPastOrders()
-              : await getActiveOrders()
-      setThreads(sortByActivityDesc(latest))
+      if (scope !== "thread") {
+        const latest =
+          mode === "messages"
+            ? await getDiscussions()
+            : mode === "locker"
+              ? await getLockerOrders()
+              : mode === "past"
+                ? await getPastOrders()
+                : await getActiveOrders()
+        setThreads(sortByActivityDesc(latest))
+      }
       const openId = selectedIdRef.current
-      if (openId != null) {
+      if (openId != null && scope !== "list") {
         const data = await getThread(openId)
         setMessages(data?.messages ?? [])
       }
@@ -376,14 +381,16 @@ export function VendorInbox({
   }, [mode])
 
   useEffect(() => {
-    void refresh(true) // chargement immédiat a l'affichage de l'onglet
-    const interval = setInterval(() => void refresh(false), 8000)
+    void refresh(true, "all")
+    const listIv = setInterval(() => void refresh(false, "list"), 6000)
+    const threadIv = setInterval(() => void refresh(false, "thread"), 3000)
     const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh(false)
+      if (document.visibilityState === "visible") void refresh(false, "all")
     }
     document.addEventListener("visibilitychange", onVisible)
     return () => {
-      clearInterval(interval)
+      clearInterval(listIv)
+      clearInterval(threadIv)
       document.removeEventListener("visibilitychange", onVisible)
     }
   }, [refresh])
@@ -652,8 +659,8 @@ export function VendorInbox({
 
   return (
     <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-[320px_1fr]">
-      {/* Liste des fils */}
-      <aside className="flex max-h-[calc(100vh-9rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card">
+      {/* Liste des fils — masquée sur mobile quand un fil est ouvert */}
+      <aside className={`${selected ? "hidden md:flex" : "flex"} max-h-[calc(100vh-9rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card`}>
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           {mode === "messages"
             ? <MessageSquare className="h-4 w-4 text-accent" aria-hidden="true" />
@@ -745,8 +752,8 @@ export function VendorInbox({
         </div>
       </aside>
 
-      {/* Détail du fil */}
-      <section className="flex max-h-[calc(100vh-9rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card">
+      {/* Détail du fil — plein écran en haut sur mobile */}
+      <section className={`${!selected ? "hidden md:flex" : "flex"} max-h-[calc(100dvh-6rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card md:max-h-[calc(100vh-9rem)]`}>
         {!selected ? (
           <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
             Sélectionne une commande pour voir le détail et répondre au client.
@@ -755,6 +762,14 @@ export function VendorInbox({
           <>
             <div className="shrink-0 border-b border-border px-3 py-3 sm:px-4">
               <div className="flex items-start gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(null)}
+                  className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-secondary md:hidden"
+                  aria-label="Retour à la liste"
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                </button>
                 <div className="min-w-0 flex-1">
                   <h2 className="truncate text-sm font-semibold">{selected.customerName}</h2>
                   <p className="text-xs text-muted-foreground">
@@ -849,6 +864,28 @@ export function VendorInbox({
                     >
                       <ShoppingCart className="h-3.5 w-3.5" aria-hidden="true" />
                       Articles
+                    </button>
+                  )}
+                  {mode !== "messages" &&
+                    (normalizeStatus(selected.status) === "livraison" ||
+                      normalizeStatus(selected.status) === "arrivee") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        startTransition(async () => {
+                          const res = await notifyArrivingInMinutes(selected.id, 5)
+                          if (res.ok) {
+                            const data = await getThread(selected.id)
+                            setMessages(data?.messages ?? [])
+                          }
+                        })
+                      }}
+                      disabled={isPending}
+                      className="flex items-center gap-1.5 rounded-lg border border-amber-400/40 bg-amber-400/15 px-2.5 py-1.5 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-400/25 disabled:opacity-50"
+                      title="Prévenir le client : arrivée dans 5 minutes"
+                    >
+                      <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                      Là dans 5 min
                     </button>
                   )}
                 </div>

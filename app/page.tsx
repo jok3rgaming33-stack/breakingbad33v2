@@ -54,7 +54,7 @@ export default function Home() {
     }
   }, [])
 
-  // Poll toutes les 12s + au retour focus (client connecté non-admin)
+  // Poll toutes les 6s + au retour focus (client connecté non-admin)
   useEffect(() => {
     const token = userData?.token
     if (!token || isAdmin) {
@@ -62,7 +62,7 @@ export default function Home() {
       return
     }
     refreshUnread(token)
-    const interval = setInterval(() => refreshUnread(token), 12000)
+    const interval = setInterval(() => refreshUnread(token), 6000)
     const onVis = () => {
       if (document.visibilityState === "visible") refreshUnread(token)
     }

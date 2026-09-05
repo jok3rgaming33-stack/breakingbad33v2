@@ -43,7 +43,7 @@ export function RunHubClient() {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Ajoute cette page à l&apos;accueil du téléphone. Ensuite : un tap, les boutons Arrivé / Livré, sans ouvrir le panel.
+        Ajoute cette page à l&apos;accueil du téléphone. Ensuite : un tap, les boutons 5 min / Arrivé / Livré, sans ouvrir le panel.
       </p>
 
       <AddToHomeScreen startPath="/run" />

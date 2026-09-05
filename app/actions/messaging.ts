@@ -444,7 +444,6 @@ export async function createGeneralInquiryThread(input: {
 // - exclut les discussions directes (status discussion/pris_en_charge/ouvert/ferme)
 // - exclut les fils sans article (total = 0 ou null) → ils vont dans Messagerie
 export async function getThreads() {
-  await ensureOrderSchema()
   const threads = await db
     .select()
     .from(orderThreads)
@@ -464,7 +463,6 @@ const DISCUSSION_STATUSES = ["discussion", "pris_en_charge", "ouvert", "ferme"] 
 
 // Commandes actives hors locker : tout sauf "livree", "annulee", discussions et fulfillment locker
 export async function getActiveOrders() {
-  await ensureOrderSchema()
   const threads = await db
     .select()
     .from(orderThreads)
@@ -480,7 +478,6 @@ export async function getActiveOrders() {
 
 // Commandes Locker Mondial Relay actives (non livrees, non annulees, hors fils TRK et discussions)
 export async function getLockerOrders() {
-  await ensureOrderSchema()
   const threads = await db
     .select()
     .from(orderThreads)
@@ -496,7 +493,6 @@ export async function getLockerOrders() {
 
 // Commandes clôturées (livree ou annulee), toutes livraisons confondues, sans discussions
 export async function getPastOrders() {
-  await ensureOrderSchema()
   return db
     .select()
     .from(orderThreads)
@@ -514,7 +510,6 @@ export async function getPastOrders() {
 
 // Discussions directes — Or/Platine en tête (file prioritaire), puis activité récente
 export async function getDiscussions() {
-  await ensureOrderSchema()
   const threads = await db
     .select()
     .from(orderThreads)
@@ -564,7 +559,6 @@ export async function getDiscussions() {
 
 // Détail d'un fil avec tous ses messages (ordre chronologique)
 export async function getThread(id: number) {
-  await ensureOrderSchema()
   const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, id))
   if (!thread) return null
   let messages: (typeof threadMessages.$inferSelect)[]
@@ -601,7 +595,6 @@ export async function getThread(id: number) {
 export async function getThreadForToken(id: number, customerToken: string) {
   const token = customerToken?.trim()
   if (!id || !token) return null
-  await ensureOrderSchema()
   const [thread] = await db
     .select()
     .from(orderThreads)
@@ -937,11 +930,56 @@ export async function updateThreadStatus(
   return { ok: true, runToken: runToken ?? null, etaMin }
 }
 
+/** Ping client : « je suis là dans X minutes » (message + push, sans changer le statut). */
+export async function notifyArrivingInMinutes(threadId: number, minutes = 5) {
+  if (!threadId || minutes < 1) return { ok: false as const, error: "Paramètres invalides." }
+  const [current] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId))
+  if (!current) return { ok: false as const, error: "Commande introuvable." }
+  const key = normalizeStatus(current.status)
+  if (key !== "livraison" && key !== "arrivee") {
+    return { ok: false as const, error: "La commande n'est pas en livraison." }
+  }
+
+  const body = `Je suis là dans ${minutes} minute${minutes > 1 ? "s" : ""}. Reste joignable.`
+  const prevTracking =
+    current.tracking && typeof current.tracking === "object" ? current.tracking : {}
+  const arriveBy = new Date(Date.now() + minutes * 60 * 1000).toISOString()
+
+  await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
+  await db
+    .update(orderThreads)
+    .set({
+      updatedAt: sql`now()`,
+      tracking: {
+        ...prevTracking,
+        etaMin: minutes,
+        etaAt: new Date().toISOString(),
+        etaArriveBy: arriveBy,
+      },
+    })
+    .where(eq(orderThreads.id, threadId))
+
+  await notifyCustomer(current.customerToken, {
+    title: `Commande #${threadId} — dans ${minutes} min`,
+    body,
+    url: clientThreadUrl(
+      current.fulfillment === "locker" ? "locker" : "orders",
+      threadId,
+    ),
+    tag: `eta5-${threadId}`,
+    threadId,
+    open: current.fulfillment === "locker" ? "locker" : "orders",
+  }).catch(() => {})
+
+  revalidatePath("/admin")
+  revalidatePath("/messagerie")
+  return { ok: true as const }
+}
+
 // Vue client : ses fils filtrés par pseudo (compat héritée)
 export async function getThreadsForCustomer(customerName: string) {
   const name = customerName?.trim()
   if (!name) return []
-  await ensureOrderSchema()
   return db
     .select()
     .from(orderThreads)
@@ -953,7 +991,6 @@ export async function getThreadsForCustomer(customerName: string) {
 export async function getLockerOrdersForToken(customerToken: string) {
   const token = customerToken?.trim()
   if (!token) return []
-  await ensureOrderSchema()
   return db
     .select()
     .from(orderThreads)
@@ -973,7 +1010,6 @@ export async function getLockerOrdersForToken(customerToken: string) {
 // - fils status "notification" : broadcast admin → onglet Discussions (pas Commandes côté UI)
 // Les vraies commandes locker (non-trk) sont dans getLockerOrdersForToken.
 export async function getThreadsForToken(customerToken: string) {
-  await ensureOrderSchema()
   const token = customerToken?.trim()
   if (!token) return []
   return db
