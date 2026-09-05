@@ -159,10 +159,10 @@ export function ProductSection({ config }: { config: SectionConfig }) {
     ? {
         id: config.anchor,
         className: isFirst
-          ? "w-full overflow-x-clip scroll-mt-20 pb-8 pt-2 sm:pb-10 sm:pt-3"
-          : "w-full overflow-x-clip scroll-mt-20 pb-8 pt-4 sm:pb-10 sm:pt-6",
+          ? "w-full overflow-hidden scroll-mt-20 pb-8 pt-2 sm:pb-10 sm:pt-3"
+          : "w-full overflow-hidden scroll-mt-20 pb-8 pt-4 sm:pb-10 sm:pt-6",
       }
-    : { className: "w-full overflow-x-clip py-6 sm:py-8" }
+    : { className: "w-full overflow-hidden py-6 sm:py-8" }
 
   const ordered = products ? sortProductsFeaturedFirst(products) : null
 

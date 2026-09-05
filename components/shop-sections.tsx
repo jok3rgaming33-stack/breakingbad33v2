@@ -41,7 +41,7 @@ export function ShopSections() {
   ))
 
   return (
-    <div className="relative w-full pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))]">
+    <div className="relative w-full overflow-x-hidden pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))]">
       <div className="mx-auto grid w-full max-w-[1400px] grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,980px)_minmax(0,1fr)]">
         <div className="hidden xl:block" aria-hidden="true" />
 

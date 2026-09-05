@@ -396,14 +396,25 @@ export function ProductOrbitCarousel({
         <span key={`anchor-${p.id}`} id={`product-${p.id}`} className="sr-only" />
       ))}
 
+      {/* Clip HORSde la perspective : overflow+preserve-3d sur le même nœud
+          laisse les cartes 3D peindre par-dessus toute la page (site cassé). */}
       <div
-        ref={stageRef}
-        className="relative mx-auto w-full overflow-hidden touch-pan-y"
+        className="relative mx-auto w-full overflow-hidden"
         style={{
           height: stageH,
-          perspective: "1100px",
-          perspectiveOrigin: "50% 42%",
-          WebkitPerspective: "1100px",
+          clipPath: "inset(0)",
+          WebkitClipPath: "inset(0)",
+          isolation: "isolate",
+          contain: "paint",
+        }}
+      >
+      <div
+        ref={stageRef}
+        className="absolute inset-0 touch-pan-y"
+        style={{
+          perspective: "900px",
+          perspectiveOrigin: "50% 45%",
+          WebkitPerspective: "900px",
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -428,9 +439,8 @@ export function ProductOrbitCarousel({
           style={{
             transformStyle: "preserve-3d",
             WebkitTransformStyle: "preserve-3d",
-            transform: `translateZ(-${Math.round(radius * 0.12)}px) rotateX(${n > 5 ? 8 : 6}deg) rotateY(${rotation}deg)`,
+            transform: `translateZ(-${Math.round(radius * 0.08)}px) rotateX(3deg) rotateY(${rotation}deg)`,
             transition: dragging ? "none" : "transform 420ms cubic-bezier(0.22, 1, 0.36, 1)",
-            willChange: "transform",
           }}
         >
           {products.map((product, i) => {
@@ -467,8 +477,8 @@ export function ProductOrbitCarousel({
                   transform: `rotateY(${angle}deg) translateZ(${radius}px)`,
                   transformStyle: "preserve-3d",
                   WebkitTransformStyle: "preserve-3d",
-                  zIndex: isFront ? 30 : Math.max(1, 10 - Math.abs(((i - active + n) % n) - (n > 2 ? Math.floor(n / 2) : 0))),
-                  // Évite le flash verso sur certains mobiles
+                  zIndex: isFront ? 5 : 1,
+                  pointerEvents: isFront ? "auto" : "none",
                   backfaceVisibility: "hidden",
                   WebkitBackfaceVisibility: "hidden",
                 }}
@@ -532,6 +542,7 @@ export function ProductOrbitCarousel({
             )
           })}
         </div>
+      </div>
       </div>
 
       {/* Contrôles */}
