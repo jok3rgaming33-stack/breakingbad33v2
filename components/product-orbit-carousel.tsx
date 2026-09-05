@@ -242,15 +242,8 @@ export function ProductOrbitCarousel({
 
   const onPointerDown = (e: ReactPointerEvent) => {
     if (n < 2) return
-    // Ne capture pas les clics boutons internes via bubbling stop — stage only
-    if ((e.target as HTMLElement).closest("button[data-orbit-card]")) {
-      // allow card press; still enable drag from card surface
-    }
-    try {
-      stageRef.current?.setPointerCapture(e.pointerId)
-    } catch {
-      /* ignore */
-    }
+    // Pas de setPointerCapture ici : sur desktop ça vole le click de la carte
+    // (Safari mobile le laissait passer → « ça marche au tel, pas sur le web »).
     suppressClickRef.current = false
     dragRef.current = {
       x: e.clientX,
@@ -259,7 +252,6 @@ export function ProductOrbitCarousel({
       axis: null,
       moved: false,
     }
-    setDragging(true)
   }
 
   const onPointerMove = (e: ReactPointerEvent) => {
@@ -272,17 +264,17 @@ export function ProductOrbitCarousel({
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
       d.axis = Math.abs(dx) >= Math.abs(dy) ? "h" : "v"
       if (d.axis === "v") {
-        // Laisse le scroll page — abandonne le drag carousel
         dragRef.current = null
         setDragging(false)
-        try {
-          stageRef.current?.releasePointerCapture(e.pointerId)
-        } catch {
-          /* ignore */
-        }
         return
       }
+      setDragging(true)
       setPlaying(false)
+      try {
+        stageRef.current?.setPointerCapture(e.pointerId)
+      } catch {
+        /* ignore */
+      }
     }
     if (d.axis !== "h") return
     if (Math.abs(dx) > 4) d.moved = true
@@ -456,34 +448,22 @@ export function ProductOrbitCarousel({
               : undefined
 
             return (
-              <button
+              <div
                 key={product.id}
-                type="button"
                 data-orbit-card
                 data-product-id={product.id}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (suppressClickRef.current) return
-                  if (!isFront) {
-                    setPlaying(false)
-                    snapTo(i)
-                    return
-                  }
-                  onOpen(product, 0)
-                }}
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-left outline-none focus-visible:ring-2 focus-visible:ring-[#3e6757]"
+                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-left"
                 style={{
                   width: cardW,
                   transform: `rotateY(${angle}deg) translateZ(${radius}px)`,
                   transformStyle: "preserve-3d",
                   WebkitTransformStyle: "preserve-3d",
                   zIndex: isFront ? 5 : 1,
-                  pointerEvents: isFront ? "auto" : "none",
+                  pointerEvents: "none",
                   backfaceVisibility: "hidden",
                   WebkitBackfaceVisibility: "hidden",
                 }}
-                aria-current={isFront ? "true" : undefined}
-                aria-label={product.title}
+                aria-hidden
               >
                 <div
                   className={`relative flex flex-col overflow-hidden rounded-2xl border bg-[#0a0a0a]/95 p-2 shadow-xl backdrop-blur-md transition-[box-shadow,border-color,opacity] duration-300 sm:rounded-3xl sm:p-2.5 ${
@@ -538,10 +518,30 @@ export function ProductOrbitCarousel({
                     </h3>
                   </div>
                 </div>
-              </button>
+              </div>
             )
           })}
         </div>
+
+        {/* Cible 2D (hors preserve-3d) : clic desktop fiable sur la carte de face. */}
+        <button
+          type="button"
+          data-orbit-hit
+          className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-[46%] cursor-pointer rounded-3xl bg-transparent"
+          style={{ width: cardW, height: Math.round(cardW * 1.38) }}
+          aria-label={
+            products[active]
+              ? `Ouvrir ${products[active]!.title}`
+              : "Ouvrir le produit"
+          }
+          onClick={(e) => {
+            e.stopPropagation()
+            if (suppressClickRef.current) return
+            const product = products[active]
+            if (!product) return
+            onOpen(product, 0)
+          }}
+        />
       </div>
       </div>
 
