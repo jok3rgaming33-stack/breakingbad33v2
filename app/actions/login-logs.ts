@@ -21,6 +21,54 @@ const EMPTY_GEO: Geo = { city: null, country: null, countryCode: null, lat: null
 const geoCache = new Map<string, { geo: Geo; at: number }>()
 const GEO_CACHE_MS = 10 * 60 * 1000
 
+function ipv4ToInt(ip: string): number | null {
+  const p = ip.split(".")
+  if (p.length !== 4) return null
+  let n = 0
+  for (const x of p) {
+    const o = Number(x)
+    if (!Number.isInteger(o) || o < 0 || o > 255) return null
+    n = (n << 8) + o
+  }
+  return n >>> 0
+}
+
+function inCidrV4(ip: string, cidr: string): boolean {
+  const [base, bitsStr] = cidr.split("/")
+  const ipn = ipv4ToInt(ip)
+  const basen = ipv4ToInt(base ?? "")
+  if (ipn == null || basen == null) return false
+  const bits = Number(bitsStr)
+  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0
+  return (ipn & mask) === (basen & mask)
+}
+
+/** Plages officielles Cloudflare — le domaine est orange-cloud, Vercel ne voit que le PoP. */
+const CF_V4 = [
+  "173.245.48.0/20",
+  "103.21.244.0/22",
+  "103.22.200.0/22",
+  "103.31.4.0/22",
+  "141.101.64.0/18",
+  "108.162.192.0/18",
+  "190.93.240.0/20",
+  "188.114.96.0/20",
+  "197.234.240.0/22",
+  "198.41.128.0/17",
+  "162.158.0.0/15",
+  "104.16.0.0/13",
+  "104.24.0.0/14",
+  "172.64.0.0/13",
+  "131.0.72.0/22",
+]
+const CF_V6_PREFIXES = ["2400:cb00:", "2606:4700:", "2803:f800:", "2405:b500:", "2405:8100:", "2a06:98c0:", "2c0f:f248:"]
+
+function isCloudflareIp(ip: string): boolean {
+  const v = ip.trim().toLowerCase()
+  if (v.includes(":")) return CF_V6_PREFIXES.some((p) => v.startsWith(p))
+  return CF_V4.some((c) => inCidrV4(v, c))
+}
+
 function isPrivateIp(ip: string): boolean {
   const v = ip.trim().toLowerCase()
   if (!v) return true
@@ -29,7 +77,7 @@ function isPrivateIp(ip: string): boolean {
   if (v.startsWith("192.168.")) return true
   if (v.startsWith("127.")) return true
   if (v.startsWith("169.254.")) return true
-  // RFC1918 172.16.0.0/12 seulement — PAS tout 172.*
+  // RFC1918 172.16.0.0/12 seulement — PAS tout 172.* (172.64/13 = Cloudflare)
   const m172 = /^172\.(\d+)\./.exec(v)
   if (m172) {
     const n = Number(m172[1])
@@ -38,6 +86,10 @@ function isPrivateIp(ip: string): boolean {
   if (v.startsWith("fc") || v.startsWith("fd") || v.startsWith("fe80:")) return true
   if (v.startsWith("::ffff:")) return isPrivateIp(v.slice(7))
   return false
+}
+
+function isUnusableHop(ip: string): boolean {
+  return isPrivateIp(ip) || isCloudflareIp(ip)
 }
 
 function normalizeIp(raw: string | null | undefined): string | null {
@@ -56,11 +108,15 @@ function normalizeIp(raw: string | null | undefined): string | null {
 }
 
 /**
- * Même base que frenchycali (1er hop x-forwarded-for) + on saute les hops privés
- * et on prend x-vercel-forwarded-for si besoin.
+ * Derrière Cloudflare, Vercel voit le PoP (162.158 / 172.64 / 104.16) — pas le client.
+ * On priorise CF-Connecting-IP, puis on saute les hops CF/privés dans X-Forwarded-For.
  */
 function clientIpFromHeaders(h: Headers): string | null {
   const candidates: string[] = []
+  for (const key of ["cf-connecting-ip", "true-client-ip"]) {
+    const ip = normalizeIp(h.get(key))
+    if (ip) candidates.push(ip)
+  }
   const forwarded = h.get("x-forwarded-for")
   if (forwarded) {
     for (const part of forwarded.split(",")) {
@@ -68,42 +124,11 @@ function clientIpFromHeaders(h: Headers): string | null {
       if (ip) candidates.push(ip)
     }
   }
-  for (const key of ["x-vercel-forwarded-for", "x-real-ip", "cf-connecting-ip", "true-client-ip"]) {
+  for (const key of ["x-vercel-forwarded-for", "x-real-ip"]) {
     const ip = normalizeIp(h.get(key))
     if (ip) candidates.push(ip)
   }
-  return candidates.find((ip) => !isPrivateIp(ip)) ?? candidates[0] ?? null
-}
-
-function geoFromVercelHeaders(h: Headers): Geo {
-  const rawCity = h.get("x-vercel-ip-city")
-  let city: string | null = null
-  if (rawCity) {
-    try {
-      city = decodeURIComponent(rawCity)
-    } catch {
-      city = rawCity
-    }
-  }
-  const code = h.get("x-vercel-ip-country")?.toUpperCase() || null
-  let country: string | null = code
-  if (code) {
-    try {
-      country = new Intl.DisplayNames(["fr"], { type: "region" }).of(code) ?? code
-    } catch {
-      country = code
-    }
-  }
-  const lat = Number(h.get("x-vercel-ip-latitude"))
-  const lng = Number(h.get("x-vercel-ip-longitude"))
-  if (!city && !code) return EMPTY_GEO
-  return {
-    city,
-    country,
-    countryCode: code,
-    lat: Number.isFinite(lat) ? lat : null,
-    lng: Number.isFinite(lng) ? lng : null,
-  }
+  return candidates.find((ip) => !isUnusableHop(ip)) ?? null
 }
 
 function geoHasLocation(g: Geo): boolean {
@@ -115,7 +140,7 @@ function geoHasLocation(g: Geo): boolean {
  * IPv6 encodé (sinon WHATWG/fetch peut casser l’URL).
  */
 async function geolocateIpApi(ip: string): Promise<Geo> {
-  if (!ip || isPrivateIp(ip)) return EMPTY_GEO
+  if (!ip || isUnusableHop(ip)) return EMPTY_GEO
   try {
     const res = await fetch(
       `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,city,regionName,country,countryCode,lat,lon`,
@@ -156,23 +181,24 @@ async function geolocateIpApi(ip: string): Promise<Geo> {
   }
 }
 
-async function geolocate(ip: string | null, vercelGeo: Geo): Promise<Geo> {
-  if (!ip) return geoHasLocation(vercelGeo) ? vercelGeo : EMPTY_GEO
+async function geolocate(ip: string | null): Promise<Geo> {
+  if (!ip) return EMPTY_GEO
   const cached = geoCache.get(ip)
   if (cached && Date.now() - cached.at < GEO_CACHE_MS && geoHasLocation(cached.geo)) {
     return cached.geo
   }
   const fromApi = await geolocateIpApi(ip)
-  const geo = geoHasLocation(fromApi) ? fromApi : vercelGeo
-  if (geoHasLocation(geo)) geoCache.set(ip, { geo, at: Date.now() })
-  return geo
+  if (geoHasLocation(fromApi)) {
+    geoCache.set(ip, { geo: fromApi, at: Date.now() })
+    return fromApi
+  }
+  return EMPTY_GEO
 }
 
 async function persistLogin(
   token: string,
   ip: string | null,
   userAgent: string | null,
-  vercelGeo: Geo,
 ) {
   let pseudo = "Inconnu"
   try {
@@ -186,7 +212,7 @@ async function persistLogin(
     console.error("[login-logs] lookup pseudo failed:", e)
   }
 
-  const geo = await geolocate(ip, vercelGeo)
+  const geo = await geolocate(ip)
 
   // Même token + même IP < 10 min : on ne spam pas le journal.
   // Si la ligne récente est vide, on la MET À JOUR (c’était le bug du dédup).
@@ -245,18 +271,16 @@ export async function recordLogin(token: string) {
 
   let ip: string | null = null
   let userAgent: string | null = null
-  let vercelGeo: Geo = EMPTY_GEO
   try {
     const h = await headers()
     ip = clientIpFromHeaders(h)
     userAgent = h.get("user-agent") ?? null
-    vercelGeo = geoFromVercelHeaders(h)
   } catch (e) {
     console.error("[login-logs] headers() failed:", e)
   }
 
   const run = () =>
-    persistLogin(t, ip, userAgent, vercelGeo).catch((e) => {
+    persistLogin(t, ip, userAgent).catch((e) => {
       console.error("[login-logs] persist failed:", e)
     })
 
