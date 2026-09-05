@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { loginLogs, users } from "@/lib/db/schema"
-import { eq, desc, and, gte, isNull } from "drizzle-orm"
+import { eq, desc, and, isNull } from "drizzle-orm"
 import { headers } from "next/headers"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { ensureFeatureSchema } from "@/lib/feature-schema"
@@ -17,171 +17,56 @@ type Geo = {
 
 const EMPTY_GEO: Geo = { city: null, country: null, countryCode: null, lat: null, lng: null }
 
-/** IPv4 mappée (::ffff:1.2.3.4) → 1.2.3.4 */
-function normalizeIp(raw: string): string {
-  const ip = raw.trim().replace(/^\[|\]$/g, "")
-  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)
-  return mapped?.[1] ?? ip
-}
-
-function isPrivateIp(ip: string): boolean {
-  const v4 = normalizeIp(ip)
-  if (!v4 || v4 === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0") return true
-  if (v4.startsWith("10.") || v4.startsWith("192.168.") || v4.startsWith("169.254.")) return true
-  const m = /^172\.(\d+)\./.exec(v4)
-  if (m) {
-    const n = Number(m[1])
-    if (n >= 16 && n <= 31) return true
-  }
-  return false
-}
-
-function extractClientIp(h: Headers): string | null {
-  const candidates = [
-    h.get("x-real-ip"),
-    h.get("x-vercel-forwarded-for")?.split(",")[0],
-    h.get("cf-connecting-ip"),
-    h.get("x-forwarded-for")?.split(",")[0],
-  ]
-  for (const raw of candidates) {
-    const ip = raw?.trim()
-    if (ip) return normalizeIp(ip)
-  }
-  return null
-}
-
-const ISO_COUNTRY: Record<string, string> = {
-  FR: "France",
-  BE: "Belgique",
-  CH: "Suisse",
-  LU: "Luxembourg",
-  DE: "Allemagne",
-  ES: "Espagne",
-  IT: "Italie",
-  GB: "Royaume-Uni",
-  NL: "Pays-Bas",
-  PT: "Portugal",
-  US: "États-Unis",
-  CA: "Canada",
-  MA: "Maroc",
-  DZ: "Algérie",
-  TN: "Tunisie",
-}
-
-/** Geo fournie par Vercel (IP réelle du visiteur, pas celle de la fonction). */
-function geoFromVercelHeaders(h: Headers): Geo | null {
-  const cityRaw = h.get("x-vercel-ip-city")
-  const code = h.get("x-vercel-ip-country")
-  const lat = h.get("x-vercel-ip-latitude")
-  const lng = h.get("x-vercel-ip-longitude")
-  if (!cityRaw && !code) return null
-  let city: string | null = null
-  if (cityRaw) {
-    try {
-      city = decodeURIComponent(cityRaw.replace(/\+/g, " "))
-    } catch {
-      city = cityRaw
-    }
-  }
-  const countryCode = code?.toUpperCase() ?? null
-  return {
-    city,
-    country: (countryCode && ISO_COUNTRY[countryCode]) || countryCode,
-    countryCode,
-    lat: lat != null && lat !== "" ? Number(lat) : null,
-    lng: lng != null && lng !== "" ? Number(lng) : null,
-  }
-}
-
-async function fetchJson(url: string, ms: number): Promise<unknown | null> {
-  try {
-    const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(ms) })
-    if (!res.ok) return null
-    return await res.json()
-  } catch {
-    return null
-  }
-}
-
 /**
- * Même stratégie que LaCentral : géoloc AVANT l'insert (pas en fire-and-forget).
- * Sur Vercel, un `void enrich()` après le return de l'action est tué → ville toujours vide.
- * ipwho.is (HTTPS) puis repli ip-api.com (celui qui marche déjà sur LaCentral).
+ * Copie conforme de frenchycali-full :
+ * - IP = 1er hop de x-forwarded-for (sinon x-real-ip)
+ * - géoloc = http://ip-api.com (IP brute, non encodée)
+ * - await geo PUIS insert (jamais en fire-and-forget)
  */
 async function geolocate(ip: string): Promise<Geo> {
-  if (!ip || isPrivateIp(ip)) return EMPTY_GEO
-  const enc = encodeURIComponent(ip)
-
-  const who = (await fetchJson(`https://ipwho.is/${enc}`, 3000)) as {
-    success?: boolean
-    city?: string
-    country?: string
-    country_code?: string
-    latitude?: number
-    longitude?: number
-  } | null
-  if (who && who.success !== false && (who.city || who.country)) {
-    return {
-      city: who.city ?? null,
-      country: who.country ?? null,
-      countryCode: who.country_code ?? null,
-      lat: typeof who.latitude === "number" ? who.latitude : null,
-      lng: typeof who.longitude === "number" ? who.longitude : null,
-    }
+  if (
+    !ip ||
+    ip === "127.0.0.1" ||
+    ip === "::1" ||
+    ip.startsWith("10.") ||
+    ip.startsWith("192.168.") ||
+    ip.startsWith("172.")
+  ) {
+    return EMPTY_GEO
   }
-
-  const apiCo = (await fetchJson(`https://ipapi.co/${enc}/json/`, 3000)) as {
-    error?: boolean
-    city?: string
-    country_name?: string
-    country?: string
-    latitude?: number
-    longitude?: number
-  } | null
-  if (apiCo && !apiCo.error && (apiCo.city || apiCo.country_name)) {
+  try {
+    const res = await fetch(
+      `http://ip-api.com/json/${ip}?fields=status,city,regionName,country,countryCode,lat,lon`,
+      {
+        cache: "no-store",
+        signal: AbortSignal.timeout(3000),
+      },
+    )
+    if (!res.ok) return EMPTY_GEO
+    const d = await res.json()
+    if (d.status !== "success") return EMPTY_GEO
+    const city =
+      d.city && d.regionName && d.city !== d.regionName
+        ? `${d.city} (${d.regionName})`
+        : (d.city ?? d.regionName ?? null)
     return {
-      city: apiCo.city ?? null,
-      country: apiCo.country_name ?? null,
-      countryCode: apiCo.country ?? null,
-      lat: typeof apiCo.latitude === "number" ? apiCo.latitude : null,
-      lng: typeof apiCo.longitude === "number" ? apiCo.longitude : null,
+      city,
+      country: d.country ?? null,
+      countryCode: d.countryCode ?? null,
+      lat: d.lat ?? null,
+      lng: d.lon ?? null,
     }
+  } catch {
+    return EMPTY_GEO
   }
-
-  const api = (await fetchJson(
-    `http://ip-api.com/json/${enc}?fields=status,city,country,countryCode,lat,lon`,
-    3000,
-  )) as {
-    status?: string
-    city?: string
-    country?: string
-    countryCode?: string
-    lat?: number
-    lon?: number
-  } | null
-  if (api && api.status === "success") {
-    return {
-      city: api.city ?? null,
-      country: api.country ?? null,
-      countryCode: api.countryCode ?? null,
-      lat: typeof api.lat === "number" ? api.lat : null,
-      lng: typeof api.lon === "number" ? api.lon : null,
-    }
-  }
-
-  return EMPTY_GEO
 }
-
-/** Anti-spam : une seule ligne par token dans cette fenêtre (reloads de session). */
-const DEDUPE_MS = 2 * 60 * 1000
 
 /**
  * Best-effort : ne doit JAMAIS lever d'exception vers l'appelant.
- * Géoloc synchrone (comme LaCentral) : ville/pays écrits dans le même INSERT.
+ * Flux identique à frenchycali-full / LaCentral.
  */
 export async function recordLogin(token: string) {
   try {
-    // Schema soft — ne doit pas faire échouer le journal ni la connexion
     try {
       await ensureFeatureSchema()
     } catch {
@@ -191,18 +76,10 @@ export async function recordLogin(token: string) {
     const t = token?.trim()
     if (!t) return
 
-    // Lire les headers AVANT tout await long (contexte requête encore valide).
-    let ip: string | null = null
-    let userAgent: string | null = null
-    let headerGeo: Geo | null = null
-    try {
-      const h = await headers()
-      ip = extractClientIp(h)
-      userAgent = h.get("user-agent") ?? null
-      headerGeo = geoFromVercelHeaders(h)
-    } catch (e) {
-      console.error("[login-logs] headers() indisponible:", e)
-    }
+    const h = await headers()
+    const forwarded = h.get("x-forwarded-for")
+    const ip = (forwarded ? forwarded.split(",")[0]?.trim() : h.get("x-real-ip")?.trim()) ?? null
+    const userAgent = h.get("user-agent") ?? null
 
     let pseudo = "Inconnu"
     try {
@@ -216,60 +93,20 @@ export async function recordLogin(token: string) {
       console.error("[login-logs] lookup pseudo failed:", e)
     }
 
-    // Dédupliquer les rechargements (session encore ouverte) : max 1 log / 2 min / token.
-    // Fallback sans loggedOutAt si la colonne n'est pas encore dispo.
-    const since = new Date(Date.now() - DEDUPE_MS)
-    try {
-      let recent: { id: number }[] = []
-      try {
-        recent = await db
-          .select({ id: loginLogs.id })
-          .from(loginLogs)
-          .where(
-            and(
-              eq(loginLogs.userToken, t),
-              gte(loginLogs.createdAt, since),
-              isNull(loginLogs.loggedOutAt),
-            ),
-          )
-          .limit(1)
-      } catch {
-        recent = await db
-          .select({ id: loginLogs.id })
-          .from(loginLogs)
-          .where(and(eq(loginLogs.userToken, t), gte(loginLogs.createdAt, since)))
-          .limit(1)
-      }
-      if (recent[0]) return
-    } catch (e) {
-      // Table absente / erreur DB → on tente quand même l'INSERT ci-dessous
-      console.error("[login-logs] dedupe failed:", e)
-    }
+    const geo = ip ? await geolocate(ip) : EMPTY_GEO
 
-    const geo =
-      headerGeo && (headerGeo.city || headerGeo.country)
-        ? headerGeo
-        : ip
-          ? await geolocate(ip)
-          : EMPTY_GEO
-
-    try {
-      await db.insert(loginLogs).values({
-        userToken: t,
-        pseudo,
-        ip,
-        city: geo.city,
-        country: geo.country,
-        countryCode: geo.countryCode,
-        lat: geo.lat,
-        lng: geo.lng,
-        userAgent,
-      })
-    } catch (e) {
-      console.error("[login-logs] insert failed:", e)
-    }
+    await db.insert(loginLogs).values({
+      userToken: t,
+      pseudo,
+      ip,
+      city: geo.city,
+      country: geo.country,
+      countryCode: geo.countryCode,
+      lat: geo.lat,
+      lng: geo.lng,
+      userAgent,
+    })
   } catch (e) {
-    // Ne jamais faire échouer la connexion
     console.error("[login-logs] recordLogin failed:", e)
   }
 }
