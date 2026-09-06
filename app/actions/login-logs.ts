@@ -108,12 +108,17 @@ function normalizeIp(raw: string | null | undefined): string | null {
 }
 
 /**
- * Derrière Cloudflare, Vercel voit le PoP (162.158 / 172.64 / 104.16) — pas le client.
- * On priorise CF-Connecting-IP, puis on saute les hops CF/privés dans X-Forwarded-For.
+ * frenchycali = 1er hop x-forwarded-for (Vercel voit le client).
+ * Ici le 1er hop est Cloudflare. On prend l'IP visiteur :
+ * CF-Connecting-IP, puis le 1er hop XFF qui n'est ni privé ni CF.
  */
 function clientIpFromHeaders(h: Headers): string | null {
   const candidates: string[] = []
-  for (const key of ["cf-connecting-ip", "true-client-ip"]) {
+  for (const key of [
+    "cf-connecting-ip",
+    "true-client-ip",
+    "x-client-ip",
+  ]) {
     const ip = normalizeIp(h.get(key))
     if (ip) candidates.push(ip)
   }
@@ -131,19 +136,53 @@ function clientIpFromHeaders(h: Headers): string | null {
   return candidates.find((ip) => !isUnusableHop(ip)) ?? null
 }
 
+/** Geo Cloudflare du visiteur (pas du PoP) — si l'IP réelle n'est pas dispo. */
+function geoFromCloudflareHeaders(h: Headers): Geo {
+  const rawCity = h.get("cf-ipcity") || h.get("cf-ip-city")
+  let city: string | null = null
+  if (rawCity) {
+    try {
+      city = decodeURIComponent(rawCity)
+    } catch {
+      city = rawCity
+    }
+  }
+  const code = (h.get("cf-ipcountry") || h.get("cf-ip-country") || "").toUpperCase() || null
+  let country: string | null = code
+  if (code && code !== "XX" && code !== "T1") {
+    try {
+      country = new Intl.DisplayNames(["fr"], { type: "region" }).of(code) ?? code
+    } catch {
+      country = code
+    }
+  } else {
+    country = null
+  }
+  const lat = Number(h.get("cf-iplatitude") || h.get("cf-ip-latitude"))
+  const lng = Number(h.get("cf-iplongitude") || h.get("cf-ip-longitude"))
+  if (!city && !country) return EMPTY_GEO
+  return {
+    city,
+    country,
+    countryCode: code && code !== "XX" && code !== "T1" ? code : null,
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
+  }
+}
+
 function geoHasLocation(g: Geo): boolean {
   return Boolean(g.city || g.country || g.countryCode)
 }
 
 /**
- * Copie frenchycali-full : GET http://ip-api.com/json/{ip}
- * IPv6 encodé (sinon WHATWG/fetch peut casser l’URL).
+ * Copie frenchycali-full : GET http://ip-api.com/json/{ip} (IP brute, city brute).
  */
 async function geolocateIpApi(ip: string): Promise<Geo> {
   if (!ip || isUnusableHop(ip)) return EMPTY_GEO
+  const path = ip.includes(":") ? encodeURIComponent(ip) : ip
   try {
     const res = await fetch(
-      `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,city,regionName,country,countryCode,lat,lon`,
+      `http://ip-api.com/json/${path}?fields=status,city,country,countryCode,lat,lon`,
       { cache: "no-store", signal: AbortSignal.timeout(4000) },
     )
     if (!res.ok) {
@@ -152,24 +191,18 @@ async function geolocateIpApi(ip: string): Promise<Geo> {
     }
     const d = (await res.json()) as {
       status?: string
-      message?: string
       city?: string
-      regionName?: string
       country?: string
       countryCode?: string
       lat?: number
       lon?: number
     }
     if (d.status !== "success") {
-      console.error("[login-logs] ip-api fail", d.status, d.message, ip)
+      console.error("[login-logs] ip-api fail", d.status, ip)
       return EMPTY_GEO
     }
-    const city =
-      d.city && d.regionName && d.city !== d.regionName
-        ? `${d.city} (${d.regionName})`
-        : (d.city ?? d.regionName ?? null)
     return {
-      city,
+      city: d.city ?? null,
       country: d.country ?? null,
       countryCode: d.countryCode ?? null,
       lat: d.lat ?? null,
@@ -181,24 +214,26 @@ async function geolocateIpApi(ip: string): Promise<Geo> {
   }
 }
 
-async function geolocate(ip: string | null): Promise<Geo> {
-  if (!ip) return EMPTY_GEO
-  const cached = geoCache.get(ip)
-  if (cached && Date.now() - cached.at < GEO_CACHE_MS && geoHasLocation(cached.geo)) {
-    return cached.geo
+async function geolocate(ip: string | null, cfGeo: Geo): Promise<Geo> {
+  if (ip) {
+    const cached = geoCache.get(ip)
+    if (cached && Date.now() - cached.at < GEO_CACHE_MS && geoHasLocation(cached.geo)) {
+      return cached.geo
+    }
+    const fromApi = await geolocateIpApi(ip)
+    if (geoHasLocation(fromApi)) {
+      geoCache.set(ip, { geo: fromApi, at: Date.now() })
+      return fromApi
+    }
   }
-  const fromApi = await geolocateIpApi(ip)
-  if (geoHasLocation(fromApi)) {
-    geoCache.set(ip, { geo: fromApi, at: Date.now() })
-    return fromApi
-  }
-  return EMPTY_GEO
+  return geoHasLocation(cfGeo) ? cfGeo : EMPTY_GEO
 }
 
 async function persistLogin(
   token: string,
   ip: string | null,
   userAgent: string | null,
+  cfGeo: Geo,
 ) {
   let pseudo = "Inconnu"
   try {
@@ -212,41 +247,7 @@ async function persistLogin(
     console.error("[login-logs] lookup pseudo failed:", e)
   }
 
-  const geo = await geolocate(ip)
-
-  // Même token + même IP < 10 min : on ne spam pas le journal.
-  // Si la ligne récente est vide, on la MET À JOUR (c’était le bug du dédup).
-  try {
-    const recent = await db
-      .select()
-      .from(loginLogs)
-      .where(eq(loginLogs.userToken, token))
-      .orderBy(desc(loginLogs.createdAt))
-      .limit(1)
-    const last = recent[0]
-    if (last && last.ip === ip) {
-      const age = Date.now() - new Date(last.createdAt).getTime()
-      if (age >= 0 && age < 10 * 60 * 1000) {
-        const lastEmpty = !last.city && !last.country && !last.countryCode
-        if (lastEmpty && geoHasLocation(geo)) {
-          await db
-            .update(loginLogs)
-            .set({
-              city: geo.city,
-              country: geo.country,
-              countryCode: geo.countryCode,
-              lat: geo.lat,
-              lng: geo.lng,
-              ip,
-            })
-            .where(eq(loginLogs.id, last.id))
-        }
-        return
-      }
-    }
-  } catch (e) {
-    console.error("[login-logs] recent lookup failed:", e)
-  }
+  const geo = await geolocate(ip, cfGeo)
 
   await db.insert(loginLogs).values({
     userToken: token,
@@ -271,16 +272,18 @@ export async function recordLogin(token: string) {
 
   let ip: string | null = null
   let userAgent: string | null = null
+  let cfGeo: Geo = EMPTY_GEO
   try {
     const h = await headers()
     ip = clientIpFromHeaders(h)
     userAgent = h.get("user-agent") ?? null
+    cfGeo = geoFromCloudflareHeaders(h)
   } catch (e) {
     console.error("[login-logs] headers() failed:", e)
   }
 
   const run = () =>
-    persistLogin(t, ip, userAgent).catch((e) => {
+    persistLogin(t, ip, userAgent, cfGeo).catch((e) => {
       console.error("[login-logs] persist failed:", e)
     })
 
