@@ -1104,37 +1104,39 @@ export function VendorInbox({
                     <>
                       {recap && renderBubble(recap)}
                       {mode !== "messages" && (
-                        <OrderTrackingCard
-                          orderId={selected.id}
-                          status={selected.status}
-                          fulfillment={selected.fulfillment}
-                          tracking={(selected as { tracking?: OrderTrackingState }).tracking}
-                          createdAt={selected.createdAt}
-                          scheduledSlot={selected.scheduledSlot}
-                          colissimoNumber={selected.colissimoNumber}
-                        />
-                        {(selected.fulfillment || "").toLowerCase() === "meetup" &&
-                          (selected.address ||
-                            (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.address) && (
-                          <div className="mt-2">
-                            <MeetupLivePanel
-                              threadId={selected.id}
-                              address={
-                                (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.address ||
-                                selected.address
-                              }
-                              lat={
-                                (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.lat ??
-                                selected.lat
-                              }
-                              lng={
-                                (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.lng ??
-                                selected.lng
-                              }
-                              active={normalizeStatus(selected.status) === "pret_meetup"}
-                            />
-                          </div>
-                        )}
+                        <>
+                          <OrderTrackingCard
+                            orderId={selected.id}
+                            status={selected.status}
+                            fulfillment={selected.fulfillment}
+                            tracking={(selected as { tracking?: OrderTrackingState }).tracking}
+                            createdAt={selected.createdAt}
+                            scheduledSlot={selected.scheduledSlot}
+                            colissimoNumber={selected.colissimoNumber}
+                          />
+                          {(selected.fulfillment || "").toLowerCase() === "meetup" &&
+                            (selected.address ||
+                              (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.address) && (
+                            <div className="mt-2">
+                              <MeetupLivePanel
+                                threadId={selected.id}
+                                address={
+                                  (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.address ||
+                                  selected.address
+                                }
+                                lat={
+                                  (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.lat ??
+                                  selected.lat
+                                }
+                                lng={
+                                  (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.lng ??
+                                  selected.lng
+                                }
+                                active={normalizeStatus(selected.status) === "pret_meetup"}
+                              />
+                            </div>
+                          )}
+                        </>
                       )}
                       {rest.map(renderBubble)}
                     </>

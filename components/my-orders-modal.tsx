@@ -662,28 +662,30 @@ export function MyOrdersModal({
                       <>
                         {recap && bubble(recap)}
                         {!isTrkSelected && selected.status !== "notification" && selected.status !== "trk_token" && (
-                          <OrderTrackingCard
-                            orderId={selected.id}
-                            status={selected.status}
-                            fulfillment={selected.fulfillment}
-                            tracking={selected.tracking}
-                            createdAt={selected.createdAt}
-                            scheduledSlot={selected.scheduledSlot}
-                            colissimoNumber={selected.colissimoNumber}
-                            className="mb-1"
-                          />
-                          {selected.fulfillment === "meetup" &&
-                            (selected.tracking?.meetup?.address || selected.address) &&
-                            token && (
-                              <MeetupNavCard
-                                threadId={selected.id}
-                                customerToken={token}
-                                address={selected.tracking?.meetup?.address || selected.address || ""}
-                                lat={selected.tracking?.meetup?.lat ?? selected.lat}
-                                lng={selected.tracking?.meetup?.lng ?? selected.lng}
-                                status={selected.status}
-                              />
-                            )}
+                          <>
+                            <OrderTrackingCard
+                              orderId={selected.id}
+                              status={selected.status}
+                              fulfillment={selected.fulfillment}
+                              tracking={selected.tracking}
+                              createdAt={selected.createdAt}
+                              scheduledSlot={selected.scheduledSlot}
+                              colissimoNumber={selected.colissimoNumber}
+                              className="mb-1"
+                            />
+                            {selected.fulfillment === "meetup" &&
+                              (selected.tracking?.meetup?.address || selected.address) &&
+                              token && (
+                                <MeetupNavCard
+                                  threadId={selected.id}
+                                  customerToken={token}
+                                  address={selected.tracking?.meetup?.address || selected.address || ""}
+                                  lat={selected.tracking?.meetup?.lat ?? selected.lat}
+                                  lng={selected.tracking?.meetup?.lng ?? selected.lng}
+                                  status={selected.status}
+                                />
+                              )}
+                          </>
                         )}
                         {rest.map(bubble)}
                       </>
