@@ -16,6 +16,7 @@ import { MessagerieModal } from "@/components/messagerie-modal"
 import { NewsPopup } from "@/components/news-popup"
 import { DeliveryInfoModal } from "@/components/delivery-info-modal"
 import { HowItWorksModal } from "@/components/how-it-works-modal"
+import { HarmReductionModal } from "@/components/harm-reduction-modal"
 import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
 import { ShopSections } from "@/components/shop-sections"
@@ -35,6 +36,7 @@ export default function Home() {
   const [isMessagingOpen, setIsMessagingOpen] = useState(false)
   const [autoOpenLatestMessaging, setAutoOpenLatestMessaging] = useState(false)
   const [isHowItWorksOpen, setIsHowItWorksOpen] = useState(false)
+  const [isHarmReductionOpen, setIsHarmReductionOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [userData, setUserData] = useState<{ pseudo?: string; token?: string } | null>(null)
   const [unreadMessaging, setUnreadMessaging] = useState(0)
@@ -309,6 +311,7 @@ export default function Home() {
         onOpenDelivery={() => setIsDeliveryOpen(true)}
         onOpenMessaging={() => setIsMessagingOpen(true)}
         onOpenHowItWorks={() => setIsHowItWorksOpen(true)}
+        onOpenHarmReduction={() => setIsHarmReductionOpen(true)}
         isAdmin={isAdmin}
         unreadMessaging={unreadMessaging}
         unreadOrders={unreadOrders}
@@ -364,6 +367,7 @@ export default function Home() {
       <DeliveryInfoModal isOpen={isDeliveryOpen} onClose={() => setIsDeliveryOpen(false)} />
 
       <HowItWorksModal isOpen={isHowItWorksOpen} onClose={() => setIsHowItWorksOpen(false)} />
+      <HarmReductionModal isOpen={isHarmReductionOpen} onClose={() => setIsHarmReductionOpen(false)} />
 
       <MessagerieModal
         isOpen={isMessagingOpen}
@@ -385,7 +389,12 @@ export default function Home() {
       {/* Popup News à l'entrée du site (client connecté non admin) */}
       {isAuthenticated && !isAdmin && <NewsPopup token={userData?.token} />}
 
-      {isAuthenticated && <CheckoutCart userData={userData} />}
+      {isAuthenticated && (
+        <CheckoutCart
+          userData={userData}
+          onOpenHarmReduction={() => setIsHarmReductionOpen(true)}
+        />
+      )}
 
       {/* Proposition d'install PWA — après login, UI calme (pas de news/panier) */}
       {isAuthenticated && !isAdmin && <InstallAppPrompt enabled />}

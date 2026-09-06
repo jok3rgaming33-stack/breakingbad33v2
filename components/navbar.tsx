@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useCart } from "@/components/cart-provider"
 import { NotificationBell } from "@/components/notification-bell"
 import type { OrderNotification } from "@/components/notifications-provider"
-import { Menu, ShoppingCart, X, ShieldCheck, LogOut, HelpCircle } from "lucide-react"
+import { Menu, ShoppingCart, X, ShieldCheck, LogOut, HelpCircle, HeartPulse } from "lucide-react"
 import Image from "next/image"
 
 const NAV_ITEMS = [
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { label: "Livraison/Meet-up", action: "delivery" as const },
   { label: "Mes commandes", action: "orders" as const },
   { label: "Espace fidélité", action: "loyalty" as const },
+  { label: "Réduction des risques", action: "harmreduction" as const },
   { label: "Comment ça marche", action: "howitworks" as const },
 ]
 
@@ -25,6 +26,7 @@ type NavbarProps = {
   onOpenDelivery?: () => void
   onOpenMessaging?: () => void
   onOpenHowItWorks?: () => void
+  onOpenHarmReduction?: () => void
   isAdmin?: boolean
   unreadMessaging?: number
   unreadOrders?: number
@@ -39,6 +41,7 @@ export function Navbar({
   onOpenDelivery,
   onOpenMessaging,
   onOpenHowItWorks,
+  onOpenHarmReduction,
   isAdmin,
   unreadMessaging = 0,
   unreadOrders = 0,
@@ -68,6 +71,10 @@ export function Navbar({
       e.preventDefault()
       setOpen(false)
       onOpenDelivery?.()
+    } else if (item.action === "harmreduction") {
+      e.preventDefault()
+      setOpen(false)
+      onOpenHarmReduction?.()
     } else if (item.action === "howitworks") {
       e.preventDefault()
       setOpen(false)
@@ -100,12 +107,13 @@ export function Navbar({
                 href="#"
                 onClick={(e) => handleNavClick(e, item)}
                 className={
-                  item.action === "howitworks"
+                  item.action === "howitworks" || item.action === "harmreduction"
                     ? "flex items-center gap-1.5 rounded-full border border-white/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/80 transition-colors hover:border-white/40 hover:text-white"
                     : "relative flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.15em] text-muted-foreground transition-colors hover:text-foreground"
                 }
               >
                 {item.action === "howitworks" && <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />}
+                {item.action === "harmreduction" && <HeartPulse className="h-3.5 w-3.5" aria-hidden="true" />}
                 {item.label}
                 {badge > 0 && (
                   <span className="ml-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white" aria-label={`${badge} non lu${badge > 1 ? "s" : ""}`}>
@@ -190,13 +198,14 @@ export function Navbar({
                   href="#"
                   onClick={(e) => handleNavClick(e, item)}
                   className={
-                    item.action === "howitworks"
+                    item.action === "howitworks" || item.action === "harmreduction"
                       ? "mt-1 flex items-center gap-2 rounded-md border border-white/20 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-white/80 transition-colors hover:bg-secondary hover:text-white"
                       : "flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                   }
                 >
                   <span className="flex items-center gap-2">
                     {item.action === "howitworks" && <HelpCircle className="h-4 w-4" aria-hidden="true" />}
+                    {item.action === "harmreduction" && <HeartPulse className="h-4 w-4" aria-hidden="true" />}
                     {item.label}
                   </span>
                   {badge > 0 && (

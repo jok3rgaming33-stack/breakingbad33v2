@@ -19,7 +19,7 @@ import {
   deliverySlotTakenDisplay,
 } from "@/lib/delivery-slots"
 import { SelfieVerificationModal, type VerificationMetadata } from "@/components/selfie-verification-modal"
-import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus, Package, Lock } from "lucide-react"
+import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus, Package, Lock, HeartPulse } from "lucide-react"
 import { backdropDismissProps } from "@/lib/backdrop-close"
 
 type UserData = { pseudo?: string } | null
@@ -27,6 +27,7 @@ type UserData = { pseudo?: string } | null
 type CheckoutCartProps = {
   userData: UserData
   onOrderPlaced?: (message: string) => void
+  onOpenHarmReduction?: () => void
 }
 
 const FEE_LOCKER = 10 // Locker Mondial Relay
@@ -136,7 +137,7 @@ function meetupSlotAvailable(dateStr: string, s: MeetupSlot, now: Date) {
   return t.getTime() > now.getTime()
 }
 
-export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
+export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: CheckoutCartProps) {
   const { items, subtotal, updateQty, removeItem, clear, isOpen, closeCart, promo, promoDiscount, applyPromo, removePromo } =
     useCart()
   const onClose = closeCart
@@ -1249,10 +1250,27 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
                   </span>
                 </div>
               )}
-              <div className="mb-4 flex justify-between text-lg font-bold">
+              <div className="mb-3 flex justify-between text-lg font-bold">
                 <span>Total</span>
                 <span>{total}€</span>
               </div>
+              {onOpenHarmReduction && (
+                <button
+                  type="button"
+                  onClick={onOpenHarmReduction}
+                  className="mb-3 flex w-full items-start gap-2.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-left transition-colors hover:border-amber-400/50 hover:bg-amber-500/15"
+                >
+                  <HeartPulse className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden="true" />
+                  <span>
+                    <span className="block text-xs font-semibold text-amber-200">
+                      Réduction des risques
+                    </span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-amber-200/70">
+                      Avant de consommer, vérifie les mélanges (alcool, médocs, autres produits).
+                    </span>
+                  </span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleValidate}
