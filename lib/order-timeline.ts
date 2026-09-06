@@ -168,6 +168,7 @@ export type OrderTrackingState = {
   cancelReason?: string | null
   meetup?: { address: string; lat: number | null; lng: number | null }
   clientLive?: { lat: number; lng: number; at: string }
+  clientEta?: { min: number; at: string; arriveBy: string }
 }
 
 export type VisualTimelineState = {

@@ -803,7 +803,7 @@ export async function updateThreadStatus(
           ""
         notifyBody = meetupAddr
           ? `Ton colis est prêt. RDV : ${meetupAddr}. Ouvre ta commande pour Waze / Maps.`
-          : "Ton colis est prêt à récupérer."
+          : "Ton colis est prêt à récupérer. Ouvre ta commande pour l'itinéraire."
         break
       }
       case "bientot_livraison":
@@ -925,7 +925,10 @@ export async function updateThreadStatus(
     }
 
     await notifyCustomer(current.customerToken, {
-      title: `Commande #${threadId} — ${statusMeta(nextKey).label}`,
+      title:
+        nextKey === "pret_meetup"
+          ? `Commande #${threadId} — Colis prêt`
+          : `Commande #${threadId} — ${statusMeta(nextKey).label}`,
       body: notifyBody,
       url: clientThreadUrl(
         current.fulfillment === "locker" ? "locker" : "orders",

@@ -228,6 +228,7 @@ export const orderThreads = pgTable("order_threads", {
     cancelReason?: string | null
     meetup?: { address: string; lat: number | null; lng: number | null }
     clientLive?: { lat: number; lng: number; at: string }
+    clientEta?: { min: number; at: string; arriveBy: string }
   }>().notNull().default({}),
   /** Lien Mode tournée (avance statut sans ouvrir le panel). */
   runToken: text("run_token"),

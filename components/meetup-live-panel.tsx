@@ -1,7 +1,7 @@
 "use client"
 
 import useSWR from "swr"
-import { MapPin, Navigation, Radio } from "lucide-react"
+import { MapPin, Navigation, Radio, Clock } from "lucide-react"
 import { getMeetupLive } from "@/app/actions/meetup"
 import { formatAgeSec, formatDistanceKm, mapsNavUrl, wazeNavUrl } from "@/lib/meetup-nav"
 
@@ -60,8 +60,15 @@ export function MeetupLivePanel({
           Maps
         </a>
       </div>
+      {active && data?.clientEta && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-300">
+          <Clock className="h-3 w-3" aria-hidden="true" />
+          Client à {data.clientEta.min} min
+          {data.clientEta.at ? ` · ${formatAgeSec(data.clientEta.at)}` : ""}
+        </p>
+      )}
       {active && (
-        <p className={`mt-2 flex items-center gap-1.5 text-xs ${fresh ? "text-emerald-400" : "text-muted-foreground"}`}>
+        <p className={`mt-1.5 flex items-center gap-1.5 text-xs ${fresh ? "text-emerald-400" : "text-muted-foreground"}`}>
           <Radio className={`h-3 w-3 ${fresh ? "animate-pulse" : ""}`} aria-hidden="true" />
           {client
             ? `Client ${fresh ? "en live" : "vu"} ${formatAgeSec(client.at)}${
