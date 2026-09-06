@@ -166,6 +166,8 @@ export type OrderTrackingState = {
   etaAt?: string | null
   etaArriveBy?: string | null
   cancelReason?: string | null
+  meetup?: { address: string; lat: number | null; lng: number | null }
+  clientLive?: { lat: number; lng: number; at: string }
 }
 
 export type VisualTimelineState = {
@@ -279,7 +281,12 @@ export function getTrackingCaption(
     case "preparation":
       return { title: "Tes articles sont en préparation.", detail: null }
     case "pret_meetup":
-      return { title: "Colis prêt à récupérer.", detail: "Rendez-vous au point meet-up convenu." }
+      return {
+        title: "Colis prêt à récupérer.",
+        detail: tracking?.meetup?.address
+          ? `RDV : ${tracking.meetup.address}`
+          : "Rendez-vous au point meet-up convenu.",
+      }
     case "bientot_livraison":
       return {
         title: "Bientôt en livraison.",

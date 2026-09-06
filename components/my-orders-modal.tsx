@@ -15,6 +15,7 @@ import {
 import { statusMeta, isClosedStatus } from "@/lib/order-status"
 import { splitThreadForTracking, type OrderTrackingState } from "@/lib/order-timeline"
 import { OrderTrackingCard } from "@/components/order-tracking-card"
+import { MeetupNavCard } from "@/components/meetup-nav-card"
 import { MessageBody } from "@/components/message-body"
 import { BlobMedia } from "@/components/blob-media"
 import { ProductRatingModal } from "@/components/product-rating-modal"
@@ -75,6 +76,9 @@ type Thread = {
   updatedAt: Date | string
   tracking?: OrderTrackingState | null
   colissimoNumber?: string | null
+  address?: string | null
+  lat?: number | null
+  lng?: number | null
 }
 
 type Message = {
@@ -668,6 +672,18 @@ export function MyOrdersModal({
                             colissimoNumber={selected.colissimoNumber}
                             className="mb-1"
                           />
+                          {selected.fulfillment === "meetup" &&
+                            (selected.tracking?.meetup?.address || selected.address) &&
+                            token && (
+                              <MeetupNavCard
+                                threadId={selected.id}
+                                customerToken={token}
+                                address={selected.tracking?.meetup?.address || selected.address || ""}
+                                lat={selected.tracking?.meetup?.lat ?? selected.lat}
+                                lng={selected.tracking?.meetup?.lng ?? selected.lng}
+                                status={selected.status}
+                              />
+                            )}
                         )}
                         {rest.map(bubble)}
                       </>

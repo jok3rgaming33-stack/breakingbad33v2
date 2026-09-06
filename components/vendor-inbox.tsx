@@ -4,6 +4,8 @@ import { useState, useTransition, useEffect, useRef, useCallback, useMemo } from
 import useSWR from "swr"
 import type { OrderThread, ThreadMessage, Product } from "@/lib/db/schema"
 import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, sendPaysafecardInstructions, confirmDeposit, updateOrderProducts, deleteMessage, notifyArrivingInMinutes } from "@/app/actions/messaging"
+import { setMeetupReady } from "@/app/actions/meetup"
+import { MeetupLivePanel } from "@/components/meetup-live-panel"
 import type { OrderProductItem, AdminOrderPromo } from "@/app/actions/messaging"
 import { listProducts } from "@/app/actions/products"
 import { listPromoCodes } from "@/app/actions/promo"
@@ -53,6 +55,10 @@ export function VendorInbox({
   // Champ Colissimo (affiché uniquement quand on passe en statut "livraison")
   const [colissimoInput, setColissimoInput] = useState("")
   const [colissimoOpen, setColissimoOpen] = useState(false)
+  const [meetupOpen, setMeetupOpen] = useState(false)
+  const [meetupAddr, setMeetupAddr] = useState("")
+  const [meetupSaving, setMeetupSaving] = useState(false)
+  const [meetupError, setMeetupError] = useState<string | null>(null)
   const [etaPreview, setEtaPreview] = useState<{ etaMin: number; driveMin: number } | null>(null)
   const [etaLoading, setEtaLoading] = useState(false)
   const [runCopied, setRunCopied] = useState(false)
@@ -497,6 +503,20 @@ export function VendorInbox({
       setCancelOpen(true)
       return
     }
+    // Meet-up « colis prêt » : saisir l'adresse de rendez-vous (Waze / Maps client).
+    if (status === "pret_meetup") {
+      const t = threads.find((x) => x.id === selectedId)
+      if ((t?.fulfillment || "").toLowerCase() === "meetup") {
+        const existing =
+          (t as { tracking?: { meetup?: { address?: string } } }).tracking?.meetup?.address ||
+          t.address ||
+          ""
+        setMeetupAddr(existing)
+        setMeetupError(null)
+        setMeetupOpen(true)
+        return
+      }
+    }
     // Le passage en "livraison" ouvre une modale pour saisir le numéro Colissimo + aperçu ETA.
     if (status === "livraison") {
       setColissimoInput("")
@@ -561,6 +581,34 @@ export function VendorInbox({
         setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, ...data.thread } : t)))
       }
       setMessages(data?.messages ?? [])
+    })
+  }
+
+  const confirmMeetupReady = () => {
+    if (selectedId == null) return
+    const addr = meetupAddr.trim()
+    if (addr.length < 4) {
+      setMeetupError("Saisis une adresse de rendez-vous.")
+      return
+    }
+    setMeetupSaving(true)
+    setMeetupError(null)
+    startTransition(async () => {
+      try {
+        const res = await setMeetupReady(selectedId, addr)
+        if (!res.ok) {
+          setMeetupError(res.error)
+          return
+        }
+        setMeetupOpen(false)
+        const data = await getThread(selectedId)
+        if (data?.thread) {
+          setThreads((prev) => prev.map((t) => (t.id === selectedId ? { ...t, ...data.thread } : t)))
+        }
+        setMessages(data?.messages ?? [])
+      } finally {
+        setMeetupSaving(false)
+      }
     })
   }
 
@@ -1065,6 +1113,28 @@ export function VendorInbox({
                           scheduledSlot={selected.scheduledSlot}
                           colissimoNumber={selected.colissimoNumber}
                         />
+                        {(selected.fulfillment || "").toLowerCase() === "meetup" &&
+                          (selected.address ||
+                            (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.address) && (
+                          <div className="mt-2">
+                            <MeetupLivePanel
+                              threadId={selected.id}
+                              address={
+                                (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.address ||
+                                selected.address
+                              }
+                              lat={
+                                (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.lat ??
+                                selected.lat
+                              }
+                              lng={
+                                (selected as { tracking?: OrderTrackingState }).tracking?.meetup?.lng ??
+                                selected.lng
+                              }
+                              active={normalizeStatus(selected.status) === "pret_meetup"}
+                            />
+                          </div>
+                        )}
                       )}
                       {rest.map(renderBubble)}
                     </>
@@ -1665,6 +1735,52 @@ export function VendorInbox({
                   Mettre à jour la commande
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale : adresse RDV meet-up */}
+      {meetupOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => !meetupSaving && setMeetupOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold">Colis prêt — point de rendez-vous</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Saisis l&apos;adresse du meet-up. Le client aura Waze et Maps pour lancer le parcours, et pourra
+              partager sa position en live.
+            </p>
+            <input
+              type="text"
+              value={meetupAddr}
+              onChange={(e) => setMeetupAddr(e.target.value)}
+              autoFocus
+              placeholder="Ex. Parking Intermarché, 12 rue … Bordeaux"
+              className="mt-4 w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-accent"
+            />
+            {meetupError && <p className="mt-2 text-xs text-destructive">{meetupError}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMeetupOpen(false)}
+                disabled={meetupSaving}
+                className="rounded-lg border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary disabled:opacity-50"
+              >
+                Retour
+              </button>
+              <button
+                type="button"
+                onClick={confirmMeetupReady}
+                disabled={isPending || meetupSaving}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {meetupSaving ? "Enregistrement…" : "Confirmer le RDV"}
+              </button>
             </div>
           </div>
         </div>

@@ -796,9 +796,16 @@ export async function updateThreadStatus(
       case "preparation":
         notifyBody = "Tes articles sont en cours de préparation."
         break
-      case "pret_meetup":
-        notifyBody = "Ton colis est prêt à récupérer."
+      case "pret_meetup": {
+        const meetupAddr =
+          (prevTracking as { meetup?: { address?: string } }).meetup?.address?.trim() ||
+          current.address?.trim() ||
+          ""
+        notifyBody = meetupAddr
+          ? `Ton colis est prêt. RDV : ${meetupAddr}. Ouvre ta commande pour Waze / Maps.`
+          : "Ton colis est prêt à récupérer."
         break
+      }
       case "bientot_livraison":
         notifyBody = "Ton colis sera bientôt pris en charge. Reste joignable."
         break
