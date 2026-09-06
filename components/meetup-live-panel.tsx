@@ -67,14 +67,12 @@ export function MeetupLivePanel({
           {data.clientEta.at ? ` · ${formatAgeSec(data.clientEta.at)}` : ""}
         </p>
       )}
-      {active && (
+      {active && client && (
         <p className={`mt-1.5 flex items-center gap-1.5 text-xs ${fresh ? "text-emerald-400" : "text-muted-foreground"}`}>
           <Radio className={`h-3 w-3 ${fresh ? "animate-pulse" : ""}`} aria-hidden="true" />
-          {client
-            ? `Client ${fresh ? "en live" : "vu"} ${formatAgeSec(client.at)}${
-                dist != null ? ` · ${formatDistanceKm(dist)} du RDV` : ""
-              }`
-            : "Le client n'a pas encore partagé sa position."}
+          {`Client ${fresh ? "en live" : "vu"} ${formatAgeSec(client.at)}${
+            dist != null ? ` · ${formatDistanceKm(dist)} du RDV` : ""
+          }`}
         </p>
       )}
     </div>
