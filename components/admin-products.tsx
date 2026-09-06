@@ -9,6 +9,7 @@ import { BlobMedia } from "@/components/blob-media"
 import { listProducts, saveProduct, deleteProduct, adjustStock, reorderProducts, deleteProductMedia, type ProductInput } from "@/app/actions/products"
 import { listCategories, createCategory, renameCategory, deleteCategory, reorderCategories } from "@/app/actions/categories"
 import type { Product, ProductVariant, ProductMedia, Category } from "@/lib/db/schema"
+import { backdropDismissProps } from "@/lib/backdrop-close"
 
 type FormState = {
   id?: number
@@ -38,7 +39,7 @@ function emptyForm(section: string): FormState {
     description: "",
     fullDescription: "",
     stock: 0,
-    variants: [{ qty: 1, price: 0 }],
+    variants: [{ qty: 0, price: 0 }],
     badges: [],
     discountType: "",
     discountValue: 0,
@@ -57,7 +58,7 @@ function toForm(p: Product): FormState {
     description: p.description ?? "",
     fullDescription: p.fullDescription ?? "",
     stock: p.stock,
-    variants: p.variants?.length ? p.variants : [{ qty: 1, price: 0 }],
+    variants: p.variants?.length ? p.variants : [{ qty: 0, price: 0 }],
     badges: p.badges ?? [],
     discountType: (p.discountType as "percent" | "fixed" | null) ?? "",
     discountValue: p.discountValue ?? 0,
@@ -143,7 +144,7 @@ export function AdminProducts() {
 
   const addVariant = () => {
     if (!form) return
-    setForm({ ...form, variants: [...form.variants, { qty: 1, price: 0 }] })
+    setForm({ ...form, variants: [...form.variants, { qty: 0, price: 0 }] })
   }
 
   const removeVariant = (i: number) =>
@@ -299,7 +300,7 @@ export function AdminProducts() {
       )}
 
       {form && (
-        <div className="fixed inset-0 z-[120] flex justify-end bg-background/80 backdrop-blur-sm" onClick={() => setForm(null)}>
+        <div className="fixed inset-0 z-[120] flex justify-end bg-background/80 backdrop-blur-sm" {...backdropDismissProps(() => setForm(null))}>
           <div className="flex h-full w-full max-w-lg flex-col border-l border-border bg-card" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h3 className="text-lg font-bold">{form.id ? "Modifier le produit" : "Nouveau produit"}</h3>
@@ -347,7 +348,7 @@ export function AdminProducts() {
               </Field>
 
               <Field label="Quantité en stock">
-                <input type="number" min={0} value={form.stock} onChange={(e) => setForm({ ...form, stock: Number(e.target.value) })} className="input" />
+                <input type="number" min={0} value={form.stock || ""} onChange={(e) => setForm({ ...form, stock: e.target.value === "" ? 0 : Number(e.target.value) })} className="input" placeholder="Stock" />
               </Field>
 
               <div>
@@ -368,16 +369,16 @@ export function AdminProducts() {
                       <input
                         type="number"
                         min={1}
-                        value={v.qty}
-                        onChange={(e) => updateVariant(i, "qty", Number(e.target.value))}
+                        value={v.qty || ""}
+                        onChange={(e) => updateVariant(i, "qty", e.target.value === "" ? 0 : Number(e.target.value))}
                         className="input w-1/2"
                         placeholder="Qté"
                       />
                       <input
                         type="number"
                         min={0}
-                        value={v.price}
-                        onChange={(e) => updateVariant(i, "price", Number(e.target.value))}
+                        value={v.price || ""}
+                        onChange={(e) => updateVariant(i, "price", e.target.value === "" ? 0 : Number(e.target.value))}
                         className="input w-1/2"
                         placeholder="Prix €"
                       />
@@ -434,7 +435,7 @@ export function AdminProducts() {
                     type="number"
                     min={0}
                     disabled={!form.discountType}
-                    value={form.discountValue}
+                    value={form.discountValue || ""}
                     onChange={(e) => setForm({ ...form, discountValue: Number(e.target.value) })}
                     className="input w-1/2 disabled:opacity-40"
                     placeholder={form.discountType === "percent" ? "%" : "€"}

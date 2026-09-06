@@ -10,25 +10,32 @@ export function AdminPromos() {
   const { data: codes, mutate, isLoading } = useSWR("admin-promos", () => listPromoCodes())
   const [code, setCode] = useState("")
   const [type, setType] = useState<"fixed" | "percent" | "produit">("fixed")
-  const [value, setValue] = useState(10)
+  const [value, setValue] = useState<number | "">("")
   const [productName, setProductName] = useState("")
-  const [minAmount, setMinAmount] = useState(0)
+  const [minAmount, setMinAmount] = useState<number | "">("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const handleCreate = async () => {
     setSaving(true)
     setError(null)
-    const res = await savePromoCode({ code, type, value, productName, minAmount, active: true })
+    const res = await savePromoCode({
+      code,
+      type,
+      value: Number(value) || 0,
+      productName,
+      minAmount: Number(minAmount) || 0,
+      active: true,
+    })
     setSaving(false)
     if (!res.ok) {
       setError(res.error ?? "Erreur.")
       return
     }
     setCode("")
-    setValue(10)
+    setValue("")
     setProductName("")
-    setMinAmount(0)
+    setMinAmount("")
     mutate()
   }
 
@@ -79,7 +86,7 @@ export function AdminPromos() {
             <span className="mb-1.5 block text-sm font-medium">
               Valeur ({type === "percent" ? "%" : type === "produit" ? "nb offert" : "€"})
             </span>
-            <input type="number" min={0} value={value} onChange={(e) => setValue(Number(e.target.value))} className="input" />
+            <input type="number" min={0} value={value} onChange={(e) => setValue(e.target.value === "" ? "" : Number(e.target.value))} className="input" placeholder="Valeur" />
           </label>
           {type === "produit" && (
             <label className="block">
@@ -94,7 +101,7 @@ export function AdminPromos() {
           )}
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium">Min. d'achat (€)</span>
-            <input type="number" min={0} value={minAmount} onChange={(e) => setMinAmount(Number(e.target.value))} className="input" />
+            <input type="number" min={0} value={minAmount} onChange={(e) => setMinAmount(e.target.value === "" ? "" : Number(e.target.value))} className="input" placeholder="Min. €" />
           </label>
         </div>
         {error && <p className="mt-3 text-sm text-destructive">{error}</p>}

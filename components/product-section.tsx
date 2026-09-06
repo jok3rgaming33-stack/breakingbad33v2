@@ -14,6 +14,7 @@ import { reserveProduct, getMyReservation } from "@/app/actions/product-reservat
 import { getCustomerStats } from "@/app/actions/account"
 import { getProductRatingSummaries, type ProductRatingSummary } from "@/app/actions/ratings"
 import type { Product, ProductVariant } from "@/lib/db/schema"
+import { backdropDismissProps } from "@/lib/backdrop-close"
 
 type SectionConfig = {
   section: string
@@ -212,7 +213,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
       {isModalOpen && selected && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
-          onClick={closeModal}
+          {...backdropDismissProps(closeModal)}
         >
           <div
             className="relative flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] md:flex-row"

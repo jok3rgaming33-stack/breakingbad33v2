@@ -12,6 +12,7 @@ import { listPromoCodes } from "@/app/actions/promo"
 import { computePromoDiscount } from "@/lib/promo-calc"
 import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock, Ticket, ExternalLink, Copy, Navigation, ArrowLeft } from "lucide-react"
 import { VoiceNoteButton } from "@/components/voice-note-button"
+import { backdropDismissProps } from "@/lib/backdrop-close"
 import { grantRestoreAccess, getRestoreStatus } from "@/app/actions/restore-access"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 import { splitThreadForTracking, type OrderTrackingState } from "@/lib/order-timeline"
@@ -98,8 +99,8 @@ export function VendorInbox({
   const [promoSource, setPromoSource] = useState<"custom" | "existing">("custom")
   const [promoCodeId, setPromoCodeId] = useState<number | "">("")
   const [promoType, setPromoType] = useState<"fixed" | "percent" | "produit">("fixed")
-  const [promoValue, setPromoValue] = useState(10)
-  const [promoMinAmount, setPromoMinAmount] = useState(0)
+  const [promoValue, setPromoValue] = useState<number | "">("")
+  const [promoMinAmount, setPromoMinAmount] = useState<number | "">("")
   const [promoProductName, setPromoProductName] = useState("")
   const [promoCodeLabel, setPromoCodeLabel] = useState("ADMIN")
 
@@ -238,8 +239,8 @@ export function VendorInbox({
     return {
       code: promoCodeLabel.trim().toUpperCase() || "ADMIN",
       type: promoType,
-      value: promoValue,
-      minAmount: promoMinAmount,
+      value: Number(promoValue) || 0,
+      minAmount: Number(promoMinAmount) || 0,
       productName: promoType === "produit" ? promoProductName : null,
     }
   }, [
@@ -1243,7 +1244,7 @@ export function VendorInbox({
       {xmrModalOpen && selected && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setXmrModalOpen(false)}
+          {...backdropDismissProps(() => setXmrModalOpen(false))}
         >
           <div
             className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl"
@@ -1303,7 +1304,7 @@ export function VendorInbox({
       {deleteConfirmOpen && selected && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setDeleteConfirmOpen(false)}
+          {...backdropDismissProps(() => setDeleteConfirmOpen(false))}
         >
           <div
             className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl"
@@ -1348,7 +1349,7 @@ export function VendorInbox({
       {cancelOpen && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setCancelOpen(false)}
+          {...backdropDismissProps(() => setCancelOpen(false))}
         >
           <div
             className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
@@ -1404,7 +1405,7 @@ export function VendorInbox({
       {productsOpen && selected && (
         <div
           className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-0 sm:p-4 md:items-center"
-          onClick={() => setProductsOpen(false)}
+          {...backdropDismissProps(() => setProductsOpen(false))}
         >
           <div
             className="flex h-[min(92dvh,100%)] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-border bg-card shadow-2xl sm:h-auto sm:max-h-[90dvh] sm:rounded-2xl"
@@ -1639,7 +1640,8 @@ export function VendorInbox({
                             type="number"
                             min={0}
                             value={promoValue}
-                            onChange={(e) => setPromoValue(Number(e.target.value) || 0)}
+                            onChange={(e) => setPromoValue(e.target.value === "" ? "" : Number(e.target.value))}
+                            placeholder="Valeur"
                             className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
                           />
                         </div>
@@ -1651,7 +1653,8 @@ export function VendorInbox({
                             type="number"
                             min={0}
                             value={promoMinAmount}
-                            onChange={(e) => setPromoMinAmount(Number(e.target.value) || 0)}
+                            onChange={(e) => setPromoMinAmount(e.target.value === "" ? "" : Number(e.target.value))}
+                            placeholder="Min. €"
                             className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
                           />
                         </div>
@@ -1746,7 +1749,7 @@ export function VendorInbox({
       {meetupOpen && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
-          onClick={() => !meetupSaving && setMeetupOpen(false)}
+          {...backdropDismissProps(() => { if (!meetupSaving) setMeetupOpen(false) })}
         >
           <div
             className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
@@ -1792,7 +1795,7 @@ export function VendorInbox({
       {colissimoOpen && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setColissimoOpen(false)}
+          {...backdropDismissProps(() => setColissimoOpen(false))}
         >
           <div
             className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"

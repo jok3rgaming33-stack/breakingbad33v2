@@ -11,6 +11,7 @@ import {
   PLATINUM_FREE_DELIVERY_POINTS_COST,
   type LoyaltyReward,
 } from "@/lib/loyalty"
+import { backdropDismissProps } from "@/lib/backdrop-close"
 
 function formatCountdown(ms: number): string {
   if (ms <= 0) return "00j 00h 00m 00s"
@@ -136,6 +137,7 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-background/90 p-4"
+      {...backdropDismissProps(handleClose)}
       role="dialog"
       aria-modal="true"
       aria-label="Espace fidélité"

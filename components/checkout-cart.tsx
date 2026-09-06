@@ -20,6 +20,7 @@ import {
 } from "@/lib/delivery-slots"
 import { SelfieVerificationModal, type VerificationMetadata } from "@/components/selfie-verification-modal"
 import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus, Package, Lock } from "lucide-react"
+import { backdropDismissProps } from "@/lib/backdrop-close"
 
 type UserData = { pseudo?: string } | null
 
@@ -575,7 +576,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       role="dialog"
       aria-modal="true"
       aria-label="Panier"
-      onClick={handleClose}
+      {...backdropDismissProps(handleClose)}
     >
       <div
         className="flex h-full w-full max-w-md flex-col border-l border-white/10 bg-card"
@@ -1282,7 +1283,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       {xmrModalOpen && (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setXmrModalOpen(false)}
+          {...backdropDismissProps(() => setXmrModalOpen(false))}
         >
           <div
             className="flex w-full max-w-sm flex-col rounded-3xl border border-border bg-card shadow-2xl"
@@ -1397,7 +1398,7 @@ export function CheckoutCart({ userData, onOrderPlaced }: CheckoutCartProps) {
       {pscModalOpen && (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setPscModalOpen(false)}
+          {...backdropDismissProps(() => setPscModalOpen(false))}
         >
           <div
             className="flex w-full max-w-sm flex-col rounded-3xl border border-border bg-card shadow-2xl"

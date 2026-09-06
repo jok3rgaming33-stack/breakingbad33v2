@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import useSWR from "swr"
 import { X as CloseIcon, Truck, Store, MapPin, Clock, BadgeEuro, Info, Users, Package, ShieldCheck, Coins } from "lucide-react"
 import { getLogisticsContent } from "@/app/actions/settings"
+import { backdropDismissProps } from "@/lib/backdrop-close"
 
 type DeliveryInfoModalProps = {
   isOpen: boolean
@@ -31,7 +32,7 @@ export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
-      onClick={onClose}
+      {...backdropDismissProps(onClose)}
       role="dialog"
       aria-modal="true"
       aria-label="Informations Livraison et Meet-up"

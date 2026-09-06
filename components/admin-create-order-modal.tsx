@@ -13,6 +13,7 @@ import { computePromoDiscount } from "@/lib/promo-calc"
 import {
   X, Plus, Minus, Loader2, Truck, Store, Package, Search, ShoppingBag, Check, Ticket,
 } from "lucide-react"
+import { backdropDismissProps } from "@/lib/backdrop-close"
 
 const FEE_LOCKER = 10
 
@@ -61,8 +62,8 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   const [promoSource, setPromoSource] = useState<"custom" | "existing">("custom")
   const [promoCodeId, setPromoCodeId] = useState<number | "">("")
   const [promoType, setPromoType] = useState<"fixed" | "percent" | "produit">("fixed")
-  const [promoValue, setPromoValue] = useState(10)
-  const [promoMinAmount, setPromoMinAmount] = useState(0)
+  const [promoValue, setPromoValue] = useState<number | "">("")
+  const [promoMinAmount, setPromoMinAmount] = useState<number | "">("")
   const [promoProductName, setPromoProductName] = useState("")
   const [promoCodeLabel, setPromoCodeLabel] = useState("ADMIN")
 
@@ -97,8 +98,8 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
     return {
       code: promoCodeLabel.trim().toUpperCase() || "ADMIN",
       type: promoType,
-      value: promoValue,
-      minAmount: promoMinAmount,
+      value: Number(promoValue) || 0,
+      minAmount: Number(promoMinAmount) || 0,
       productName: promoType === "produit" ? promoProductName : null,
     }
   }, [
@@ -203,7 +204,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
     return (
       <div
         className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
-        onClick={onClose}
+        {...backdropDismissProps(onClose)}
       >
         <div
           className="flex w-full max-w-md flex-col items-center gap-4 rounded-2xl border border-border bg-card p-8 text-center shadow-2xl"
@@ -236,7 +237,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   return (
     <div
       className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-0 sm:p-4 md:items-center"
-      onClick={onClose}
+      {...backdropDismissProps(onClose)}
     >
       <div
         className="flex h-[min(92dvh,100%)] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-border bg-card shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:rounded-2xl"
@@ -645,7 +646,8 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                         type="number"
                         min={0}
                         value={promoValue}
-                        onChange={(e) => setPromoValue(Number(e.target.value) || 0)}
+                        onChange={(e) => setPromoValue(e.target.value === "" ? "" : Number(e.target.value))}
+                        placeholder="Valeur"
                         className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
                       />
                     </div>
@@ -655,7 +657,8 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                         type="number"
                         min={0}
                         value={promoMinAmount}
-                        onChange={(e) => setPromoMinAmount(Number(e.target.value) || 0)}
+                        onChange={(e) => setPromoMinAmount(e.target.value === "" ? "" : Number(e.target.value))}
+                        placeholder="Min. €"
                         className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
                       />
                     </div>

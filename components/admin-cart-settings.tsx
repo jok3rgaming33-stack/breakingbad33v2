@@ -357,8 +357,9 @@ export function AdminCartSettings() {
             <input
               type="number"
               min={0}
-              value={form.minDeliveryAmount}
-              onChange={(e) => setForm({ ...form, minDeliveryAmount: Number(e.target.value) })}
+              value={form.minDeliveryAmount || ""}
+              onChange={(e) => setForm({ ...form, minDeliveryAmount: e.target.value === "" ? 0 : Number(e.target.value) })}
+              placeholder="Min. €"
               className="w-28 rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
             />
             <span className="text-sm text-muted-foreground">€</span>

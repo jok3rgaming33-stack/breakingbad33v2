@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Star, X, ChevronDown, Loader2 } from "lucide-react"
 import type { ProductRatingSummary, ProductRatingDetail } from "@/app/actions/ratings"
 import { getProductRatingDetails } from "@/app/actions/ratings"
+import { backdropDismissProps } from "@/lib/backdrop-close"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Badge compact affiché sur la vignette
@@ -109,7 +110,7 @@ function RatingDetailsModal({
       role="dialog"
       aria-modal="true"
       aria-label={`Avis pour ${productTitle}`}
-      onClick={onClose}
+      {...backdropDismissProps(onClose)}
     >
       <div
         className="relative flex max-h-[85dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl"
