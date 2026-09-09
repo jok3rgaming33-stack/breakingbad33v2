@@ -85,9 +85,9 @@ export function RecoveryBanner({ token, onOpenMessaging }: Props) {
             </p>
             <p className="text-xs text-amber-100/80 leading-relaxed">
               {status.needsKyc
-                ? "Clé provisoire active. Fais le KYC pour validation admin en direct. Tu peux déjà écrire et recevoir des réponses en messagerie."
+                ? "Clé provisoire active. Écris-nous en messagerie — un selfie ne sera demandé que si besoin."
                 : waitingAdmin
-                  ? "KYC envoyé — l'admin peut valider maintenant. Messagerie ouverte dans les deux sens."
+                  ? "Identité envoyée. En attente de l'admin. Messagerie ouverte."
                   : "Dossier en cours. Messagerie ouverte."}
             </p>
           </div>

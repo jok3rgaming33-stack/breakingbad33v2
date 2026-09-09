@@ -648,6 +648,19 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                       {u.nickname ? u.nickname : <span className="italic opacity-60">+ surnom</span>}
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => copyToken(u)}
+                    title="Copier le token"
+                    className="mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-background/60 px-2 py-1 font-mono text-[11px] text-muted-foreground hover:bg-secondary"
+                  >
+                    <span className="min-w-0 break-all">{shortToken(u.token)}</span>
+                    {copiedId === u.id ? (
+                      <Check className="h-3 w-3 shrink-0 text-accent" />
+                    ) : (
+                      <Copy className="h-3 w-3 shrink-0" />
+                    )}
+                  </button>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <FlagSelector user={u} onToggle={toggleFlag} compact />
                     <DeliveryPreferences user={u} onChange={toggleDeliveryPreference} />

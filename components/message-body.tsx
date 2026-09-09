@@ -105,7 +105,7 @@ export function MessageBody({ body, onRateProducts }: { body: string; onRateProd
           return (
             <p
               key={i}
-              className="whitespace-pre-wrap break-all leading-relaxed text-sm"
+              className="whitespace-pre-wrap break-words leading-relaxed text-sm"
             >
               {seg.value}
             </p>

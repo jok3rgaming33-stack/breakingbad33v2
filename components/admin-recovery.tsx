@@ -5,6 +5,8 @@ import {
   listRecoveryClaims,
   approveRecoveryClaim,
   rejectRecoveryClaim,
+  dismissRecoveryClaim,
+  sendRecoveryRestoreLink,
   setRecoveryOriginalUser,
   searchUsersByPseudo,
   type RecoveryClaimRow,
@@ -14,21 +16,23 @@ import {
   Loader2,
   Check,
   XCircle,
-  ShieldAlert,
   Link2,
   Search,
+  Trash2,
 } from "lucide-react"
 
 function statusLabel(s: string) {
   switch (s) {
     case "pending_kyc":
-      return "En attente KYC"
+      return "Ouvert"
     case "kyc_submitted":
-      return "KYC soumis"
+      return "Selfie reçu"
     case "approved":
-      return "Validé"
+      return "Fusionné"
     case "rejected":
-      return "Refusé"
+      return "Clôturé"
+    case "closed":
+      return "Clôturé"
     default:
       return s
   }
@@ -41,6 +45,7 @@ export function AdminRecovery() {
   const [error, setError] = useState("")
   const [rejectId, setRejectId] = useState<number | null>(null)
   const [rejectReason, setRejectReason] = useState("")
+  const [restoreUrl, setRestoreUrl] = useState<string | null>(null)
   const [searchQ, setSearchQ] = useState<Record<number, string>>({})
   const [searchResults, setSearchResults] = useState<
     Record<number, { id: number; pseudo: string; tokenPreview: string }[]>
@@ -61,7 +66,7 @@ export function AdminRecovery() {
   }, [])
 
   const open = rows.filter((r) => r.status === "pending_kyc" || r.status === "kyc_submitted")
-  const closed = rows.filter((r) => r.status === "approved" || r.status === "rejected")
+  const closed = rows.filter((r) => r.status === "approved" || r.status === "rejected" || r.status === "closed")
 
   async function handleApprove(claim: RecoveryClaimRow) {
     setBusyId(claim.id)
@@ -90,6 +95,41 @@ export function AdminRecovery() {
       }
       setRejectId(null)
       setRejectReason("")
+      await refresh()
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleDismiss(claim: RecoveryClaimRow) {
+    if (!window.confirm(`Fermer le dossier « ${claim.claimedPseudo} » ? Le compte d'origine n'est pas touché.`)) {
+      return
+    }
+    setBusyId(claim.id)
+    setError("")
+    try {
+      const res = await dismissRecoveryClaim(claim.id)
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      await refresh()
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleRestoreLink(claim: RecoveryClaimRow) {
+    setBusyId(claim.id)
+    setError("")
+    setRestoreUrl(null)
+    try {
+      const res = await sendRecoveryRestoreLink(claim.id, window.location.origin)
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      setRestoreUrl(res.restoreUrl)
       await refresh()
     } finally {
       setBusyId(null)
@@ -130,7 +170,7 @@ export function AdminRecovery() {
         <div>
           <h2 className="text-lg font-bold">Récupérations de compte</h2>
           <p className="text-xs text-muted-foreground">
-            Flux court : clé provisoire + messagerie 2 sens + KYC immédiat → tu valides / fusionnes en direct.
+            3 actions : répondre, envoyer un lien de reconnexion, ou fusionner. Fermer un dossier ne bloque jamais le compte d&apos;origine.
           </p>
         </div>
       </div>
@@ -139,6 +179,12 @@ export function AdminRecovery() {
         <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </p>
+      )}
+      {restoreUrl && (
+        <div className="rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-sm">
+          <p className="mb-1 font-medium">Lien de restauration (24h) — aussi posté dans le fil :</p>
+          <code className="block break-all text-xs text-muted-foreground">{restoreUrl}</code>
+        </div>
       )}
 
       {open.length === 0 ? (
@@ -261,7 +307,26 @@ export function AdminRecovery() {
                   ) : (
                     <Check className="h-4 w-4" />
                   )}
-                  Valider & fusionner
+                  Fusionner
+                </button>
+                <button
+                  type="button"
+                  disabled={busyId === claim.id || !claim.originalUserId}
+                  onClick={() => handleRestoreLink(claim)}
+                  title={!claim.originalUserId ? "Associe d'abord le compte d'origine" : "Envoyer un lien de reconnexion (24h)"}
+                  className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold hover:bg-secondary disabled:opacity-50"
+                >
+                  <Link2 className="h-4 w-4" />
+                  Lien reconnexion
+                </button>
+                <button
+                  type="button"
+                  disabled={busyId === claim.id}
+                  onClick={() => handleDismiss(claim)}
+                  className="flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold hover:bg-secondary disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Fermer (sans bloquer)
                 </button>
                 <button
                   type="button"
@@ -269,10 +334,10 @@ export function AdminRecovery() {
                     setRejectId(claim.id)
                     setRejectReason("")
                   }}
-                  className="flex items-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm font-semibold text-destructive"
+                  className="flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-secondary"
                 >
                   <XCircle className="h-4 w-4" />
-                  Refuser
+                  Fermer avec motif
                 </button>
               </div>
             </div>
@@ -302,7 +367,10 @@ export function AdminRecovery() {
       {rejectId != null && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-md rounded-2xl border border-border bg-card p-5">
-            <h3 className="mb-2 font-bold">Refuser la récupération</h3>
+            <h3 className="mb-2 font-bold">Fermer le dossier</h3>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Le compte d&apos;origine n&apos;est pas bloqué. Seul le compte provisoire est désactivé.
+            </p>
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
@@ -322,9 +390,9 @@ export function AdminRecovery() {
                 type="button"
                 disabled={busyId === rejectId}
                 onClick={handleReject}
-                className="rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-white"
+                className="rounded-xl bg-secondary px-4 py-2 text-sm font-semibold"
               >
-                Confirmer le refus
+                Fermer le dossier
               </button>
             </div>
           </div>

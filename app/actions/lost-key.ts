@@ -1,11 +1,11 @@
 "use server"
 
 /**
- * Flux complet « Clé perdue » :
- * 1. Compte provisoire + clé secrète générée
- * 2. Fil messagerie lié au token (client voit les réponses admin)
- * 3. KYC obligatoire
- * 4. Validation admin → fusion compte d'origine + token provisoire = nouvelle clé
+ * Flux « Clé perdue » (simplifié) :
+ * 1. Client envoie pseudo + message → compte provisoire + fil messagerie
+ * 2. Admin répond, envoie un lien de restauration, fusionne, ou clôture
+ *    (clôturer ne touche JAMAIS le compte d'origine)
+ * 3. KYC seulement si l'admin en a besoin pour confirmer l'identité
  */
 
 import { db } from "@/lib/db"
@@ -29,6 +29,7 @@ import { revalidatePath } from "next/cache"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { notifyVendor } from "@/lib/push"
 import { del } from "@vercel/blob"
+import { grantRestoreAccess } from "@/app/actions/restore-access"
 
 export type RecoveryClaimRow = {
   id: number
@@ -138,8 +139,7 @@ export async function submitLostKeyClaim(input: {
     `Pseudo déclaré : ${claimedPseudo}\n` +
     `Compte provisoire : ${finalPseudo}\n\n` +
     (input.message?.trim() || "Le client a perdu sa clé et demande de récupérer son compte.") +
-    `\n\n—\nLe client est connecté avec une clé provisoire et peut lire tes réponses ici.\n` +
-    `Il doit passer le KYC. Ensuite valide la récupération dans Vérifications / Récupérations.`
+    `\n\n—\nLe client est connecté avec une clé provisoire et lit tes réponses ici.`
 
   const trackingToken = `MSG_${crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`
   const [thread] = await db
@@ -167,9 +167,8 @@ export async function submitLostKeyClaim(input: {
     sender: "vendeur",
     body:
       `Bien reçu pour « ${claimedPseudo} ».\n\n` +
-      `1) Fais ton KYC maintenant (selfie + courte vidéo) — le vendeur valide en direct.\n` +
-      `2) Écris-moi ici pour toute question : je peux te répondre tout de suite.\n\n` +
-      `Après validation, commandes, messages et fidélité sont rattachés ; cette clé provisoire devient ta clé définitive.`,
+      `Écris-moi ici : je te réponds dans ce fil.\n` +
+      `Si besoin on te demandera un selfie pour confirmer, puis on rattache ton compte (ou on t'envoie un lien de reconnexion).`,
   })
 
   const [claim] = await db
@@ -186,7 +185,7 @@ export async function submitLostKeyClaim(input: {
 
   await notifyVendor({
     title: "Clé perdue — récupération",
-    body: `${claimedPseudo} a ouvert un dossier (compte provisoire ${finalPseudo}). KYC à valider.`,
+    body: `${claimedPseudo} a ouvert un dossier de récupération (${finalPseudo}).`,
     url: "/admin",
     tag: `recovery-${claim.id}`,
   })
@@ -457,9 +456,15 @@ export async function approveRecoveryClaim(
   return { ok: true, newToken }
 }
 
-export async function rejectRecoveryClaim(
+/**
+ * Clôture un dossier de récupération SANS toucher au compte d'origine.
+ * Désactive uniquement le compte provisoire (pas de ban).
+ */
+async function closeRecoveryClaimInternal(
   claimId: number,
-  reason: string,
+  status: "closed" | "rejected",
+  note: string,
+  clientBody: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
   await ensureRecoverySchema()
@@ -470,24 +475,25 @@ export async function rejectRecoveryClaim(
     .limit(1)
   const claim = claims[0]
   if (!claim) return { ok: false, error: "Dossier introuvable." }
-
-  const motif = reason.trim() || "Non précisé"
+  if (claim.status === "approved") return { ok: false, error: "Dossier déjà validé." }
+  if (claim.status === "closed" || claim.status === "rejected") {
+    return { ok: false, error: "Dossier déjà clôturé." }
+  }
 
   if (claim.threadId) {
     await db.insert(threadMessages).values({
       threadId: claim.threadId,
       sender: "vendeur",
-      body: `❌ Récupération de compte refusée.\n\nMotif : ${motif}\n\nLe compte provisoire reste limité. Contacte le support si besoin.`,
+      body: clientBody,
     })
   }
 
-  // Désactive le provisoire (flag banni)
+  // Uniquement le compte provisoire — le compte d'origine n'est jamais modifié.
   await db
     .update(users)
-    .set({ flags: ["lost_key_rejected", "banni"] })
+    .set({ flags: ["lost_key_closed"] })
     .where(eq(users.token, claim.provisionalToken))
 
-  // Purge KYC provisoire
   const kyc = await db
     .select()
     .from(userVerifications)
@@ -509,14 +515,78 @@ export async function rejectRecoveryClaim(
   await db
     .update(accountRecoveryClaims)
     .set({
-      status: "rejected",
-      adminNote: motif,
+      status,
+      adminNote: note,
       resolvedAt: new Date(),
     })
     .where(eq(accountRecoveryClaims.id, claimId))
 
   revalidatePath("/admin")
   return { ok: true }
+}
+
+/** Admin : ferme le dossier sans bloquer le compte d'origine. */
+export async function dismissRecoveryClaim(
+  claimId: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  return closeRecoveryClaimInternal(
+    claimId,
+    "closed",
+    "Clôturé sans fusion",
+    `Dossier clôturé.\n\nTon compte d'origine n'est pas bloqué. Si tu as retrouvé ta clé, reconnecte-toi avec. Sinon écris-nous à nouveau via « Clé perdue ».`,
+  )
+}
+
+export async function rejectRecoveryClaim(
+  claimId: number,
+  reason: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const motif = reason.trim() || "Non précisé"
+  return closeRecoveryClaimInternal(
+    claimId,
+    "rejected",
+    motif,
+    `Récupération clôturée.\n\nMotif : ${motif}\n\nTon compte d'origine n'est pas bloqué.`,
+  )
+}
+
+/** Admin : envoie un lien de restauration au compte d'origine (24h), sans fusion. */
+export async function sendRecoveryRestoreLink(
+  claimId: number,
+  appOrigin: string,
+): Promise<{ ok: true; restoreUrl: string } | { ok: false; error: string }> {
+  if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
+  await ensureRecoverySchema()
+  const claims = await db
+    .select()
+    .from(accountRecoveryClaims)
+    .where(eq(accountRecoveryClaims.id, claimId))
+    .limit(1)
+  const claim = claims[0]
+  if (!claim) return { ok: false, error: "Dossier introuvable." }
+  if (!claim.originalUserId) {
+    return { ok: false, error: "Associe d'abord le compte d'origine." }
+  }
+  const origRows = await db.select().from(users).where(eq(users.id, claim.originalUserId)).limit(1)
+  const original = origRows[0]
+  if (!original) return { ok: false, error: "Compte d'origine introuvable." }
+  if (original.token === claim.provisionalToken) {
+    return { ok: false, error: "Le compte lié est le provisoire." }
+  }
+
+  const origin = appOrigin.replace(/\/$/, "")
+  const res = await grantRestoreAccess(original.token, origin, claim.threadId ?? undefined)
+  if (!res.ok || !res.restoreUrl) {
+    return { ok: false, error: res.error ?? "Impossible d'envoyer le lien." }
+  }
+
+  await db
+    .update(accountRecoveryClaims)
+    .set({ adminNote: "Lien de restauration envoyé" })
+    .where(eq(accountRecoveryClaims.id, claimId))
+
+  revalidatePath("/admin")
+  return { ok: true, restoreUrl: res.restoreUrl }
 }
 
 /** Recherche users par pseudo pour association manuelle admin. */

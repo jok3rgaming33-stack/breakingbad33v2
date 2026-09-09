@@ -29,6 +29,8 @@ export type CartConfig = {
   minDeliveryAmount: number
   deliverySlots: DeliverySlot[]
   meetupSlots: MeetupSlot[]
+  /** false = masque le locker (envoi colis) côté client, temporairement. Défaut : actif. */
+  lockerEnabled?: boolean
 }
 
 const DEFAULT_ORIGIN: MapOrigin = { lat: 44.8378, lng: -0.5792, label: "Bordeaux centre" }
@@ -45,6 +47,7 @@ const DEFAULT_LOGISTICS: LogisticsContent = {
 
 const DEFAULT_CART_CONFIG: CartConfig = {
   minDeliveryAmount: 50,
+  lockerEnabled: true,
   deliverySlots: [
     { id: "d1", label: "14H - 17H", startHour: 14, endHour: 17 },
     { id: "d2", label: "18H - 20H", startHour: 18, endHour: 20 },
@@ -128,7 +131,12 @@ export async function setCartConfig(config: CartConfig) {
     }))
     .filter((s) => s.label.length > 0)
 
-  await writeSetting("cart_config", { minDeliveryAmount: min, deliverySlots, meetupSlots })
+  await writeSetting("cart_config", {
+    minDeliveryAmount: min,
+    deliverySlots,
+    meetupSlots,
+    lockerEnabled: config.lockerEnabled !== false,
+  })
   revalidatePath("/")
   revalidatePath("/admin")
   return { ok: true as const }

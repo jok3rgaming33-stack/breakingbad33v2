@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import useSWR from "swr"
 import type { Product } from "@/lib/db/schema"
 import { listProducts } from "@/app/actions/products"
@@ -35,6 +35,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   // Catalogue
   const { data: allProducts = [], isLoading: loadingProds } = useSWR<Product[]>("products-list", listProducts)
   const { data: config } = useSWR("cart-config", getCartConfig)
+  const lockerEnabled = config?.lockerEnabled !== false
 
   // Articles de la commande
   const [items, setItems] = useState<AdminOrderItem[]>([])
@@ -42,6 +43,10 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
 
   // Mode de livraison
   const [fulfillment, setFulfillment] = useState<"meetup" | "livraison" | "locker">("meetup")
+
+  useEffect(() => {
+    if (!lockerEnabled && fulfillment === "locker") setFulfillment("meetup")
+  }, [lockerEnabled, fulfillment])
 
   // Meetup
   const [meetupDate, setMeetupDate] = useState("")
@@ -378,8 +383,10 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
           {/* Mode de livraison */}
           <section className="space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mode de livraison</p>
-            <div className="grid grid-cols-3 gap-2">
-              {(["meetup", "livraison", "locker"] as const).map((m) => {
+            <div className={`grid gap-2 ${(config?.lockerEnabled !== false) ? "grid-cols-3" : "grid-cols-2"}`}>
+              {(["meetup", "livraison", "locker"] as const)
+                .filter((m) => m !== "locker" || config?.lockerEnabled !== false)
+                .map((m) => {
                 const Icon = m === "meetup" ? Store : m === "locker" ? Package : Truck
                 const label = m === "meetup" ? "Meet-up" : m === "locker" ? "Locker" : "Livraison"
                 const fee = m === "meetup" ? "Gratuit" : m === "locker" ? "10€" : "10–20€+"

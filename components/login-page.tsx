@@ -1076,7 +1076,7 @@ export function LoginPage({
                 </span>
                 <div>
                   <h2 className="font-bold leading-tight">Clé perdue</h2>
-                  <p className="text-xs text-muted-foreground">Contacte l&apos;admin pour obtenir de l&apos;aide</p>
+                  <p className="text-xs text-muted-foreground">Pseudo + message, on te répond en messagerie</p>
                 </div>
               </div>
               <button
@@ -1093,13 +1093,11 @@ export function LoginPage({
               {lostKeySent ? (
                 <div className="flex flex-col items-center gap-4 py-4 text-center">
                   <CheckCircle2 className="h-14 w-14 text-accent" aria-hidden="true" />
-                  <p className="font-semibold text-lg">Dossier ouvert — une étape : identité</p>
+                  <p className="font-semibold text-lg">Dossier ouvert</p>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    Tu es connecté avec une <strong>clé provisoire</strong>.{" "}
-                    <strong>Fais le KYC maintenant</strong> pour que l&apos;admin valide en direct
-                    le rattachement de {lostKeyPseudo ? `« ${lostKeyPseudo} »` : "ton compte"}.
-                    Tu peux aussi <strong>écrire et recevoir des réponses</strong> dans la messagerie
-                    pendant ce temps.
+                    Tu es connecté avec une <strong>clé provisoire</strong>
+                    {lostKeyPseudo ? ` pour « ${lostKeyPseudo} »` : ""}. Écris-nous en messagerie,
+                    on te répond. Un selfie ne sera demandé que si besoin.
                   </p>
                   {lostKeyProvisional && (
                     <div className="w-full rounded-2xl border border-border bg-background/60 p-3 text-left">
@@ -1125,33 +1123,30 @@ export function LoginPage({
                       type="button"
                       onClick={() => {
                         setShowLostKey(false)
-                        // KYC immédiat + messagerie dispo via bannière
-                        window.location.href = "/verification?from=recovery"
+                        onSuccess({ openLatestMessaging: true })
                       }}
                       className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-6 py-3 text-sm font-semibold text-accent-foreground hover:brightness-110"
                     >
-                      <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                      Faire le KYC maintenant
+                      Écrire dans la messagerie
                     </button>
                     <button
                       type="button"
                       onClick={() => {
                         setShowLostKey(false)
-                        onSuccess({ openLatestMessaging: true })
+                        window.location.href = "/verification?from=recovery"
                       }}
                       className="w-full rounded-2xl border border-border px-6 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary"
                     >
-                      Écrire dans la messagerie
+                      Envoyer un selfie (si demandé)
                     </button>
                   </div>
                 </div>
               ) : (
                 <>
                   <p className="mb-5 text-sm text-muted-foreground leading-relaxed">
-                    Indique le pseudo du compte à récupérer. On te connecte tout de suite avec une{" "}
-                    <strong>clé provisoire</strong>, tu fais le <strong>KYC</strong> (selfie), et
-                    l&apos;admin valide en direct. Messagerie ouverte dans les deux sens pendant
-                    tout le dossier.
+                    Indique le pseudo du compte à récupérer et un petit message. On te connecte
+                    tout de suite avec une <strong>clé provisoire</strong> pour discuter en
+                    messagerie. Pas de KYC obligatoire.
                   </p>
                   <div className="flex flex-col gap-3">
                     <div>

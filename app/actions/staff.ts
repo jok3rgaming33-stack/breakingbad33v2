@@ -396,7 +396,7 @@ export async function repairWhitelistMember(
  */
 export async function resolveClientLogin(token: string): Promise<
   | { ok: true; pseudo: string; token: string }
-  | { ok: false; error?: string; code?: "invalid" | "banned" | "short" }
+  | { ok: false; error?: string; code?: "invalid" | "banned" | "short" | "recovery_closed" }
 > {
   const { normalizeSecretKey } = await import("@/lib/normalize-token")
   const t = normalizeSecretKey(token)
@@ -448,6 +448,14 @@ export async function resolveClientLogin(token: string): Promise<
   }
 
   const flags = Array.isArray(user.flags) ? user.flags : []
+  if (flags.includes("lost_key_closed")) {
+    return {
+      ok: false,
+      code: "recovery_closed",
+      error:
+        "Ce dossier de récupération a été clôturé. Ton compte d'origine n'est pas bloqué — reconnecte-toi avec ta clé si tu l'as.",
+    }
+  }
   if (flags.includes("banni") || flags.includes("lost_key_rejected")) {
     return {
       ok: false,

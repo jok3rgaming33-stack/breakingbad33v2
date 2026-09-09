@@ -42,6 +42,7 @@ function calcDeliveryFee(km: number): number {
 // Config par défaut utilisée le temps du chargement (évite un panier vide).
 const FALLBACK_CONFIG: CartConfig = {
   minDeliveryAmount: 50,
+  lockerEnabled: true,
   deliverySlots: [
     { id: "d1", label: "14H - 17H", startHour: 14, endHour: 17 },
     { id: "d2", label: "18H - 20H", startHour: 18, endHour: 20 },
@@ -154,10 +155,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
   const [meetupHour, setMeetupHour] = useState("")
   const [lockerAddress, setLockerAddress] = useState("")
   const [lockerConfirmed, setLockerConfirmed] = useState(false)
-  /** Locker : XMR ou Paysafecard */
-  const [lockerPayMethod, setLockerPayMethod] = useState<"xmr" | "paysafecard">("xmr")
   const [xmrModalOpen, setXmrModalOpen] = useState(false)
-  const [pscModalOpen, setPscModalOpen] = useState(false)
   const [payConfirmed, setPayConfirmed] = useState(false)
   const [cryptoPayment, setCryptoPayment] = useState<{
     enabled: boolean
@@ -187,6 +185,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     revalidateOnFocus: false,
   })
   const config = cfg ?? FALLBACK_CONFIG
+  const lockerEnabled = config.lockerEnabled !== false
 
   const occupancyKey =
     date && fulfillmentMode === "livraison" ? `delivery-slot-occ:${date}` : null
@@ -203,6 +202,10 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
   useEffect(() => {
     if (!deliveryAllowed && fulfillmentMode === "livraison") setFulfillmentMode("meetup")
   }, [deliveryAllowed, fulfillmentMode])
+
+  useEffect(() => {
+    if (!lockerEnabled && fulfillmentMode === "locker") setFulfillmentMode("meetup")
+  }, [lockerEnabled, fulfillmentMode])
 
   // Jour FR d'un créneau : days[] admin, sinon préfixe du label ("Lundi 14h"), sinon tous les jours
   const slotMatchesDay = (s: { label: string; days?: string[] }, dayName: string) => {
@@ -463,9 +466,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
             ? `Livraison à ${address} — créneau ${slot} (💎 -${freeDeliveryPointsCost} pts Platine)`
             : `Livraison à ${address} — créneau ${slot} (frais ${deliveryFee}€)`
 
-    const payLine = isLocker
-      ? `Paiement : ${lockerPayMethod === "paysafecard" ? "Paysafecard" : "Monero (XMR)"}`
-      : null
+    const payLine = isLocker ? "Paiement : Monero (XMR)" : null
 
     const message = [
       `Nouvelle commande de ${name}`,
@@ -506,7 +507,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
         lng: isMeetup || isLocker ? null : coords?.lng ?? null,
         scheduledDate: isLocker ? undefined : date,
         scheduledSlot: isLocker ? undefined : isMeetup ? meetupHour : slot,
-        paymentMethod: isLocker ? lockerPayMethod : null,
+        paymentMethod: isLocker ? "xmr" : null,
         redeemFreeDeliveryPoints: ptsFreeApplied,
       })
       if (!orderRes || (typeof orderRes === "object" && "ok" in orderRes && orderRes.ok === false)) {
@@ -554,7 +555,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     setFulfillmentMode("livraison")
     setMeetupHour("")
     setLockerAddress("")
-    setLockerPayMethod("xmr")
+    setLockerConfirmed(false)
     setPayConfirmed(false)
     setDistanceKm(null)
     setCoords(null)
@@ -615,7 +616,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
             </p>
 
             {/* Crypto uniquement Locker XMR — jamais livraison / meet-up */}
-            {isLocker && cryptoPayment?.enabled && lockerPayMethod === "xmr" && (
+            {isLocker && cryptoPayment?.enabled && (
               <div className="mt-2 w-full max-w-sm rounded-2xl border border-accent/40 bg-accent/10 p-4 text-left">
                 <p className="mb-1 text-sm font-bold text-accent">Paiement Monero (XMR)</p>
                 {cryptoPayment.payAmount && (
@@ -642,24 +643,6 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                     Envoie le montant XMR à l&apos;adresse ci-dessus (aussi dans ta messagerie).
                   </p>
                 ) : null}
-              </div>
-            )}
-
-            {isLocker && lockerPayMethod === "paysafecard" && (
-              <div className="mt-2 w-full max-w-sm rounded-2xl border border-accent/40 bg-accent/10 p-4 text-left">
-                <p className="mb-1 text-sm font-bold text-accent">Paiement Paysafecard</p>
-                <p className="mb-2 text-xs text-muted-foreground leading-relaxed">
-                  Achète ton code uniquement sur le site officiel, envoie le PIN à 16 chiffres dans ton suivi, puis
-                  récupère ton token TRK_ après confirmation.
-                </p>
-                <a
-                  href="https://www.paysafecard.com/fr-fr/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-semibold text-accent underline"
-                >
-                  Site officiel Paysafecard →
-                </a>
               </div>
             )}
 
@@ -721,8 +704,8 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                 </div>
               )}
 
-              {/* Mode de réception — 3 chips claires + frais anticipés */}
-              <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
+              {/* Mode de réception — chips claires + frais anticipés */}
+              <div className={`mt-6 grid grid-cols-1 gap-2 sm:gap-3 ${lockerEnabled ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
                 <button
                   type="button"
                   onClick={() => deliveryAllowed && setFulfillmentMode("livraison")}
@@ -764,6 +747,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                   </span>
                   <span className="text-[11px] leading-snug opacity-80">Gratuit — retrait sur place</span>
                 </button>
+                {lockerEnabled && (
                 <button
                   type="button"
                   onClick={() => setFulfillmentMode("locker")}
@@ -779,6 +763,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                   </span>
                   <span className="text-[11px] leading-snug opacity-80">Mondial Relay · {FEE_LOCKER}€</span>
                 </button>
+                )}
               </div>
               {!deliveryAllowed && (
                 <p className="mt-2 rounded-xl border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">
@@ -787,7 +772,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                   <span className="font-semibold text-foreground">
                     {Math.max(0, config.minDeliveryAmount - subtotal)}€
                   </span>{" "}
-                  pour y accéder, ou choisis meet-up / locker.
+                  pour y accéder, ou choisis meet-up{lockerEnabled ? " / locker" : ""}.
                 </p>
               )}
 
@@ -873,64 +858,22 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                     </span>
                   </label>
 
-                  {/* Choix paiement Locker : XMR ou Paysafecard */}
+                  {/* Paiement Locker : XMR uniquement */}
                   <div className="mt-3 rounded-2xl border border-border bg-background/60 p-4">
-                    <p className="mb-3 text-sm font-semibold">Paiement requis avant expédition</p>
+                    <p className="mb-3 text-sm font-semibold">Paiement Monero (XMR) avant expédition</p>
                     <p className="mb-3 text-xs text-muted-foreground leading-relaxed">
-                      Choisis ton mode de paiement. Après envoi et confirmation par le vendeur, tu recevras un{" "}
+                      Après dépôt et confirmation par le vendeur, tu recevras un{" "}
                       <span className="font-semibold text-foreground">token TRK_</span> en messagerie pour débloquer le suivi Locker.
                     </p>
 
-                    <div className="mb-3 grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLockerPayMethod("xmr")
-                          setPayConfirmed(false)
-                        }}
-                        className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ${
-                          lockerPayMethod === "xmr"
-                            ? "border-accent bg-accent/15 text-accent"
-                            : "border-border text-muted-foreground hover:border-accent/40"
-                        }`}
-                      >
-                        Monero (XMR)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLockerPayMethod("paysafecard")
-                          setPayConfirmed(false)
-                        }}
-                        className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ${
-                          lockerPayMethod === "paysafecard"
-                            ? "border-accent bg-accent/15 text-accent"
-                            : "border-border text-muted-foreground hover:border-accent/40"
-                        }`}
-                      >
-                        Paysafecard
-                      </button>
-                    </div>
-
-                    {lockerPayMethod === "xmr" ? (
-                      <button
-                        type="button"
-                        onClick={() => setXmrModalOpen(true)}
-                        className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-accent/60 bg-accent/10 px-3 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/20"
-                      >
-                        <Lock className="h-4 w-4" aria-hidden="true" />
-                        Lire le tutoriel paiement XMR
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setPscModalOpen(true)}
-                        className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-accent/60 bg-accent/10 px-3 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/20"
-                      >
-                        <Lock className="h-4 w-4" aria-hidden="true" />
-                        Lire le tutoriel Paysafecard
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setXmrModalOpen(true)}
+                      className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-accent/60 bg-accent/10 px-3 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/20"
+                    >
+                      <Lock className="h-4 w-4" aria-hidden="true" />
+                      Lire le tutoriel paiement XMR
+                    </button>
 
                     <label
                       className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${
@@ -944,9 +887,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                         className="h-4 w-4 accent-[var(--accent)]"
                       />
                       <span className="text-xs leading-relaxed">
-                        {lockerPayMethod === "paysafecard"
-                          ? "J'ai lu le tutoriel Paysafecard. J'achèterai mon code sur le site officiel et j'enverrai le PIN après validation."
-                          : "J'ai lu le tutoriel XMR. Je comprends que le token de suivi sera envoyé après confirmation du dépôt."}
+                        J&apos;ai lu le tutoriel XMR. Je comprends que le token de suivi sera envoyé après confirmation du dépôt.
                       </span>
                     </label>
                   </div>
@@ -1412,167 +1353,6 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
         </div>
       )}
 
-      {/* Modale Paysafecard — tutoriel + liens officiels */}
-      {pscModalOpen && (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
-          {...backdropDismissProps(() => setPscModalOpen(false))}
-        >
-          <div
-            className="flex w-full max-w-sm flex-col rounded-3xl border border-border bg-card shadow-2xl"
-            style={{ maxHeight: "90dvh" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex shrink-0 items-center justify-between px-6 pt-6 pb-4">
-              <div className="flex items-center gap-2">
-                <Lock className="h-5 w-5 text-accent opacity-80" aria-hidden="true" />
-                <h2 className="text-base font-bold">Paiement Paysafecard</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPscModalOpen(false)}
-                aria-label="Fermer"
-                className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-6 pb-2 text-sm text-muted-foreground">
-              <div className="mb-4 rounded-2xl border border-accent/20 bg-accent/5 p-3">
-                <p className="mb-1 font-semibold text-foreground">Qu&apos;est-ce que Paysafecard ?</p>
-                <p className="text-xs leading-relaxed">
-                  Un ticket prépayé avec un <span className="font-semibold text-foreground">code PIN à 16 chiffres</span>.
-                  Tu l&apos;achètes en cash (tabac, supermarché) ou en ligne — <strong className="text-foreground">sans
-                  carte bancaire obligatoire</strong> selon le point de vente. Aucun compte bancaire à partager avec le vendeur.
-                </p>
-              </div>
-
-              <div className="mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3">
-                <p className="mb-2 text-xs font-semibold text-emerald-300">Site officiel uniquement</p>
-                <p className="mb-2 text-xs leading-relaxed">
-                  N&apos;achète jamais sur un site douteux. Utilise uniquement le site officiel Paysafecard :
-                </p>
-                <div className="flex flex-col gap-2">
-                  <a
-                    href="https://www.paysafecard.com/fr-fr/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-xl border border-accent/40 bg-accent/10 px-3 py-2 text-center text-xs font-semibold text-accent transition-colors hover:bg-accent/20"
-                  >
-                    paysafecard.com/fr-fr — Accueil officiel
-                  </a>
-                  <a
-                    href="https://www.paysafecard.com/fr-fr/acheter-paysafecard-en-ligne/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-xl border border-border bg-background/60 px-3 py-2 text-center text-xs font-semibold text-foreground transition-colors hover:border-accent"
-                  >
-                    Acheter en ligne (officiel)
-                  </a>
-                  <a
-                    href="https://www.paysafecard.com/fr-fr/trouver-un-point-de-vente/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-xl border border-border bg-background/60 px-3 py-2 text-center text-xs font-semibold text-foreground transition-colors hover:border-accent"
-                  >
-                    Trouver un point de vente (officiel)
-                  </a>
-                </div>
-              </div>
-
-              <p className="mb-3 font-semibold text-foreground">Comment payer en 4 étapes</p>
-              <ol className="flex flex-col gap-3">
-                <li className="flex gap-3">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">
-                    1
-                  </span>
-                  <div>
-                    <p className="font-medium text-foreground">Valide ta commande Locker</p>
-                    <p className="text-xs leading-relaxed">
-                      Choisis Paysafecard au checkout. Note le montant total à régler.
-                    </p>
-                  </div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">
-                    2
-                  </span>
-                  <div>
-                    <p className="font-medium text-foreground">Achète sur le site officiel</p>
-                    <p className="text-xs leading-relaxed">
-                      Va sur{" "}
-                      <a
-                        href="https://www.paysafecard.com/fr-fr/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-semibold text-accent underline"
-                      >
-                        paysafecard.com/fr-fr
-                      </a>{" "}
-                      → achat en ligne ou point de vente. Prends un ticket du <strong className="text-foreground">montant exact ou supérieur</strong> au total de la commande.
-                    </p>
-                  </div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">
-                    3
-                  </span>
-                  <div>
-                    <p className="font-medium text-foreground">Envoie le code PIN (16 chiffres)</p>
-                    <p className="text-xs leading-relaxed">
-                      Dans ton suivi Locker (après validation vendeur), envoie le PIN en message — recopié sans erreur.
-                    </p>
-                  </div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">
-                    4
-                  </span>
-                  <div>
-                    <p className="font-medium text-foreground">Signale puis récupère ton token</p>
-                    <p className="text-xs leading-relaxed">
-                      Clique sur « J&apos;ai envoyé mon code Paysafecard ». Après confirmation vendeur, tu reçois ton token{" "}
-                      <span className="font-mono text-foreground">TRK_</span> en messagerie.
-                    </p>
-                  </div>
-                </li>
-              </ol>
-
-              <div className="mt-4 mb-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
-                <p className="mb-1 font-semibold text-amber-400">Important</p>
-                <ul className="flex flex-col gap-1 text-xs leading-relaxed">
-                  <li>— Uniquement le site / points de vente officiels Paysafecard.</li>
-                  <li>— Ne partage jamais ton PIN ailleurs que dans ton suivi commande.</li>
-                  <li>— Vérifie les 16 chiffres avant d&apos;envoyer.</li>
-                  <li>— Le token TRK_ n&apos;est envoyé qu&apos;après validation du code.</li>
-                </ul>
-              </div>
-            </div>
-
-            <div className="shrink-0 space-y-2 px-6 py-4">
-              <a
-                href="https://www.paysafecard.com/fr-fr/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex w-full items-center justify-center rounded-2xl border border-accent/50 bg-accent/10 py-3 text-sm font-semibold text-accent transition-colors hover:bg-accent/20"
-              >
-                Ouvrir le site officiel
-              </a>
-              <button
-                type="button"
-                onClick={() => {
-                  setPayConfirmed(true)
-                  setPscModalOpen(false)
-                }}
-                className="w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90"
-              >
-                J&apos;ai compris, je confirme
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
     </>
   )

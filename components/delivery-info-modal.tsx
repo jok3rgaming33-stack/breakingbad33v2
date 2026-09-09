@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import useSWR from "swr"
 import { X as CloseIcon, Truck, Store, MapPin, Clock, BadgeEuro, Info, Users, Package, ShieldCheck, Coins } from "lucide-react"
-import { getLogisticsContent } from "@/app/actions/settings"
+import { getCartConfig, getLogisticsContent } from "@/app/actions/settings"
 import { backdropDismissProps } from "@/lib/backdrop-close"
 
 type DeliveryInfoModalProps = {
@@ -18,6 +18,10 @@ export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
   const { data: content } = useSWR(isOpen ? "logistics-content" : null, () => getLogisticsContent(), {
     revalidateOnFocus: false,
   })
+  const { data: cartCfg } = useSWR(isOpen ? "cart-config" : null, () => getCartConfig(), {
+    revalidateOnFocus: false,
+  })
+  const lockerEnabled = cartCfg?.lockerEnabled !== false
 
   useEffect(() => {
     if (isOpen) {
@@ -189,6 +193,7 @@ export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
           </div>
 
           {/* Locker Mondial Relay */}
+          {lockerEnabled && (
           <div className="mt-6 rounded-2xl border border-white/10 bg-[#050505]/60 p-6">
             <div className="mb-4 flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#3e6757]/20 text-[#3e6757]">
@@ -234,6 +239,7 @@ export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
               </li>
             </ul>
           </div>
+          )}
 
           {/* Note finale */}
           <div className="mt-6 flex items-start gap-3 rounded-2xl border border-white/10 bg-[#050505]/60 p-5 text-sm text-zinc-300">

@@ -1,36 +1,26 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Loader2, Save, Wallet, ExternalLink, CheckCircle2, AlertTriangle, CreditCard } from "lucide-react"
+import { Loader2, Save, Wallet, ExternalLink, CheckCircle2, AlertTriangle } from "lucide-react"
 import {
   getCryptoGatewayStatus,
   setCryptoGatewayEnabled,
   type CryptoGatewayPublicStatus,
 } from "@/app/actions/crypto-payment"
-import {
-  getPaysafecardConfig,
-  setPaysafecardConfig,
-  type PaysafecardConfig,
-} from "@/app/actions/settings"
-import { PAYSAFECARD_OFFICIAL } from "@/lib/paysafecard"
 
-/** Réglages paiement Monero (NOWPayments) + Paysafecard (Locker). */
+/** Réglages paiement Monero (NOWPayments). */
 export function AdminCryptoSettings() {
   const [status, setStatus] = useState<CryptoGatewayPublicStatus | null>(null)
   const [enabled, setEnabled] = useState(true)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
-  const [psc, setPsc] = useState<PaysafecardConfig>({ instructions: "" })
-  const [pscSaving, setPscSaving] = useState(false)
-  const [pscMsg, setPscMsg] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([getCryptoGatewayStatus(), getPaysafecardConfig()])
-      .then(([s, p]) => {
+    getCryptoGatewayStatus()
+      .then((s) => {
         setStatus(s)
         setEnabled(s.enabled)
-        setPsc(p)
       })
       .catch(() => setStatus(null))
       .finally(() => setLoading(false))
@@ -48,19 +38,6 @@ export function AdminCryptoSettings() {
     const s = await getCryptoGatewayStatus()
     setStatus(s)
     setMsg("Enregistré.")
-  }
-
-  const savePsc = async () => {
-    setPscSaving(true)
-    setPscMsg(null)
-    const res = await setPaysafecardConfig(psc)
-    setPscSaving(false)
-    if (!res.ok) {
-      setPscMsg(res.error ?? "Erreur")
-      return
-    }
-    if (res.config) setPsc(res.config)
-    setPscMsg("Paysafecard enregistré.")
   }
 
   if (loading) {
@@ -149,73 +126,6 @@ export function AdminCryptoSettings() {
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           Enregistrer
-        </button>
-      </div>
-
-      {/* Paysafecard — Locker uniquement */}
-      <div className="rounded-2xl border border-border bg-card p-5">
-        <div className="mb-4 flex items-start gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent">
-            <CreditCard className="h-5 w-5" />
-          </span>
-          <div>
-            <h3 className="text-lg font-bold">Paysafecard (Locker uniquement)</h3>
-            <p className="text-sm text-muted-foreground">
-              Code prépayé 16 chiffres. Process : client achète sur le site officiel → envoie le PIN → tu confirmes →
-              token TRK_ en messagerie.
-            </p>
-          </div>
-        </div>
-
-        <div className="mb-4 space-y-2 rounded-xl border border-border bg-background/50 p-3 text-xs">
-          <p className="font-semibold text-foreground">Liens officiels (envoyés au client)</p>
-          <a
-            href={PAYSAFECARD_OFFICIAL.home}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-accent hover:underline"
-          >
-            {PAYSAFECARD_OFFICIAL.home} <ExternalLink className="h-3 w-3" />
-          </a>
-          <a
-            href={PAYSAFECARD_OFFICIAL.buyOnline}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-muted-foreground hover:text-accent hover:underline"
-          >
-            Acheter en ligne <ExternalLink className="h-3 w-3" />
-          </a>
-          <a
-            href={PAYSAFECARD_OFFICIAL.findStore}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-muted-foreground hover:text-accent hover:underline"
-          >
-            Points de vente <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
-
-        <label className="mb-3 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Instructions client (optionnel)
-        </label>
-        <textarea
-          value={psc.instructions}
-          onChange={(e) => setPsc((p) => ({ ...p, instructions: e.target.value }))}
-          rows={3}
-          placeholder="Achète un ticket du montant exact sur le site officiel, envoie le PIN à 16 chiffres…"
-          className="mb-3 w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-accent"
-        />
-
-        {pscMsg && <p className="mb-3 text-sm text-accent">{pscMsg}</p>}
-
-        <button
-          type="button"
-          onClick={savePsc}
-          disabled={pscSaving}
-          className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-        >
-          {pscSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Enregistrer Paysafecard
         </button>
       </div>
     </div>

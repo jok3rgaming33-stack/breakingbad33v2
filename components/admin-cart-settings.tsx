@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Loader2, Save, Check, Clock, Trash2, CalendarClock, Users } from "lucide-react"
+import { Loader2, Save, Check, Clock, Trash2, CalendarClock, Users, Package } from "lucide-react"
 import {
   getCartConfig,
   setCartConfig,
@@ -348,6 +348,41 @@ export function AdminCartSettings() {
       </div>
 
       <div className="space-y-6 rounded-2xl border border-border bg-card p-5">
+
+        {/* Locker ON/OFF */}
+        <fieldset className="space-y-2">
+          <legend className="flex items-center gap-2 text-sm font-semibold text-accent">
+            <Package className="h-4 w-4" aria-hidden="true" />
+            Envoi colis (Locker)
+          </legend>
+          <p className="text-xs text-muted-foreground">
+            Coupe temporairement le locker au checkout et dans Livraison / Meet-up. Les commandes locker déjà passées restent visibles.
+          </p>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.lockerEnabled !== false}
+            onClick={() => setForm({ ...form, lockerEnabled: form.lockerEnabled === false })}
+            className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors ${
+              form.lockerEnabled !== false
+                ? "border-accent/50 bg-accent/15 text-accent"
+                : "border-border bg-background text-muted-foreground"
+            }`}
+          >
+            <span
+              className={`relative h-6 w-11 rounded-full transition-colors ${
+                form.lockerEnabled !== false ? "bg-accent" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  form.lockerEnabled !== false ? "left-[22px]" : "left-0.5"
+                }`}
+              />
+            </span>
+            {form.lockerEnabled !== false ? "ON — locker proposé" : "OFF — locker masqué"}
+          </button>
+        </fieldset>
 
         {/* Montant minimum */}
         <fieldset className="space-y-2">

@@ -144,7 +144,7 @@ export function Navbar({
             onClick={openCart}
             className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white"
           >
-            MON PANIER
+            <span className="hidden min-[380px]:inline">MON PANIER</span>
             <div className="relative flex h-8 w-8 items-center justify-center">
               <ShoppingCart className="h-5 w-5" />
               {count > 0 && (
@@ -199,13 +199,13 @@ export function Navbar({
                   onClick={(e) => handleNavClick(e, item)}
                   className={
                     item.action === "howitworks" || item.action === "harmreduction"
-                      ? "mt-1 flex items-center gap-2 rounded-md border border-white/20 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-white/80 transition-colors hover:bg-secondary hover:text-white"
-                      : "flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      ? "mt-1 flex items-center gap-2 rounded-md border border-white/20 px-3 py-2 text-sm font-semibold text-white/80 transition-colors hover:bg-secondary hover:text-white"
+                      : "flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                   }
                 >
-                  <span className="flex items-center gap-2">
-                    {item.action === "howitworks" && <HelpCircle className="h-4 w-4" aria-hidden="true" />}
-                    {item.action === "harmreduction" && <HeartPulse className="h-4 w-4" aria-hidden="true" />}
+                  <span className="flex min-w-0 items-center gap-2 break-words">
+                    {item.action === "howitworks" && <HelpCircle className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                    {item.action === "harmreduction" && <HeartPulse className="h-4 w-4 shrink-0" aria-hidden="true" />}
                     {item.label}
                   </span>
                   {badge > 0 && (
@@ -219,7 +219,7 @@ export function Navbar({
             {isAdmin && (
               <a
                 href="/admin"
-                className="mt-1 flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold uppercase tracking-wide text-accent-foreground"
+                className="mt-1 flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground"
               >
                 <ShieldCheck className="h-4 w-4" aria-hidden="true" />
                 Panel Admin
@@ -232,7 +232,7 @@ export function Navbar({
                   setOpen(false)
                   onLogout?.()
                 }}
-                className="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                className="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               >
                 <LogOut className="h-4 w-4" aria-hidden="true" />
                 Déconnexion

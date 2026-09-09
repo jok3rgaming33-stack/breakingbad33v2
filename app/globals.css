@@ -93,11 +93,15 @@
     @apply font-sans;
     overflow-x: hidden;
     max-width: 100%;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
   body {
     @apply bg-background text-foreground;
     overflow-x: hidden;
     max-width: 100%;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
 }
 
