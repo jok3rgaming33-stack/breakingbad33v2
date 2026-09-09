@@ -42,8 +42,13 @@ export const SUBSTANCES: Substance[] = [
   { id: "benzos", label: "Benzodiazépines", group: "depressant" },
   { id: "imao", label: "IMAOs", group: "other" },
   { id: "isrs", label: "ISRSs", group: "other" },
+  { id: "mmc2", label: "2-MMC", group: "stimulant" },
+  { id: "mmc3", label: "3-MMC", group: "stimulant" },
+  { id: "mmc4", label: "4-MMC (méphédrone)", group: "stimulant" },
 ]
 
+/** Grille TripSit historique (sans 2/3/4-MMC). */
+const TRIPSIT_N = 25
 const N = SUBSTANCES.length
 
 const CODE: Record<string, ComboLevel> = {
@@ -93,27 +98,89 @@ function cell(i: number, j: number, ch: string): ComboLevel {
   return CODE[ch] ?? "caution"
 }
 
+export const COMBO_RANK: Record<ComboLevel, number> = {
+  self: 0,
+  synergy: 1,
+  safe: 2,
+  attenuate: 3,
+  caution: 4,
+  risk: 5,
+  danger: 6,
+}
+
+const MMC_IDS = new Set(["mmc2", "mmc3", "mmc4"])
+
+/**
+ * Interactions 2-MMC / 3-MMC / 4-MMC (cathinones stimulantes).
+ * Sources : TripSit (méphédrone + IMAO/ISRS), EMCDDA/EUDA (3-MMC, 2-MMC),
+ * Papaseit 2020 (4-MMC + alcool), mixtures.info, Psymerge.
+ * 4-MMC plus sérotoninergique ; 2/3-MMC plus dopaminergiques, moins documentés.
+ */
+const MMC_VS: Record<string, ComboLevel> = {
+  lsd: "caution",
+  champignons: "caution",
+  dmt: "caution",
+  mescaline: "caution",
+  dox: "risk",
+  nbomes: "risk",
+  "2cx": "caution",
+  "2ctx": "risk",
+  "5meo": "risk",
+  cannabis: "caution",
+  ketamine: "caution",
+  mxe: "caution",
+  dxm: "danger",
+  n2o: "caution",
+  amphet: "danger",
+  mdma: "danger",
+  cocaine: "danger",
+  cafeine: "caution",
+  alcool: "caution",
+  ghb: "risk",
+  opiaces: "caution",
+  tramadol: "danger",
+  benzos: "caution",
+  imao: "danger",
+  isrs: "risk",
+}
+
+function mmcCombo(idA: string, idB: string): ComboLevel {
+  if (idA === idB) return "self"
+  if (MMC_IDS.has(idA) && MMC_IDS.has(idB)) return "danger"
+  const other = MMC_IDS.has(idA) ? idB : idA
+  const mmc = MMC_IDS.has(idA) ? idA : idB
+  let level = MMC_VS[other] ?? "caution"
+  // 4-MMC : sérotonine plus marquée (syndrome sérotoninergique IMAO/ISRS, 5-MeO)
+  if (mmc === "mmc4") {
+    if (other === "isrs" || other === "5meo") level = "danger"
+  }
+  return level
+}
+
 function buildGrid(): ComboLevel[][] {
   const g: ComboLevel[][] = Array.from({ length: N }, () => Array<ComboLevel>(N).fill("caution"))
-  for (let i = 0; i < N; i++) {
-    const row = (RAW[i] ?? "").padEnd(N, "c").slice(0, N)
-    for (let j = 0; j < N; j++) g[i][j] = cell(i, j, row[j] ?? "c")
+  for (let i = 0; i < TRIPSIT_N; i++) {
+    const row = (RAW[i] ?? "").padEnd(TRIPSIT_N, "c").slice(0, TRIPSIT_N)
+    for (let j = 0; j < TRIPSIT_N; j++) g[i][j] = cell(i, j, row[j] ?? "c")
   }
-  // Symétrie : on privilégie le danger le plus élevé si conflit
-  const rank: Record<ComboLevel, number> = {
-    self: 0,
-    synergy: 1,
-    safe: 2,
-    attenuate: 3,
-    caution: 4,
-    risk: 5,
-    danger: 6,
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      if (i === j) {
+        g[i][j] = "self"
+        continue
+      }
+      const idA = SUBSTANCES[i]?.id
+      const idB = SUBSTANCES[j]?.id
+      if (idA && idB && (MMC_IDS.has(idA) || MMC_IDS.has(idB))) {
+        g[i][j] = mmcCombo(idA, idB)
+      }
+    }
   }
   for (let i = 0; i < N; i++) {
     for (let j = i + 1; j < N; j++) {
       const a = g[i][j]
       const b = g[j][i]
-      const worst = rank[a] >= rank[b] ? a : b
+      const worst = COMBO_RANK[a] >= COMBO_RANK[b] ? a : b
       g[i][j] = worst
       g[j][i] = worst
     }
@@ -126,6 +193,23 @@ export const COMBO_GRID = buildGrid()
 export function comboOf(a: number, b: number): ComboLevel {
   if (a === b) return "self"
   return COMBO_GRID[a]?.[b] ?? "caution"
+}
+
+export type ComboPair = { a: number; b: number; level: ComboLevel }
+
+export function comboOfMany(indices: number[]): { overall: ComboLevel; pairs: ComboPair[] } {
+  const uniq = [...new Set(indices.filter((i) => i >= 0 && i < N))]
+  const pairs: ComboPair[] = []
+  for (let i = 0; i < uniq.length; i++) {
+    for (let j = i + 1; j < uniq.length; j++) {
+      pairs.push({ a: uniq[i], b: uniq[j], level: comboOf(uniq[i], uniq[j]) })
+    }
+  }
+  let overall: ComboLevel = uniq.length <= 1 ? "self" : "synergy"
+  for (const p of pairs) {
+    if (COMBO_RANK[p.level] > COMBO_RANK[overall]) overall = p.level
+  }
+  return { overall, pairs }
 }
 
 export const COMBO_META: Record<
