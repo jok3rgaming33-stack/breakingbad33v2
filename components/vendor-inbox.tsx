@@ -3,7 +3,7 @@
 import { useState, useTransition, useEffect, useRef, useCallback, useMemo } from "react"
 import useSWR from "swr"
 import type { OrderThread, ThreadMessage, Product } from "@/lib/db/schema"
-import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, sendPaysafecardInstructions, confirmDeposit, updateOrderProducts, deleteMessage, notifyArrivingInMinutes } from "@/app/actions/messaging"
+import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, sendPaysafecardInstructions, confirmDeposit, updateOrderProducts, deleteMessage, notifyArrivingInMinutes, changeOrderFulfillment } from "@/app/actions/messaging"
 import { setMeetupReady } from "@/app/actions/meetup"
 import { MeetupLivePanel } from "@/components/meetup-live-panel"
 import type { OrderProductItem, AdminOrderPromo } from "@/app/actions/messaging"
@@ -19,6 +19,11 @@ import { splitThreadForTracking, type OrderTrackingState } from "@/lib/order-tim
 import { OrderTrackingCard } from "@/components/order-tracking-card"
 import { MessageBody } from "@/components/message-body"
 import { AdminCreateOrderModal } from "@/components/admin-create-order-modal"
+import { getCartConfig } from "@/app/actions/settings"
+import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
+import { deliverySlotIsFull, deliverySlotRemainingLabel } from "@/lib/delivery-slots"
+import { FEE_LOCKER, calcDeliveryFee, matchingFreeDeliveryTier, freeDeliveryTierLabel } from "@/lib/delivery-fee"
+import { useAddressGeocode } from "@/hooks/use-address-geocode"
 import {
   formatMessageTime,
   formatThreadActivity,
@@ -60,6 +65,7 @@ export function VendorInbox({
   const [meetupAddr, setMeetupAddr] = useState("")
   const [meetupSaving, setMeetupSaving] = useState(false)
   const [meetupError, setMeetupError] = useState<string | null>(null)
+  const [convertOpen, setConvertOpen] = useState(false)
   const [etaPreview, setEtaPreview] = useState<{ etaMin: number; driveMin: number } | null>(null)
   const [etaLoading, setEtaLoading] = useState(false)
   const [runCopied, setRunCopied] = useState(false)
@@ -373,7 +379,13 @@ export function VendorInbox({
               : mode === "past"
                 ? await getPastOrders()
                 : await getActiveOrders()
-        setThreads(sortByActivityDesc(latest))
+        setThreads((prev) => {
+          const sorted = sortByActivityDesc(latest)
+          const openId = selectedIdRef.current
+          if (openId == null || sorted.some((t) => t.id === openId)) return sorted
+          const keep = prev.find((t) => t.id === openId)
+          return keep ? [keep, ...sorted] : sorted
+        })
       }
       const openId = selectedIdRef.current
       if (openId != null && scope !== "list") {
@@ -913,6 +925,20 @@ export function VendorInbox({
                     >
                       <ShoppingCart className="h-3.5 w-3.5" aria-hidden="true" />
                       Articles
+                    </button>
+                  )}
+                  {mode !== "messages" &&
+                    (selected.fulfillment || "").toLowerCase() === "meetup" &&
+                    normalizeStatus(selected.status) !== "livree" &&
+                    normalizeStatus(selected.status) !== "annulee" && (
+                    <button
+                      type="button"
+                      onClick={() => setConvertOpen(true)}
+                      className="flex items-center gap-1.5 rounded-lg border border-sky-400/40 bg-sky-400/10 px-2.5 py-1.5 text-xs font-medium text-sky-300 transition-colors hover:bg-sky-400/20"
+                      title="Passer cette commande en livraison ou locker"
+                    >
+                      <Truck className="h-3.5 w-3.5" aria-hidden="true" />
+                      Livraison / locker
                     </button>
                   )}
                   {mode !== "messages" &&
@@ -1862,6 +1888,287 @@ export function VendorInbox({
           </div>
         </div>
       )}
+
+      {convertOpen && selected && (
+        <ConvertMeetupModal
+          threadId={selected.id}
+          currentTotal={selected.total}
+          initialDate={selected.scheduledDate ?? ""}
+          onClose={() => setConvertOpen(false)}
+          onDone={async (patch) => {
+            setThreads((prev) =>
+              prev.map((t) =>
+                t.id === selected.id
+                  ? {
+                      ...t,
+                      fulfillment: patch.fulfillment,
+                      address: patch.address,
+                      total: patch.newTotal,
+                      scheduledDate: patch.scheduledDate,
+                      scheduledSlot: patch.scheduledSlot,
+                      status: patch.status,
+                      lat: patch.lat,
+                      lng: patch.lng,
+                      paymentMethod: patch.fulfillment === "locker" ? "xmr" : t.paymentMethod,
+                    }
+                  : t,
+              ),
+            )
+            const data = await getThread(selected.id)
+            setMessages(data?.messages ?? [])
+            setConvertOpen(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function ConvertMeetupModal({
+  threadId,
+  currentTotal,
+  initialDate,
+  onClose,
+  onDone,
+}: {
+  threadId: number
+  currentTotal: number
+  initialDate: string
+  onClose: () => void
+  onDone: (patch: {
+    fulfillment: "livraison" | "locker"
+    address: string
+    newTotal: number
+    scheduledDate: string | null
+    scheduledSlot: string | null
+    status: string
+    lat: number | null
+    lng: number | null
+  }) => void | Promise<void>
+}) {
+  const { data: config } = useSWR("cart-config", getCartConfig)
+  const lockerEnabled = config?.lockerEnabled !== false
+  const deliverySlots = config?.deliverySlots ?? []
+
+  const [mode, setMode] = useState<"livraison" | "locker">("livraison")
+  const [address, setAddress] = useState("")
+  const [date, setDate] = useState(initialDate.slice(0, 10))
+  const [slot, setSlot] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const geo = useAddressGeocode(address, mode === "livraison")
+  const occupancyKey = mode === "livraison" && date ? `convert-slot-occ:${date}` : null
+  const { data: slotOccupancy = {} } = useSWR(occupancyKey, () => getDeliverySlotOccupancy(date), {
+    revalidateOnFocus: false,
+  })
+
+  const km = geo.distanceKm
+  const freeTier = mode === "livraison" && km != null ? matchingFreeDeliveryTier(currentTotal, km) : null
+  const fee =
+    mode === "locker"
+      ? FEE_LOCKER
+      : km == null
+        ? null
+        : freeTier
+          ? 0
+          : calcDeliveryFee(km)
+  const newTotal = fee == null ? currentTotal : currentTotal + fee
+
+  const canSubmit =
+    address.trim().length > 0 &&
+    (mode === "locker" || (Boolean(date) && Boolean(slot) && km != null && fee != null))
+
+  const submit = async () => {
+    if (!canSubmit || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await changeOrderFulfillment(threadId, {
+        fulfillment: mode,
+        address: mode === "livraison" ? (geo.resolvedLabel ?? address) : address,
+        lat: mode === "livraison" ? geo.coords?.lat ?? null : null,
+        lng: mode === "livraison" ? geo.coords?.lng ?? null : null,
+        distanceKm: mode === "livraison" ? km : null,
+        scheduledDate: mode === "livraison" ? date : undefined,
+        scheduledSlot: mode === "livraison" ? slot : undefined,
+      })
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      await onDone({
+        fulfillment: res.fulfillment,
+        address: res.address,
+        newTotal: res.newTotal,
+        scheduledDate: res.scheduledDate,
+        scheduledSlot: res.scheduledSlot,
+        status: res.status,
+        lat: mode === "livraison" ? geo.coords?.lat ?? null : null,
+        lng: mode === "livraison" ? geo.coords?.lng ?? null : null,
+      })
+    } catch {
+      setError("Impossible de modifier le mode.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4"
+      {...backdropDismissProps(() => { if (!saving) onClose() })}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold">Changer le mode de la commande</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Meet-up → livraison à domicile ou locker. Les frais se calculent tout seuls à l&apos;adresse.
+        </p>
+
+        <div className={`mt-4 grid gap-2 ${lockerEnabled ? "grid-cols-2" : "grid-cols-1"}`}>
+          <button
+            type="button"
+            onClick={() => setMode("livraison")}
+            className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left text-sm ${
+              mode === "livraison" ? "border-accent bg-accent/10" : "border-border text-muted-foreground"
+            }`}
+          >
+            <span className="flex items-center gap-1.5 font-semibold">
+              <Truck className="h-4 w-4" aria-hidden="true" /> Livraison
+            </span>
+            <span className="text-[11px] opacity-80">Frais selon distance</span>
+          </button>
+          {lockerEnabled && (
+            <button
+              type="button"
+              onClick={() => setMode("locker")}
+              className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left text-sm ${
+                mode === "locker" ? "border-accent bg-accent/10" : "border-border text-muted-foreground"
+              }`}
+            >
+              <span className="flex items-center gap-1.5 font-semibold">
+                <Package className="h-4 w-4" aria-hidden="true" /> Locker
+              </span>
+              <span className="text-[11px] opacity-80">{FEE_LOCKER}€ · XMR</span>
+            </button>
+          )}
+        </div>
+
+        <label className="mt-4 block text-xs font-medium text-muted-foreground">
+          {mode === "locker" ? "Adresse du Locker Mondial Relay" : "Adresse de livraison"}
+        </label>
+        <textarea
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          rows={2}
+          placeholder={mode === "locker" ? "Ex. Locker Leclerc — 12 rue…, 33000 Bordeaux" : "N°, rue, code postal, ville"}
+          className="mt-1.5 w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-accent"
+        />
+        {mode === "livraison" && (
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            {geo.geoStatus === "loading" && (
+              <span className="inline-flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" /> Calcul des frais…
+              </span>
+            )}
+            {geo.geoStatus === "notfound" && <span className="text-destructive">Adresse introuvable</span>}
+            {geo.geoStatus === "error" && <span className="text-destructive">Erreur de géocodage</span>}
+            {geo.geoStatus === "done" && km != null && (
+              <>
+                ≈ {km.toFixed(1)} km
+                {geo.resolvedLabel ? ` · ${geo.resolvedLabel}` : ""} —{" "}
+                {freeTier ? (
+                  <span className="text-accent">offerte ({freeDeliveryTierLabel(freeTier)})</span>
+                ) : (
+                  <>frais {fee}€</>
+                )}
+              </>
+            )}
+            {geo.geoStatus === "idle" && address.trim().length > 0 && address.trim().length < 8 &&
+              "Continue à saisir l'adresse…"}
+          </p>
+        )}
+
+        {mode === "livraison" && (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Date</label>
+              <input
+                type="date"
+                value={date}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setDate(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Créneau</label>
+              {deliverySlots.length > 0 ? (
+                <select
+                  value={slot}
+                  onChange={(e) => setSlot(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                >
+                  <option value="">Choisir…</option>
+                  {deliverySlots.map((s) => {
+                    const real = slotOccupancy[s.label] ?? 0
+                    const full = deliverySlotIsFull(real)
+                    return (
+                      <option key={s.id} value={s.label} disabled={full}>
+                        {s.label} — {deliverySlotRemainingLabel(real)}
+                      </option>
+                    )
+                  })}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={slot}
+                  onChange={(e) => setSlot(e.target.value)}
+                  placeholder="ex: 18h-20h"
+                  className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-3 rounded-xl border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+          <p>Sous-total actuel : <span className="text-foreground">{currentTotal}€</span></p>
+          {fee != null && (
+            <p>
+              {mode === "locker" ? "Locker" : "Livraison"} :{" "}
+              <span className="text-foreground">{fee}€</span>
+            </p>
+          )}
+          <p className="font-semibold text-foreground">Nouveau total : {fee != null ? `${newTotal}€` : "—"}</p>
+        </div>
+
+        {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-lg border border-input px-4 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-50"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSubmit || saving}
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-50"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+            Confirmer le changement
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

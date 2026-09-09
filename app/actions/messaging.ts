@@ -1678,6 +1678,186 @@ export async function updateOrderProducts(
   return { ok: true as const, newTotal, newSummary, promoDiscount }
 }
 
+function feeAlreadyInTotal(thread: typeof orderThreads.$inferSelect): number {
+  if (thread.fulfillment === "meetup") return 0
+  if (thread.fulfillment === "locker") return 10
+  const m = String(thread.summary ?? "").match(/(?:Livraison|Locker)\s*:\s*(\d+)\s*€/i)
+  if (m) return Math.max(0, Number(m[1]) || 0)
+  return 0
+}
+
+/**
+ * Passe une commande meet-up en livraison à domicile ou locker.
+ * Recalcule les frais (paliers 100/10, 200/20, 300/30) et prévient le client dans le fil.
+ */
+export async function changeOrderFulfillment(
+  threadId: number,
+  input: {
+    fulfillment: "livraison" | "locker"
+    address: string
+    lat?: number | null
+    lng?: number | null
+    distanceKm?: number | null
+    scheduledDate?: string
+    scheduledSlot?: string
+  },
+): Promise<
+  | {
+      ok: true
+      newTotal: number
+      fee: number
+      fulfillment: "livraison" | "locker"
+      address: string
+      scheduledDate: string | null
+      scheduledSlot: string | null
+      status: string
+    }
+  | { ok: false; error: string }
+> {
+  const { isAdminAuthenticated } = await import("@/app/actions/admin-auth")
+  if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
+
+  const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId)).limit(1)
+  if (!thread) return { ok: false, error: "Commande introuvable." }
+  if ((thread.fulfillment || "").toLowerCase() !== "meetup") {
+    return { ok: false, error: "Seule une commande meet-up peut être convertie." }
+  }
+  const st = normalizeStatus(thread.status)
+  if (st === "livree" || st === "annulee") {
+    return { ok: false, error: "Cette commande est déjà close." }
+  }
+
+  const address = input.address?.trim()
+  if (!address) return { ok: false, error: "Indique l'adresse." }
+
+  const { FEE_LOCKER, calcDeliveryFee, matchingFreeDeliveryTier } = await import("@/lib/delivery-fee")
+
+  let fee = 0
+  let scheduledDate: string | null = null
+  let scheduledSlot: string | null = null
+  let lat: number | null = null
+  let lng: number | null = null
+  let modeLine = ""
+
+  if (input.fulfillment === "locker") {
+    fee = FEE_LOCKER
+    modeLine = `Retrait en Locker Mondial Relay — ${address} (frais ${FEE_LOCKER}€)`
+  } else {
+    const date = input.scheduledDate?.trim()
+    const slot = input.scheduledSlot?.trim()
+    if (!date || !slot) return { ok: false, error: "Choisis une date et un créneau de livraison." }
+    const { assertDeliverySlotAvailable } = await import("@/app/actions/delivery-slots")
+    const slotOk = await assertDeliverySlotAvailable(date, slot)
+    if (!slotOk.ok) return { ok: false, error: slotOk.error ?? "Créneau indisponible." }
+    const km = Number(input.distanceKm)
+    if (!Number.isFinite(km) || km < 0) {
+      return { ok: false, error: "Adresse non reconnue — les frais n'ont pas pu être calculés." }
+    }
+    const oldFee = feeAlreadyInTotal(thread)
+    const cartAmount = Math.max(0, thread.total - oldFee)
+    const free = matchingFreeDeliveryTier(cartAmount, km)
+    fee = free ? 0 : calcDeliveryFee(km)
+    scheduledDate = date
+    scheduledSlot = slot
+    lat = typeof input.lat === "number" ? input.lat : null
+    lng = typeof input.lng === "number" ? input.lng : null
+    modeLine = `Livraison à ${address} — créneau ${slot}${
+      fee > 0 ? ` (frais ${fee}€)` : " (livraison offerte)"
+    } · ≈ ${km.toFixed(1)} km`
+  }
+
+  const oldFee = feeAlreadyInTotal(thread)
+  const newTotal = Math.max(0, thread.total - oldFee + fee)
+  const nextStatus = st === "pret_meetup" ? "validee" : thread.status
+
+  const prevTracking = { ...(thread.tracking ?? {}) } as NonNullable<(typeof orderThreads.$inferSelect)["tracking"]>
+  delete prevTracking.meetup
+  delete prevTracking.clientLive
+  delete prevTracking.clientEta
+
+  const productLines = String(thread.products ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => `• ${s}`)
+
+  const newSummary = [
+    `Commande mise à jour`,
+    ...productLines,
+    scheduledDate ? `Date : ${scheduledDate}` : null,
+    modeLine,
+    fee > 0
+      ? `${input.fulfillment === "locker" ? "Locker" : "Livraison"} : ${fee}€`
+      : input.fulfillment === "livraison"
+        ? "Livraison : offerte"
+        : null,
+    `TOTAL : ${newTotal}€`,
+  ]
+    .filter(Boolean)
+    .join("\n")
+
+  await db
+    .update(orderThreads)
+    .set({
+      fulfillment: input.fulfillment,
+      address,
+      lat,
+      lng,
+      scheduledDate,
+      scheduledSlot,
+      total: newTotal,
+      summary: newSummary,
+      paymentMethod: input.fulfillment === "locker" ? "xmr" : null,
+      status: nextStatus,
+      tracking: prevTracking,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(orderThreads.id, threadId))
+
+  const body = [
+    `Changement de mode : meet-up → ${input.fulfillment === "locker" ? "Locker Mondial Relay" : "livraison à domicile"}.`,
+    ``,
+    modeLine,
+    fee > 0
+      ? `${input.fulfillment === "locker" ? "Locker" : "Livraison"} : ${fee}€`
+      : "Livraison : offerte",
+    `Nouveau total : ${newTotal}€`,
+    input.fulfillment === "locker"
+      ? `Paiement Monero (XMR) requis avant expédition. Tu recevras l'adresse de dépôt ici.`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n")
+
+  await db.insert(threadMessages).values({ threadId, sender: "vendeur", body })
+
+  const open = input.fulfillment === "locker" ? ("locker" as const) : ("orders" as const)
+  await notifyCustomer(thread.customerToken, {
+    title: `Commande #${threadId} — mode modifié`,
+    body:
+      input.fulfillment === "locker"
+        ? `Passée en locker. Nouveau total : ${newTotal}€`
+        : `Passée en livraison. Nouveau total : ${newTotal}€`,
+    url: clientThreadUrl(open, threadId),
+    tag: `order-mode-${threadId}`,
+    threadId,
+    open,
+  })
+
+  revalidatePath("/admin")
+  revalidatePath("/messagerie")
+  return {
+    ok: true,
+    newTotal,
+    fee,
+    fulfillment: input.fulfillment,
+    address,
+    scheduledDate,
+    scheduledSlot,
+    status: nextStatus,
+  }
+}
+
 // Admin : confirme la réception du paiement (XMR ou Paysafecard), lance la préparation
 // et envoie le token TRK_ en messagerie pour débloquer le suivi Locker.
 export async function confirmDeposit(threadId: number) {
@@ -1763,6 +1943,8 @@ export type AdminOrderInput = {
   fulfillment: "livraison" | "meetup" | "locker"
   // Livraison domicile
   address?: string
+  lat?: number | null
+  lng?: number | null
   deliveryFee?: number
   deliveryDate?: string  // "2026-07-19" — même logique que meet-up
   deliverySlot?: string  // "Lundi 18h-20h"
@@ -1863,6 +2045,8 @@ export async function adminCreateOrder(input: AdminOrderInput) {
     promoDiscount: promoDiscount > 0 ? promoDiscount : undefined,
     fulfillment: input.fulfillment,
     address: address ?? undefined,
+    lat: input.lat ?? null,
+    lng: input.lng ?? null,
     scheduledDate: scheduledDate ?? undefined,
     scheduledSlot: scheduledSlot ?? undefined,
     paymentMethod: input.fulfillment === "locker" ? "xmr" : null,

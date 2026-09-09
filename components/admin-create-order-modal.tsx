@@ -15,6 +15,7 @@ import {
   X, Plus, Minus, Loader2, Truck, Store, Package, Search, ShoppingBag, Check, Ticket,
 } from "lucide-react"
 import { backdropDismissProps } from "@/lib/backdrop-close"
+import { useAddressGeocode } from "@/hooks/use-address-geocode"
 
 type Props = {
   customerName: string
@@ -47,6 +48,12 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   // Livraison domicile (même logique jour + créneau que le checkout client)
   const [address, setAddress] = useState("")
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
+  const geo = useAddressGeocode(address, fulfillment === "livraison")
+  useEffect(() => {
+    setDistanceKm(geo.distanceKm)
+    setCoords(geo.coords)
+  }, [geo.distanceKm, geo.coords])
   const [deliveryDate, setDeliveryDate] = useState("")
   const [deliverySlot, setDeliverySlot] = useState("")
 
@@ -163,6 +170,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
     if (!items.length) { setError("Ajoute au moins un article."); return }
     if (fulfillment === "meetup" && (!meetupDate || !meetupSlot)) { setError("Choisis une date et un créneau meet-up."); return }
     if (fulfillment === "livraison" && !address.trim()) { setError("Saisis l'adresse de livraison."); return }
+    if (fulfillment === "livraison" && distanceKm == null) { setError("Adresse non reconnue — les frais n'ont pas pu être calculés."); return }
     if (fulfillment === "livraison" && (!deliveryDate || !deliverySlot)) { setError("Choisis une date et un créneau de livraison."); return }
     if (fulfillment === "locker" && !lockerAddress.trim()) { setError("Saisis l'adresse du point Locker."); return }
     if (promoEnabled && promoDraft) {
@@ -184,7 +192,9 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
         customerToken,
         items,
         fulfillment,
-        address: fulfillment === "livraison" ? address : undefined,
+        address: fulfillment === "livraison" ? (geo.resolvedLabel ?? address) : undefined,
+        lat: fulfillment === "livraison" ? coords?.lat ?? null : undefined,
+        lng: fulfillment === "livraison" ? coords?.lng ?? null : undefined,
         deliveryFee: fulfillment === "livraison" ? deliveryFee : undefined,
         meetupDate: fulfillment === "meetup" ? meetupDate : undefined,
         meetupSlot: fulfillment === "meetup" ? meetupSlot : undefined,
@@ -455,9 +465,16 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                     type="text"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
-                    placeholder="Rue, ville…"
+                    placeholder="N°, rue, code postal, ville"
                     className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
                   />
+                  <p className="text-[11px] text-muted-foreground">
+                    {geo.geoStatus === "loading" && "Calcul des frais…"}
+                    {geo.geoStatus === "notfound" && <span className="text-destructive">Adresse introuvable</span>}
+                    {geo.geoStatus === "error" && <span className="text-destructive">Erreur de géocodage</span>}
+                    {geo.geoStatus === "done" && geo.resolvedLabel && <>Adresse reconnue : {geo.resolvedLabel}</>}
+                    {geo.geoStatus === "idle" && address.trim().length > 0 && address.trim().length < 8 && "Continue à saisir l'adresse…"}
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1.5">
@@ -500,38 +517,18 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                     )}
                   </div>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Distance estimée (km) <span className="text-muted-foreground/60">— pour calculer les frais</span>
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.5}
-                      value={distanceKm ?? ""}
-                      onChange={(e) => setDistanceKm(e.target.value ? Number(e.target.value) : null)}
-                      placeholder="ex: 8"
-                      className="w-28 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-                    />
-                    {distanceKm != null && (
-                      <span className="text-sm text-muted-foreground">
-                        {thresholdTier ? (
-                          <>
-                            Frais : <strong className="text-accent">offerts ({freeDeliveryTierLabel(thresholdTier)})</strong>
-                          </>
-                        ) : (
-                          <>
-                            Frais : <strong className="text-foreground">{calcDeliveryFee(distanceKm)}€</strong>
-                            {" "}<span className="text-xs">
-                              ({distanceKm <= 10 ? "≤ 10 km" : distanceKm <= 20 ? "10–20 km" : `> 20 km (+${Math.ceil(distanceKm - 20)}€)`})
-                            </span>
-                          </>
-                        )}
-                      </span>
+                {distanceKm != null && (
+                  <p className="rounded-xl border border-border bg-background/60 px-3 py-2 text-sm text-muted-foreground">
+                    ≈ {distanceKm.toFixed(1)} km —{" "}
+                    {thresholdTier ? (
+                      <span className="font-semibold text-accent">livraison offerte ({freeDeliveryTierLabel(thresholdTier)})</span>
+                    ) : (
+                      <>
+                        frais <strong className="text-foreground">{calcDeliveryFee(distanceKm)}€</strong>
+                      </>
                     )}
-                  </div>
-                </div>
+                  </p>
+                )}
               </div>
             )}
 

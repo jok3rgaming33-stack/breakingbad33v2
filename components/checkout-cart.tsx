@@ -283,6 +283,50 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
       })
   }, [isOpen])
 
+  // Frais calculés tout seuls dès qu'une adresse assez complète est saisie.
+  useEffect(() => {
+    if (!isOpen || isMeetup || isLocker) return
+    const q = address.trim()
+    if (q.length < 8) return
+    let cancelled = false
+    const t = window.setTimeout(async () => {
+      setGeoStatus("loading")
+      try {
+        const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`)
+        const data = await res.json()
+        if (cancelled) return
+        if (res.ok && data.found) {
+          setDistanceKm(Number(data.distanceKm))
+          setCoords(
+            typeof data.lat === "number" && typeof data.lng === "number"
+              ? { lat: data.lat, lng: data.lng }
+              : null,
+          )
+          setResolvedLabel(data.label ?? null)
+          setGeoStatus("done")
+        } else if (res.ok && data.found === false) {
+          setDistanceKm(null)
+          setCoords(null)
+          setGeoStatus("notfound")
+        } else {
+          setDistanceKm(null)
+          setCoords(null)
+          setGeoStatus("error")
+        }
+      } catch {
+        if (!cancelled) {
+          setDistanceKm(null)
+          setCoords(null)
+          setGeoStatus("error")
+        }
+      }
+    }, 650)
+    return () => {
+      cancelled = true
+      window.clearTimeout(t)
+    }
+  }, [address, isOpen, isMeetup, isLocker])
+
   // Frais de livraison selon la distance (+ offre Platine)
   const rawDeliveryFee = useMemo(() => {
     if (isMeetup) return 0
