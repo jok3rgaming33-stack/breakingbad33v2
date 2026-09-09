@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import useSWR from "swr"
+import Image from "next/image"
 import { X as CloseIcon, Truck, Store, MapPin, Clock, BadgeEuro, Info, Users, Package, ShieldCheck, Coins } from "lucide-react"
 import { getCartConfig, getLogisticsContent } from "@/app/actions/settings"
 import { backdropDismissProps } from "@/lib/backdrop-close"
@@ -72,6 +73,17 @@ export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
         <div className="relative z-20 overflow-y-auto p-8 md:p-12">
           <span className="font-mono text-xs uppercase tracking-[0.3em] text-[#3e6757]">Logistique</span>
           <h2 className="mb-6 mt-2 text-balance text-4xl font-bold text-white">Livraison & Meet-up</h2>
+
+          <div className="mb-6 overflow-hidden rounded-2xl border border-white/10">
+            <Image
+              src="/images/livraison-offerte-walter.jpg"
+              alt="Livraison offerte : 100€ / 10 km, 200€ / 20 km, 300€ / 30 km"
+              width={1280}
+              height={720}
+              className="h-auto w-full object-cover"
+              priority={false}
+            />
+          </div>
 
           {/* Recommandations */}
           <div className="mb-6 rounded-2xl border border-[#3e6757]/30 bg-[#3e6757]/10 p-6">
