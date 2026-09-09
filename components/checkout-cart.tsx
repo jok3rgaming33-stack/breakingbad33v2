@@ -18,6 +18,13 @@ import {
   deliverySlotRemainingLabel,
   deliverySlotTakenDisplay,
 } from "@/lib/delivery-slots"
+import {
+  FEE_LOCKER,
+  calcDeliveryFee,
+  matchingFreeDeliveryTier,
+  nextFreeDeliveryHint,
+  freeDeliveryTierLabel,
+} from "@/lib/delivery-fee"
 import { SelfieVerificationModal, type VerificationMetadata } from "@/components/selfie-verification-modal"
 import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus, Package, Lock, HeartPulse } from "lucide-react"
 import { backdropDismissProps } from "@/lib/backdrop-close"
@@ -28,15 +35,6 @@ type CheckoutCartProps = {
   userData: UserData
   onOrderPlaced?: (message: string) => void
   onOpenHarmReduction?: () => void
-}
-
-const FEE_LOCKER = 10 // Locker Mondial Relay
-
-// 0–10 km : 10€ | 10–20 km : 20€ | >20 km : 20€ + 1€ par km supplémentaire
-function calcDeliveryFee(km: number): number {
-  if (km <= 10) return 10
-  if (km <= 20) return 20
-  return 20 + Math.ceil(km - 20)
 }
 
 // Config par défaut utilisée le temps du chargement (évite un panier vide).
@@ -293,7 +291,18 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     return calcDeliveryFee(distanceKm)
   }, [isMeetup, isLocker, distanceKm])
 
+  const thresholdTier =
+    !isMeetup && !isLocker && fulfillmentMode === "livraison" && distanceKm != null
+      ? matchingFreeDeliveryTier(subtotal, distanceKm)
+      : null
+  const thresholdFreeApplied = thresholdTier != null
+  const thresholdHint =
+    !isMeetup && !isLocker && fulfillmentMode === "livraison" && distanceKm != null && !thresholdFreeApplied
+      ? nextFreeDeliveryHint(subtotal, distanceKm)
+      : null
+
   const monthFreeApplied =
+    !thresholdFreeApplied &&
     freeDeliveryActive &&
     !isMeetup &&
     !isLocker &&
@@ -302,6 +311,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     rawDeliveryFee > 0
 
   const ptsFreeApplied =
+    !thresholdFreeApplied &&
     !monthFreeApplied &&
     redeemPtsForDelivery &&
     canRedeemFreeDelivery &&
@@ -310,7 +320,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     fulfillmentMode === "livraison" &&
     rawDeliveryFee > 0
 
-  const freeDeliveryApplied = monthFreeApplied || ptsFreeApplied
+  const freeDeliveryApplied = thresholdFreeApplied || monthFreeApplied || ptsFreeApplied
 
   const deliveryFee = freeDeliveryApplied ? 0 : rawDeliveryFee
 
@@ -460,7 +470,9 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
       ? `Retrait sur place (meet-up) à ${meetupHour}`
         : isLocker
         ? `Retrait en Locker Mondial Relay — ${lockerAddress} (frais ${FEE_LOCKER}€)`
-        : monthFreeApplied
+        : thresholdFreeApplied && thresholdTier
+          ? `Livraison à ${address} — créneau ${slot} (offerte ${freeDeliveryTierLabel(thresholdTier)})`
+          : monthFreeApplied
           ? `Livraison à ${address} — créneau ${slot} (💎 mois offert Platine ≥${freeDeliveryMin}€)`
           : ptsFreeApplied
             ? `Livraison à ${address} — créneau ${slot} (💎 -${freeDeliveryPointsCost} pts Platine)`
@@ -480,6 +492,9 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
       ``,
       `Sous-total : ${subtotal}€`,
       (!isMeetup && deliveryFee > 0) ? `${isLocker ? "Locker" : "Livraison"} : ${deliveryFee}€` : null,
+      thresholdFreeApplied && thresholdTier
+        ? `Livraison : offerte (${freeDeliveryTierLabel(thresholdTier)})`
+        : null,
       monthFreeApplied ? `Livraison : offerte (mois Platine)` : null,
       ptsFreeApplied ? `Livraison : offerte (−${freeDeliveryPointsCost} pts)` : null,
       promo && promoDiscount > 0 ? `Reduction (${promo.code}) : -${promoDiscount}€` : null,
@@ -729,7 +744,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                   <span className="text-[11px] leading-snug opacity-80">
                     {isPlatinum && freeDeliveryActive
                       ? `Offerte 💎 si panier ≥ ${freeDeliveryMin}€`
-                      : "Dès 10€ selon distance"}
+                      : "Offerte dès 100€ / 10 km"}
                   </span>
                 </button>
                 <button
@@ -765,6 +780,13 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                 </button>
                 )}
               </div>
+              {deliveryAllowed && fulfillmentMode === "livraison" && (
+                <p className="mt-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                  Livraison offerte : <span className="font-semibold text-foreground">100€</span> dans un rayon de 10 km
+                  · <span className="font-semibold text-foreground">200€</span> / 20 km ·{" "}
+                  <span className="font-semibold text-foreground">300€</span> / 30 km.
+                </p>
+              )}
               {!deliveryAllowed && (
                 <p className="mt-2 rounded-xl border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">
                   La livraison est disponible à partir de{" "}
@@ -939,8 +961,9 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                         ≈ {distanceKm.toFixed(1)} km —{" "}
                         {freeDeliveryApplied ? (
                           <span className="text-accent">
-                            livraison offerte 💎
-                            {ptsFreeApplied ? ` (−${freeDeliveryPointsCost} pts)` : ""}
+                            {thresholdFreeApplied && thresholdTier
+                              ? `livraison offerte (${freeDeliveryTierLabel(thresholdTier)})`
+                              : `livraison offerte 💎${ptsFreeApplied ? ` (−${freeDeliveryPointsCost} pts)` : ""}`}
                           </span>
                         ) : (
                           <>frais {deliveryFee}€</>
@@ -950,6 +973,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                     {geoStatus === "notfound" && <span className="text-destructive">Adresse introuvable</span>}
                     {isPlatinum &&
                       !freeDeliveryActive &&
+                      !thresholdFreeApplied &&
                       !isMeetup &&
                       !isLocker &&
                       fulfillmentMode === "livraison" &&
@@ -973,6 +997,12 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                       )}
                     {geoStatus === "error" && <span className="text-destructive">Erreur du service de géocodage</span>}
                   </div>
+                )}
+                {thresholdHint && geoStatus === "done" && distanceKm != null && (
+                  <p className="mt-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2 text-xs leading-relaxed text-accent">
+                    Plus que <strong className="text-foreground">{thresholdHint.need}€</strong> pour la livraison
+                    offerte (panier ≥ {thresholdHint.minAmount}€ dans un rayon de {thresholdHint.maxKm} km).
+                  </p>
                 )}
                 {!isMeetup && geoStatus === "done" && resolvedLabel && (
                   <p className="mt-1.5 text-xs text-muted-foreground">Adresse reconnue : {resolvedLabel}</p>
@@ -1168,7 +1198,9 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                     {distanceKm == null
                       ? "—"
                       : freeDeliveryApplied
-                        ? "Offerte 💎"
+                        ? thresholdFreeApplied
+                          ? "Offerte"
+                          : "Offerte 💎"
                         : `${deliveryFee}€`}
                   </span>
                 </div>

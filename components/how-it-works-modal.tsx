@@ -159,7 +159,7 @@ const SECTIONS: Section[] = [
     steps: [
       {
         label: "Livraison (dès 50€)",
-        desc: "La livraison est disponible à partir de 50€ d'achat. Les frais varient selon la distance (10€ ≤ 10 km, 20€ au-delà). Tu choisis un créneau horaire parmi ceux disponibles.",
+        desc: "La livraison est disponible à partir de 50€ d'achat. Frais selon la distance (10€ ≤ 10 km, 20€ au-delà). Offerte dès 100€ / 10 km, 200€ / 20 km ou 300€ / 30 km. Tu choisis un créneau horaire parmi ceux disponibles.",
       },
       {
         label: "Meet-up",

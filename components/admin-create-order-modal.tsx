@@ -7,6 +7,7 @@ import { listProducts } from "@/app/actions/products"
 import { getCartConfig } from "@/app/actions/settings"
 import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
 import { deliverySlotIsFull, deliverySlotRemainingLabel } from "@/lib/delivery-slots"
+import { FEE_LOCKER, calcDeliveryFee, matchingFreeDeliveryTier, freeDeliveryTierLabel } from "@/lib/delivery-fee"
 import { listPromoCodes } from "@/app/actions/promo"
 import { adminCreateOrder, type AdminOrderItem, type AdminOrderPromo } from "@/app/actions/messaging"
 import { computePromoDiscount } from "@/lib/promo-calc"
@@ -14,15 +15,6 @@ import {
   X, Plus, Minus, Loader2, Truck, Store, Package, Search, ShoppingBag, Check, Ticket,
 } from "lucide-react"
 import { backdropDismissProps } from "@/lib/backdrop-close"
-
-const FEE_LOCKER = 10
-
-// 0–10 km : 10€ | 10–20 km : 20€ | >20 km : 20€ + 1€ par km supplémentaire
-function calcDeliveryFee(km: number): number {
-  if (km <= 10) return 10
-  if (km <= 20) return 20
-  return 20 + Math.ceil(km - 20)
-}
 
 type Props = {
   customerName: string
@@ -78,9 +70,15 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
 
   // Calculs
   const subtotal = items.reduce((s, i) => s + i.qty * i.price, 0)
+  const thresholdTier =
+    fulfillment === "livraison" && distanceKm != null
+      ? matchingFreeDeliveryTier(subtotal, distanceKm)
+      : null
   const deliveryFee = fulfillment === "meetup" ? 0
     : fulfillment === "locker" ? FEE_LOCKER
-    : distanceKm != null ? calcDeliveryFee(distanceKm) : 0
+    : distanceKm == null ? 0
+    : thresholdTier ? 0
+    : calcDeliveryFee(distanceKm)
 
   const activePromos = useMemo(
     () => (existingPromos ?? []).filter((p) => p.active),
@@ -518,10 +516,18 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                     />
                     {distanceKm != null && (
                       <span className="text-sm text-muted-foreground">
-                        Frais : <strong className="text-foreground">{calcDeliveryFee(distanceKm)}€</strong>
-                        {" "}<span className="text-xs">
-                          ({distanceKm <= 10 ? "≤ 10 km" : distanceKm <= 20 ? "10–20 km" : `> 20 km (+${Math.ceil(distanceKm - 20)}€)`})
-                        </span>
+                        {thresholdTier ? (
+                          <>
+                            Frais : <strong className="text-accent">offerts ({freeDeliveryTierLabel(thresholdTier)})</strong>
+                          </>
+                        ) : (
+                          <>
+                            Frais : <strong className="text-foreground">{calcDeliveryFee(distanceKm)}€</strong>
+                            {" "}<span className="text-xs">
+                              ({distanceKm <= 10 ? "≤ 10 km" : distanceKm <= 20 ? "10–20 km" : `> 20 km (+${Math.ceil(distanceKm - 20)}€)`})
+                            </span>
+                          </>
+                        )}
                       </span>
                     )}
                   </div>
@@ -726,9 +732,17 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
             <div className="flex items-center justify-between text-sm">
               <div className="space-y-0.5 text-muted-foreground">
                 <p>Sous-total : <span className="font-medium text-foreground">{subtotal}€</span></p>
-                {deliveryFee > 0 && (
+                {fulfillment === "locker" && deliveryFee > 0 && (
                   <p>
-                    {fulfillment === "locker" ? "Locker" : "Livraison"} : <span className="font-medium text-foreground">{deliveryFee}€</span>
+                    Locker : <span className="font-medium text-foreground">{deliveryFee}€</span>
+                  </p>
+                )}
+                {fulfillment === "livraison" && distanceKm != null && (
+                  <p>
+                    Livraison :{" "}
+                    <span className={`font-medium ${thresholdTier ? "text-accent" : "text-foreground"}`}>
+                      {thresholdTier ? `offerte (${freeDeliveryTierLabel(thresholdTier)})` : `${deliveryFee}€`}
+                    </span>
                   </p>
                 )}
                 {promoEnabled && promoDiscount > 0 && !promoBlocked && (

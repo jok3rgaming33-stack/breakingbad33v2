@@ -131,6 +131,15 @@ export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
                 </span>
               </li>
               <li className="flex items-start gap-3">
+                <BadgeEuro className="mt-0.5 h-4 w-4 shrink-0 text-[#3e6757]" aria-hidden="true" />
+                <span>
+                  Livraison <strong className="text-white">offerte</strong> :{" "}
+                  <strong className="text-white">100€</strong> dans un rayon de 10 km ·{" "}
+                  <strong className="text-white">200€</strong> / 20 km ·{" "}
+                  <strong className="text-white">300€</strong> / 30 km.
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
                 <Clock className="mt-0.5 h-4 w-4 shrink-0 text-[#3e6757]" aria-hidden="true" />
                 <span>
                   De <strong className="text-white">14H à 02H</strong> (selon disponibilités).
