@@ -769,6 +769,11 @@ export async function updateThreadStatus(
   if (colissimoNumber?.trim()) {
     updateData.colissimoNumber = colissimoNumber.trim()
   }
+  // Locker : le chrono des rappels de retrait ne démarre qu'au statut « Colis prêt à récupérer ».
+  if (current.fulfillment === "locker" && nextKey === "pret_meetup" && prevKey !== "pret_meetup") {
+    updateData.lockerReminderCount = 0
+    updateData.lockerLastReminderAt = null
+  }
 
   let runToken = current.runToken
   if ((nextKey === "livraison" || nextKey === "arrivee") && !runToken) {

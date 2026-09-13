@@ -2,19 +2,19 @@
 
 import { db } from "@/lib/db"
 import { orderThreads, threadMessages } from "@/lib/db/schema"
-import { and, eq, notInArray, sql, lt, or, isNull } from "drizzle-orm"
+import { and, eq, sql, lt, or, isNull } from "drizzle-orm"
 import { notifyCustomer } from "@/lib/push"
 import { ensureFeatureSchema } from "@/lib/feature-schema"
 import { clientThreadUrl } from "@/lib/deep-links"
 
-const DISCUSSION_STATUSES = ["discussion", "pris_en_charge", "ouvert", "ferme"] as const
 const MAX_REMINDERS = 3
 /** Première relance après 24 h, puis toutes les 24 h */
 const REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 /**
- * Envoie des rappels automatiques pour les commandes Locker en attente de retrait.
- * Appelé par le cron Vercel et (best-effort) au chargement du dashboard admin.
+ * Envoie des rappels automatiques pour les commandes Locker EN ATTENTE DE RETRAIT.
+ * Uniquement si le statut est « Colis prêt à récupérer » (pret_meetup) :
+ * pas pendant paiement / préparation / envoi.
  */
 export async function processLockerReminders(): Promise<{ sent: number; checked: number }> {
   await ensureFeatureSchema()
@@ -29,7 +29,7 @@ export async function processLockerReminders(): Promise<{ sent: number; checked:
       .where(
         and(
           eq(orderThreads.fulfillment, "locker"),
-          notInArray(orderThreads.status, ["livree", "annulee", "trk_token", ...DISCUSSION_STATUSES]),
+          eq(orderThreads.status, "pret_meetup"),
           lt(orderThreads.updatedAt, cutoff),
           or(isNull(orderThreads.lockerLastReminderAt), lt(orderThreads.lockerLastReminderAt, cutoff)),
           sql`coalesce(${orderThreads.lockerReminderCount}, 0) < ${MAX_REMINDERS}`,
