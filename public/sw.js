@@ -20,11 +20,15 @@ self.addEventListener("push", (event) => {
 
   const title = data.title || "BreakingBad33"
   const targetUrl = data.url || "/"
+  // Tag unique : un tag stable (ex. "new-member", "thread-12") remplaçait
+  // la notification précédente SANS son ni vibration. Chaque événement s'affiche.
+  const stamp = Date.now()
   const options = {
     body: data.body || "",
     icon: "/images/logoapp.png",
     badge: "/images/logoapp.png",
-    tag: data.tag || undefined,
+    tag: data.tag ? `${data.tag}-${stamp}` : `bb33-${stamp}`,
+    renotify: true,
     // Conservé pour le clic → deep-link (messagerie / commande / admin)
     data: {
       url: targetUrl,
@@ -69,13 +73,17 @@ self.addEventListener("push", (event) => {
     }
   })()
 
-  event.waitUntil(
-    Promise.all([
-      self.registration.showNotification(title, options),
-      readPing,
-      badgeUpdate,
-    ])
+  const show = self.registration.showNotification(title, options).catch(() =>
+    // Icône ou image invalide : on réessaie sans visuel pour ne pas perdre l'alerte.
+    self.registration.showNotification(title, {
+      body: options.body,
+      tag: options.tag,
+      renotify: true,
+      data: options.data,
+    }),
   )
+
+  event.waitUntil(Promise.all([show, readPing, badgeUpdate]))
 })
 
 self.addEventListener("notificationclick", (event) => {

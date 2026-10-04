@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db"
 import { pushSubscriptions } from "@/lib/db/schema"
+import { nudgeRecentCustomerPush } from "@/lib/push"
 import { eq } from "drizzle-orm"
 
 export type PushRole = "client" | "vendeur" | "both"
@@ -41,9 +42,15 @@ export async function savePushSubscription(input: PushSubscriptionInput) {
     .limit(1)
 
   const role = mergePushRole(existing?.role, incomingRole)
-  // Ne jamais perdre le token client : un re-save vendeur sur le même
-  // endpoint doit continuer à pouvoir recevoir les notifs perso.
-  const customerToken = incomingToken || existing?.customerToken || null
+  // Un enregistrement vendeur ne doit jamais remplacer le token client
+  // du même appareil (sinon les notifs perso partent sur le token admin).
+  const customerToken =
+    incomingRole === "vendeur"
+      ? existing?.customerToken || null
+      : incomingToken || existing?.customerToken || null
+  const tokenJustLinked =
+    incomingRole !== "vendeur" && !!incomingToken && existing?.customerToken !== incomingToken
+  const isNew = !existing
 
   await db
     .insert(pushSubscriptions)
@@ -58,6 +65,10 @@ export async function savePushSubscription(input: PushSubscriptionInput) {
       target: pushSubscriptions.endpoint,
       set: { p256dh: input.p256dh, auth: input.auth, role, customerToken },
     })
+
+  if ((isNew || tokenJustLinked) && customerToken) {
+    await nudgeRecentCustomerPush(customerToken)
+  }
 
   return { ok: true as const }
 }

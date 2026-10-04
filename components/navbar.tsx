@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useCart } from "@/components/cart-provider"
 import { NotificationBell } from "@/components/notification-bell"
+import { PushKeeper } from "@/components/push-keeper"
 import type { OrderNotification } from "@/components/notifications-provider"
 import { Menu, ShoppingCart, X, ShieldCheck, LogOut, HelpCircle, HeartPulse } from "lucide-react"
 import Image from "next/image"
@@ -136,6 +137,7 @@ export function Navbar({
 
         <div className="flex items-center gap-2 sm:gap-4">
 
+          {isLoggedIn && !isAdmin && <PushKeeper role="client" />}
           {/* Cloche de notifications (client connecté uniquement) */}
           {isLoggedIn && !isAdmin && <NotificationBell onOpenNotification={onOpenNotification} />}
 

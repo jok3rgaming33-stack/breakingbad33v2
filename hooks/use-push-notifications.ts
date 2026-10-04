@@ -14,6 +14,80 @@ function urlBase64ToUint8Array(base64String: string) {
   return output
 }
 
+function sameKey(existing: ArrayBuffer | null | undefined, vapid: string) {
+  if (!existing) return true
+  const current = urlBase64ToUint8Array(vapid)
+  const prev = new Uint8Array(existing)
+  if (prev.length !== current.length) return false
+  for (let i = 0; i < prev.length; i++) if (prev[i] !== current[i]) return false
+  return true
+}
+
+/** Abonnement navigateur aligné sur la clé VAPID actuelle. Recrée si expiré. */
+async function ensureBrowserSubscription(ask: boolean): Promise<PushSubscription | null> {
+  if (typeof window === "undefined") return null
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return null
+  if (!VAPID_PUBLIC_KEY) return null
+
+  if (ask && Notification.permission === "default") {
+    const perm = await Notification.requestPermission()
+    if (perm !== "granted") return null
+  }
+  if (Notification.permission !== "granted") return null
+
+  const reg = await navigator.serviceWorker.register("/sw.js")
+  try {
+    await reg.update()
+  } catch {
+    /* ancienne version encore active, le push fonctionne quand même */
+  }
+
+  let sub = await reg.pushManager.getSubscription()
+  if (sub && !sameKey(sub.options?.applicationServerKey, VAPID_PUBLIC_KEY)) {
+    try {
+      await sub.unsubscribe()
+    } catch {
+      /* on réabonne quand même */
+    }
+    sub = null
+  }
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    })
+  }
+  return sub
+}
+
+/**
+ * À appeler dans le geste de connexion (création de compte, login clé, login admin)
+ * pour demander la permission tout de suite, puis enregistrer l'abonnement.
+ */
+export async function syncPushSubscription(opts: {
+  role: "client" | "vendeur"
+  customerToken?: string | null
+  ask?: boolean
+}) {
+  try {
+    const sub = await ensureBrowserSubscription(!!opts.ask)
+    if (!sub) return false
+    const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } }
+    if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return false
+    await savePushSubscription({
+      endpoint: json.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+      role: opts.role,
+      customerToken: opts.customerToken ?? null,
+    })
+    return true
+  } catch (e) {
+    console.log("[v0] syncPushSubscription:", e)
+    return false
+  }
+}
+
 export type PushStatus = "unsupported" | "default" | "denied" | "granted"
 
 type Options = {
@@ -43,10 +117,10 @@ export function usePushNotifications({ role, customerToken }: Options) {
     if (!VAPID_PUBLIC_KEY) return
     if (Notification.permission !== "granted") return
     try {
-      // Best-effort : pas de timeout dur ici, ça ne bloque aucun rendu (appel
-      // silencieux, pas sur le chemin de montage critique Safari/PWA).
-      const reg = await navigator.serviceWorker.register("/sw.js")
-      const sub = await reg.pushManager.getSubscription()
+      // Permission déjà accordée : on recrée l'abonnement s'il a expiré ou
+      // s'il pointe encore vers une ancienne clé VAPID. Sans ça, le serveur
+      // pousse dans le vide jusqu'au prochain clic sur la cloche.
+      const sub = await ensureBrowserSubscription(false)
       if (!sub) return
 
       const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } }
@@ -63,6 +137,7 @@ export function usePushNotifications({ role, customerToken }: Options) {
         customerToken: customerToken ?? null,
       })
       syncedRef.current = syncKey
+      setSubscribed(true)
     } catch (e) {
       console.log("[v0] push resync error:", e)
     }
@@ -133,16 +208,8 @@ export function usePushNotifications({ role, customerToken }: Options) {
       setPermission(perm as PushStatus)
       if (perm !== "granted") return false
 
-      const reg = await navigator.serviceWorker.register("/sw.js")
-      await navigator.serviceWorker.ready
-
-      let sub = await reg.pushManager.getSubscription()
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-        })
-      }
+      const sub = await ensureBrowserSubscription(false)
+      if (!sub) return false
 
       const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } }
       if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return false

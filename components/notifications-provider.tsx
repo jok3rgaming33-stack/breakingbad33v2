@@ -95,8 +95,13 @@ export function NotificationsProvider({
 
     const seen = seenRef.current
     const fresh: OrderNotification[] = []
+    // Déjà venu sur le site : un fil nouveau (arrivé site fermé) doit sonner.
+    // Premier passage absolu : on pose juste la base, sans inonder l'historique.
+    const hadHistory = Object.keys(seen).length > 0
+    let catchup = 0
 
-    for (const t of threads) {
+    const ordered = [...threads].sort((a, b) => b.id - a.id)
+    for (const t of ordered) {
       const rawStatus = t.status || "en_attente"
       const current = normalizeStatus(rawStatus)
       const vendor = t.vendorCount ?? 0
@@ -130,6 +135,19 @@ export function NotificationsProvider({
             createdAt: Date.now(),
             read: false,
             openTarget: "orders",
+          })
+        } else if (hadHistory && vendor > 0 && catchup < 5) {
+          catchup += 1
+          fresh.push({
+            id: `${t.id}-catchup-${Date.now()}`,
+            threadId: t.id,
+            kind: "message",
+            status: current,
+            rawStatus,
+            label: labelFor(rawStatus, "message"),
+            createdAt: Date.now(),
+            read: false,
+            openTarget,
           })
         }
         continue

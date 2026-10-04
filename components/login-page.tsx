@@ -15,17 +15,16 @@ import { PASSWORD_RULES } from "@/lib/password-rules"
 import {
   startWebAuthnRegistration,
   finishWebAuthnRegistration,
-  startWebAuthnAuthentication,
-  finishWebAuthnAuthentication,
 } from "@/app/actions/webauthn"
 import { loadWebAuthnBrowser } from "@/lib/webauthn-browser"
+import { syncPushSubscription } from "@/hooks/use-push-notifications"
 import {
   biometryLabel,
+  browserSupportsWebAuthn,
   clearLocalWebAuthn,
-  getLocalCredentialIds,
   hasLocalWebAuthn,
-  platformAuthenticatorAvailable,
   rememberLocalCredential,
+  runBiometricLogin,
 } from "@/lib/webauthn-client"
 
 const CRYSTAL_COUNT = 4
@@ -60,18 +59,14 @@ export function LoginPage({
     if (typeof window === "undefined") return
     setHasReadGuide(localStorage.getItem("bb33_guide_read") === "1")
     setBioReady(hasLocalWebAuthn())
-    // Détection biométrie 100 % isolée : un échec ne bloque jamais la page de login.
+    // WebAuthn suffit : ne pas exiger que Windows Hello soit déjà détecté,
+    // sinon le bouton n'apparaît jamais sur un PC sans capteur annoncé.
     ;(async () => {
       try {
         const api = await loadWebAuthnBrowser()
-        if (!api?.browserSupportsWebAuthn()) {
-          setBioAvailable(false)
-          return
-        }
-        const ok = await platformAuthenticatorAvailable()
-        setBioAvailable(ok)
+        setBioAvailable(!!api?.browserSupportsWebAuthn() || browserSupportsWebAuthn())
       } catch {
-        setBioAvailable(false)
+        setBioAvailable(browserSupportsWebAuthn())
       }
     })()
   }, [])
@@ -246,6 +241,7 @@ export function LoginPage({
       localStorage.setItem("authToken", key)
       localStorage.setItem("userPseudo", finalPseudo)
       localStorage.removeItem("isAdmin")
+      await syncPushSubscription({ role: "client", customerToken: key, ask: true })
       setShowResultModal(true)
     } catch {
       setErrorCreate("Impossible de créer le compte. Réessaie dans un instant.")
@@ -285,6 +281,7 @@ export function LoginPage({
         localStorage.setItem("authToken", token)
         localStorage.setItem("userPseudo", res.pseudo)
         localStorage.setItem("isAdmin", "1")
+        await syncPushSubscription({ role: "vendeur", ask: true })
         // L'admin ne passe pas de commande : on l'envoie directement vers le panel,
         // sans afficher le tableau de bord client (points / suivi de commandes).
         window.location.href = "/admin"
@@ -313,6 +310,7 @@ export function LoginPage({
       localStorage.removeItem("isAdmin")
       localStorage.setItem("authToken", resolved.token)
       localStorage.setItem("userPseudo", pseudo)
+      await syncPushSubscription({ role: "client", customerToken: resolved.token, ask: true })
       setGeneratedPseudo(pseudo)
       setIsLoggedIn(true)
     } catch {
@@ -330,42 +328,26 @@ export function LoginPage({
     setError("")
     setBioBusy(true)
     try {
-      const api = await loadWebAuthnBrowser()
-      if (!api) {
-        setBioError("Biométrie indisponible sur cet appareil. Utilise ta clé secrète.")
-        setBioAvailable(false)
-        return
-      }
-      const ids = getLocalCredentialIds()
-      const start = await startWebAuthnAuthentication(ids.length ? ids : undefined)
-      if (!start.ok) {
-        if ("clearLocal" in start && start.clearLocal) {
-          clearLocalWebAuthn()
-          setBioReady(false)
-        }
-        setBioError(start.error)
-        return
-      }
-      const assertion = (await api.startAuthentication({
-        optionsJSON: start.options,
-      })) as { id: string }
-      const done = await finishWebAuthnAuthentication({
-        challengeId: start.challengeId,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        response: assertion as any,
-      })
+      const done = await runBiometricLogin()
       if (!done.ok) {
-        if ("clearLocal" in done && done.clearLocal) {
+        if (done.clearLocal) {
           clearLocalWebAuthn()
           setBioReady(false)
         }
         setBioError(done.error)
         return
       }
+      if (done.admin) {
+        localStorage.setItem("isAdmin", "1")
+        localStorage.setItem("userPseudo", done.pseudo)
+        await syncPushSubscription({ role: "vendeur", ask: true })
+        window.location.href = "/admin"
+        return
+      }
       localStorage.removeItem("isAdmin")
       localStorage.setItem("authToken", done.token)
       localStorage.setItem("userPseudo", done.pseudo)
-      if (assertion?.id) rememberLocalCredential(assertion.id)
+      await syncPushSubscription({ role: "client", customerToken: done.token, ask: true })
       setGeneratedPseudo(done.pseudo)
       setIsLoggedIn(true)
       setBioReady(true)
@@ -965,7 +947,7 @@ export function LoginPage({
             <h2 className="mb-5 text-center text-2xl font-semibold">{"J'ai déjà une clé"}</h2>
 
             {/* Biométrie en plus — la zone clé ci-dessous reste TOUJOURS visible */}
-            {bioAvailable && bioReady && (
+            {bioAvailable && (
               <div className="mb-5">
                 <button
                   type="button"
@@ -978,7 +960,7 @@ export function LoginPage({
                   ) : (
                     <Fingerprint className="h-5 w-5" aria-hidden="true" />
                   )}
-                  {bioBusy ? "Vérification..." : `Déverrouiller avec ${biometryLabel()}`}
+                  {bioBusy ? "Vérification..." : `Se connecter avec ${biometryLabel()}`}
                 </button>
                 {bioError && (
                   <div className="mt-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-sm text-destructive">
@@ -987,6 +969,12 @@ export function LoginPage({
                       Pas de panique : colle ta clé secrète juste en dessous.
                     </p>
                   </div>
+                )}
+                {!bioReady && !bioError && (
+                  <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                    Première fois : connecte-toi avec ta clé, puis active {biometryLabel()} sur l&apos;écran suivant.
+                    Si c&apos;est déjà fait, ce bouton ouvre le déverrouillage de l&apos;appareil.
+                  </p>
                 )}
                 <div className="my-4 flex items-center gap-3">
                   <div className="h-px flex-1 bg-border" />

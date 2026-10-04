@@ -21,6 +21,8 @@ import { db } from "@/lib/db"
 import { users, webauthnChallenges, webauthnCredentials } from "@/lib/db/schema"
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000
+/** Préfixe du user_token WebAuthn pour une session admin (pas un compte client). */
+const ADMIN_CRED_PREFIX = "adm1:"
 
 let schemaReady = false
 
@@ -253,13 +255,15 @@ export async function startWebAuthnRegistration(userToken: string): Promise<
         id: c.credentialId,
         transports: parseTransports(c.transports),
       })),
+      // Pas d'authenticatorAttachment forcé : Windows Hello, empreinte,
+      // Face ID, ou passkey du téléphone. L'ancien "platform" only cachait
+      // le bouton dès que le navigateur ne détectait pas Hello.
       authenticatorSelection: {
-        authenticatorAttachment: "platform",
         residentKey: "preferred",
         requireResidentKey: false,
         userVerification: "required",
       },
-      preferredAuthenticatorType: "localDevice",
+      timeout: 120000,
     })
 
     const challengeId = await saveChallenge({
@@ -380,6 +384,7 @@ export async function startWebAuthnAuthentication(credentialIds?: string[]): Pro
     const options = await generateAuthenticationOptions({
       rpID,
       userVerification: "required",
+      timeout: 120000,
       allowCredentials:
         allowCredentials && allowCredentials.length > 0 ? allowCredentials : undefined,
     })
@@ -401,7 +406,7 @@ export async function finishWebAuthnAuthentication(input: {
   challengeId: string
   response: AuthenticationResponseJSON
 }): Promise<
-  | { ok: true; token: string; pseudo: string }
+  | { ok: true; token: string; pseudo: string; admin?: boolean }
   | { ok: false; error: string; clearLocal?: boolean }
 > {
   try {
@@ -431,22 +436,7 @@ export async function finishWebAuthnAuthentication(input: {
       }
     }
 
-    const account = await db.select().from(users).where(eq(users.token, cred.userToken)).limit(1)
-    if (!account[0]) {
-      try {
-        await db
-          .delete(webauthnCredentials)
-          .where(eq(webauthnCredentials.credentialId, cred.credentialId))
-      } catch {
-        /* ignore */
-      }
-      return {
-        ok: false,
-        clearLocal: true,
-        error: "Compte introuvable. Utilise ta clé secrète.",
-      }
-    }
-
+    const isAdminCred = cred.userToken.startsWith(ADMIN_CRED_PREFIX)
     const { rpID, origins } = await getWebAuthnConfig()
 
     let verification
@@ -490,6 +480,49 @@ export async function finishWebAuthnAuthentication(input: {
           .where(eq(webauthnCredentials.credentialId, cred.credentialId))
       } catch {
         /* non bloquant pour la connexion */
+      }
+    }
+
+    if (isAdminCred) {
+      const adminToken = cred.userToken.slice(ADMIN_CRED_PREFIX.length)
+      const { openAdminSession } = await import("@/app/actions/admin-auth")
+      const opened = await openAdminSession(adminToken)
+      if (!opened) {
+        try {
+          await db.delete(webauthnCredentials).where(eq(webauthnCredentials.credentialId, cred.credentialId))
+        } catch {
+          /* ignore */
+        }
+        return {
+          ok: false,
+          clearLocal: true,
+          error: "Accès admin révoqué. Reconnecte-toi avec ton token.",
+        }
+      }
+      let pseudo = "Heisenberg"
+      try {
+        const { adminAccounts } = await import("@/lib/db/schema")
+        const rows = await db.select().from(adminAccounts).where(eq(adminAccounts.token, adminToken)).limit(1)
+        if (rows[0]?.pseudo) pseudo = rows[0].pseudo
+      } catch {
+        /* pseudo par défaut */
+      }
+      return { ok: true, admin: true, token: "", pseudo }
+    }
+
+    const account = await db.select().from(users).where(eq(users.token, cred.userToken)).limit(1)
+    if (!account[0]) {
+      try {
+        await db
+          .delete(webauthnCredentials)
+          .where(eq(webauthnCredentials.credentialId, cred.credentialId))
+      } catch {
+        /* ignore */
+      }
+      return {
+        ok: false,
+        clearLocal: true,
+        error: "Compte introuvable. Utilise ta clé secrète.",
       }
     }
 
@@ -576,6 +609,134 @@ export async function removeAllWebAuthnCredentials(
     if (!token) return { ok: false, error: "Session invalide." }
     await db.delete(webauthnCredentials).where(eq(webauthnCredentials.userToken, token))
     return { ok: true }
+  } catch {
+    return { ok: false, error: "Suppression impossible." }
+  }
+}
+
+export async function startAdminWebAuthnRegistration(): Promise<
+  | { ok: true; options: PublicKeyCredentialCreationOptionsJSON; challengeId: string }
+  | { ok: false; error: string }
+> {
+  try {
+    if (!(await ensureWebAuthnSchema())) return { ok: false, error: SOFT_FAIL.schema }
+    const { getAdminSession } = await import("@/app/actions/admin-auth")
+    const session = await getAdminSession()
+    if (!session) return { ok: false, error: "Session admin expirée. Reconnecte-toi avec ton token." }
+
+    const storedToken = `${ADMIN_CRED_PREFIX}${session.token}`
+    const { rpID, rpName } = await getWebAuthnConfig()
+    let existing: (typeof webauthnCredentials.$inferSelect)[] = []
+    try {
+      existing = await db.select().from(webauthnCredentials).where(eq(webauthnCredentials.userToken, storedToken))
+    } catch {
+      existing = []
+    }
+
+    const options = await generateRegistrationOptions({
+      rpName,
+      rpID,
+      userName: session.pseudo,
+      userDisplayName: session.pseudo,
+      userID: tokenToUserId(storedToken),
+      attestationType: "none",
+      excludeCredentials: existing.map((c) => ({
+        id: c.credentialId,
+        transports: parseTransports(c.transports),
+      })),
+      authenticatorSelection: {
+        residentKey: "preferred",
+        requireResidentKey: false,
+        userVerification: "required",
+      },
+      timeout: 120000,
+    })
+
+    const challengeId = await saveChallenge({
+      challenge: options.challenge,
+      purpose: "registration",
+      userToken: storedToken,
+    })
+    if (!challengeId) return { ok: false, error: SOFT_FAIL.schema }
+    return { ok: true, options, challengeId }
+  } catch (e) {
+    console.error("[webauthn] startAdminRegistration:", e)
+    return { ok: false, error: SOFT_FAIL.generic }
+  }
+}
+
+export async function finishAdminWebAuthnRegistration(input: {
+  challengeId: string
+  response: RegistrationResponseJSON
+  deviceLabel?: string
+}): Promise<{ ok: true; credentialId: string } | { ok: false; error: string }> {
+  try {
+    if (!(await ensureWebAuthnSchema())) return { ok: false, error: SOFT_FAIL.schema }
+    const { getAdminSession } = await import("@/app/actions/admin-auth")
+    const session = await getAdminSession()
+    if (!session) return { ok: false, error: "Session admin expirée. Reconnecte-toi avec ton token." }
+
+    const stored = await consumeChallenge(input.challengeId, "registration")
+    const storedToken = `${ADMIN_CRED_PREFIX}${session.token}`
+    if (!stored || stored.userToken !== storedToken) {
+      return { ok: false, error: "Délai dépassé. Réessaie l'activation." }
+    }
+
+    const { rpID, origins } = await getWebAuthnConfig()
+    const verification = await verifyRegistrationResponse({
+      response: input.response,
+      expectedChallenge: stored.challenge,
+      expectedOrigin: origins,
+      expectedRPID: [rpID],
+      requireUserVerification: true,
+    })
+    if (!verification.verified || !verification.registrationInfo) {
+      return { ok: false, error: "Activation refusée par l'appareil. Réessaie." }
+    }
+
+    const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo
+    const transports =
+      input.response.response.transports?.join(",") ?? credential.transports?.join(",") ?? null
+
+    await db.delete(webauthnCredentials).where(eq(webauthnCredentials.credentialId, credential.id))
+    await db.insert(webauthnCredentials).values({
+      userToken: storedToken,
+      credentialId: credential.id,
+      publicKey: isoBase64URL.fromBuffer(credential.publicKey),
+      counter: credential.counter ?? 0,
+      transports,
+      deviceLabel:
+        input.deviceLabel?.trim().slice(0, 80) ||
+        `${credentialDeviceType}${credentialBackedUp ? "+backup" : ""}`,
+    })
+    return { ok: true, credentialId: credential.id }
+  } catch (e) {
+    console.error("[webauthn] finishAdminRegistration:", e)
+    return { ok: false, error: "Activation impossible. Le token admin reste valable." }
+  }
+}
+
+export async function listAdminWebAuthnCredentials(): Promise<
+  { id: string; deviceLabel: string | null; createdAt: string }[]
+> {
+  try {
+    const { getAdminSession } = await import("@/app/actions/admin-auth")
+    const session = await getAdminSession()
+    if (!session) return []
+    return await listWebAuthnCredentials(`${ADMIN_CRED_PREFIX}${session.token}`)
+  } catch {
+    return []
+  }
+}
+
+export async function removeAdminWebAuthnCredential(
+  credentialId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { getAdminSession } = await import("@/app/actions/admin-auth")
+    const session = await getAdminSession()
+    if (!session) return { ok: false, error: "Session admin expirée." }
+    return await removeWebAuthnCredential(`${ADMIN_CRED_PREFIX}${session.token}`, credentialId)
   } catch {
     return { ok: false, error: "Suppression impossible." }
   }

@@ -73,6 +73,50 @@ export function clearLocalWebAuthn() {
   localStorage.removeItem(WEBAUTHN_FLAG_KEY)
 }
 
+export type BiometricLoginResult =
+  | { ok: true; admin: true; pseudo: string }
+  | { ok: true; admin: false; token: string; pseudo: string; credentialId?: string }
+  | { ok: false; error: string; clearLocal?: boolean }
+
+/** Déverrouillage biométrique (client ou admin). À appeler depuis un clic. */
+export async function runBiometricLogin(): Promise<BiometricLoginResult> {
+  const { loadWebAuthnBrowser } = await import("@/lib/webauthn-browser")
+  const { startWebAuthnAuthentication, finishWebAuthnAuthentication } = await import(
+    "@/app/actions/webauthn"
+  )
+  const api = await loadWebAuthnBrowser()
+  if (!api) {
+    return { ok: false, error: "Biométrie indisponible sur cet appareil. Utilise ta clé ou ton token." }
+  }
+  const ids = getLocalCredentialIds()
+  const start = await startWebAuthnAuthentication(ids.length ? ids : undefined)
+  if (!start.ok) {
+    return {
+      ok: false,
+      error: start.error,
+      clearLocal: "clearLocal" in start ? start.clearLocal : undefined,
+    }
+  }
+  const assertion = (await api.startAuthentication({
+    optionsJSON: start.options,
+  })) as { id: string }
+  const done = await finishWebAuthnAuthentication({
+    challengeId: start.challengeId,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    response: assertion as any,
+  })
+  if (!done.ok) {
+    return {
+      ok: false,
+      error: done.error,
+      clearLocal: "clearLocal" in done ? done.clearLocal : undefined,
+    }
+  }
+  if (assertion?.id) rememberLocalCredential(assertion.id)
+  if (done.admin) return { ok: true, admin: true, pseudo: done.pseudo }
+  return { ok: true, admin: false, token: done.token, pseudo: done.pseudo, credentialId: assertion?.id }
+}
+
 export function biometryLabel(): string {
   if (typeof navigator === "undefined") return "biométrie"
   const ua = navigator.userAgent || ""

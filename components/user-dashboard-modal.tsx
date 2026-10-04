@@ -13,10 +13,10 @@ import {
 import { loadWebAuthnBrowser } from "@/lib/webauthn-browser"
 import {
   biometryLabel,
+  browserSupportsWebAuthn,
   clearLocalWebAuthn,
   forgetLocalCredential,
   hasLocalWebAuthn,
-  platformAuthenticatorAvailable,
   rememberLocalCredential,
 } from "@/lib/webauthn-client"
 
@@ -61,13 +61,9 @@ export function UserDashboardModal({ isOpen, onClose, userData, onLogout }: User
     ;(async () => {
       try {
         const api = await loadWebAuthnBrowser()
-        if (!api?.browserSupportsWebAuthn()) {
-          setBioAvailable(false)
-          return
-        }
-        setBioAvailable(await platformAuthenticatorAvailable())
+        setBioAvailable(!!api?.browserSupportsWebAuthn() || browserSupportsWebAuthn())
       } catch {
-        setBioAvailable(false)
+        setBioAvailable(browserSupportsWebAuthn())
       }
     })()
     if (token) {

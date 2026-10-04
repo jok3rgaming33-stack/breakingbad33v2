@@ -1,14 +1,52 @@
 "use client"
 
-import { useActionState, useState } from "react"
+import { useActionState, useEffect, useState } from "react"
 import { adminGateAction } from "@/app/actions/admin-auth"
-import { ShieldCheck, Loader2 } from "lucide-react"
+import { Fingerprint, ShieldCheck, Loader2 } from "lucide-react"
 import { TurnstileWidget } from "@/components/turnstile-widget"
+import { syncPushSubscription } from "@/hooks/use-push-notifications"
+import {
+  biometryLabel,
+  browserSupportsWebAuthn,
+  clearLocalWebAuthn,
+  runBiometricLogin,
+} from "@/lib/webauthn-client"
 
 export function AdminGate() {
   const [state, formAction, isPending] = useActionState(adminGateAction, null)
   const [mode, setMode] = useState<"token" | "password">("token")
   const [captcha, setCaptcha] = useState("")
+  const [bioOk, setBioOk] = useState(false)
+  const [bioBusy, setBioBusy] = useState(false)
+  const [bioError, setBioError] = useState("")
+
+  useEffect(() => {
+    setBioOk(browserSupportsWebAuthn())
+  }, [])
+
+  const unlock = async () => {
+    if (bioBusy || isPending) return
+    setBioError("")
+    setBioBusy(true)
+    try {
+      const done = await runBiometricLogin()
+      if (!done.ok) {
+        if (done.clearLocal) clearLocalWebAuthn()
+        setBioError(done.error)
+        return
+      }
+      if (!done.admin) {
+        setBioError("Cette biométrie ouvre un compte client, pas le panel. Utilise ton token admin, puis active la biométrie dans le panel.")
+        return
+      }
+      await syncPushSubscription({ role: "vendeur", ask: true })
+      window.location.href = "/admin"
+    } catch {
+      setBioError("Déverrouillage impossible. Utilise ton token.")
+    } finally {
+      setBioBusy(false)
+    }
+  }
   // Aligné sur le login client : token Turnstile OU "unavailable" (widget HS / timeout).
   // Ne jamais envoyer une chaîne vide — le serveur refuse sinon l'accès admin.
   const captchaValue = captcha.trim() || "unavailable"
@@ -42,6 +80,24 @@ export function AdminGate() {
             Pseudo + mot de passe
           </button>
         </div>
+
+        {bioOk && (
+          <div className="mb-5">
+            <button
+              type="button"
+              onClick={() => void unlock()}
+              disabled={bioBusy || isPending}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-accent/40 bg-accent/15 py-3.5 text-sm font-semibold text-accent disabled:opacity-50"
+            >
+              {bioBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Fingerprint className="h-4 w-4" />}
+              {bioBusy ? "Vérification..." : `Ouvrir avec ${biometryLabel()}`}
+            </button>
+            {bioError && <p className="mt-2 text-center text-xs text-destructive">{bioError}</p>}
+            <p className="mt-2 text-center text-[11px] text-muted-foreground">
+              Disponible après une première activation dans le panel. Sinon, token ou mot de passe ci-dessous.
+            </p>
+          </div>
+        )}
 
         <form action={formAction} className="flex flex-col gap-4">
           {mode === "token" ? (

@@ -79,6 +79,31 @@ export async function adminLoginWithPassword(
   return { ok: true, pseudo: admin.pseudo }
 }
 
+export async function getAdminSession(): Promise<{ token: string; pseudo: string } | null> {
+  try {
+    const store = await cookies()
+    const session = store.get(COOKIE_NAME)?.value
+    if (!session) return null
+    if (process.env.ADMIN_TOKEN && session === process.env.ADMIN_TOKEN) {
+      return { token: session, pseudo: ADMIN_PSEUDO }
+    }
+    const rows = await db.select().from(adminAccounts).where(eq(adminAccounts.token, session)).limit(1)
+    const admin = rows[0]
+    if (!admin || !admin.active) return null
+    return { token: admin.token, pseudo: admin.pseudo }
+  } catch (e) {
+    console.error("[admin-auth] getAdminSession:", e)
+    return null
+  }
+}
+
+/** Pose le cookie admin après une biométrie réussie. */
+export async function openAdminSession(token: string): Promise<boolean> {
+  if (!(await isAdminToken(token))) return false
+  await setSessionCookie(token)
+  return true
+}
+
 // Lu côté serveur (panel admin) pour vérifier la session.
 export async function isAdminAuthenticated() {
   try {
