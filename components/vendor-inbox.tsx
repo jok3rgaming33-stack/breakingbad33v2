@@ -13,6 +13,7 @@ import { computePromoDiscount } from "@/lib/promo-calc"
 import { Inbox, Send, Loader2, Truck, Store, Package, MessageSquare, Trash2, AlertTriangle, Wallet, CheckCircle2, Check, CheckCheck, Clock, ShoppingCart, Plus, Minus, RefreshCw, Paperclip, KeyRound, Unlock, Ticket, ExternalLink, Copy, Navigation, ArrowLeft } from "lucide-react"
 import { VoiceNoteButton } from "@/components/voice-note-button"
 import { backdropDismissProps } from "@/lib/backdrop-close"
+import { formatVariantQty } from "@/lib/format-qty"
 import { grantRestoreAccess, getRestoreStatus } from "@/app/actions/restore-access"
 import { VENDOR_STATUS_OPTIONS, VENDOR_DISCUSSION_STATUS_OPTIONS, STATUS_META, statusMeta, normalizeStatus } from "@/lib/order-status"
 import { splitThreadForTracking, type OrderTrackingState } from "@/lib/order-timeline"
@@ -1475,7 +1476,7 @@ export function VendorInbox({
                             className="rounded-lg border border-input bg-background px-2 py-1 text-xs outline-none focus:border-accent"
                           >
                             {prod.variants.map((v) => (
-                              <option key={v.qty} value={v.price}>{v.qty} × {v.price}€</option>
+                              <option key={v.qty} value={v.price}>{formatVariantQty(v.qty)} × {v.price}€</option>
                             ))}
                           </select>
                         )}

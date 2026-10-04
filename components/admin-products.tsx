@@ -69,6 +69,8 @@ export function AdminProducts() {
   const { data: products, mutate, isLoading } = useSWR("admin-products", () => listProducts())
   const { data: categories, mutate: mutateCats } = useSWR("admin-categories", () => listCategories())
   const [form, setForm] = useState<FormState | null>(null)
+  // Saisie libre « 0,5 » : le nombre n'est figé qu'à la validation du champ.
+  const [qtyDraft, setQtyDraft] = useState<Record<number, string>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -81,10 +83,12 @@ export function AdminProducts() {
 
   const openNew = () => {
     setError(null)
+    setQtyDraft({})
     setForm(emptyForm(firstKey))
   }
   const openEdit = (p: Product) => {
     setError(null)
+    setQtyDraft({})
     setForm(toForm(p))
   }
 
@@ -353,7 +357,7 @@ export function AdminProducts() {
 
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-sm font-medium">Variantes (quantité / prix €)</span>
+                  <span className="text-sm font-medium">Variantes (grammes / prix €)</span>
                   <button
                     type="button"
                     onClick={addVariant}
@@ -367,12 +371,29 @@ export function AdminProducts() {
                   {form.variants.map((v, i) => (
                     <div key={i} className="flex items-center gap-2">
                       <input
-                        type="number"
-                        min={1}
-                        value={v.qty || ""}
-                        onChange={(e) => updateVariant(i, "qty", e.target.value === "" ? 0 : Number(e.target.value))}
+                        type="text"
+                        inputMode="decimal"
+                        value={qtyDraft[i] ?? (v.qty ? String(v.qty).replace(".", ",") : "")}
+                        onChange={(e) => {
+                          const text = e.target.value.replace(/[^\d.,]/g, "").replace(".", ",")
+                          setQtyDraft((d) => ({ ...d, [i]: text }))
+                          if (text === "" || text === "," || text.endsWith(",")) {
+                            updateVariant(i, "qty", 0)
+                            return
+                          }
+                          const n = Number(text.replace(",", "."))
+                          if (Number.isFinite(n)) updateVariant(i, "qty", n)
+                        }}
+                        onBlur={() => {
+                          setQtyDraft((d) => {
+                            const next = { ...d }
+                            delete next[i]
+                            return next
+                          })
+                        }}
                         className="input w-1/2"
-                        placeholder="Qté"
+                        placeholder="0,5"
+                        aria-label="Quantité en grammes"
                       />
                       <input
                         type="number"
@@ -393,6 +414,9 @@ export function AdminProducts() {
                     </div>
                   ))}
                 </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Gramme : 0,5 puis 1, 1,5, 2… Le demi-gramme est accepté.
+                </p>
               </div>
 
               <div>

@@ -15,6 +15,7 @@ import { getCustomerStats } from "@/app/actions/account"
 import { getProductRatingSummaries, type ProductRatingSummary } from "@/app/actions/ratings"
 import type { Product, ProductVariant } from "@/lib/db/schema"
 import { backdropDismissProps } from "@/lib/backdrop-close"
+import { formatVariantQty } from "@/lib/format-qty"
 
 type SectionConfig = {
   section: string
@@ -172,7 +173,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
     const v = selected.variants[variantIdx]
     if (!v) return
     const price = effectivePrice(v.price, selected)
-    addToCart(`${selected.title} ×${v.qty}`, price, selected.id)
+    addToCart(`${selected.title} ×${formatVariantQty(v.qty)}`, price, selected.id)
     await decrementStock(selected.id, 1)
     mutate()
     closeModal()
@@ -362,7 +363,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                   if (v.qty > selected.stock) return null
                   return (
                     <option key={`${v.qty}-${i}`} value={i}>
-                      {v.qty} — {effectivePrice(v.price, selected)}€
+                      {formatVariantQty(v.qty)} — {effectivePrice(v.price, selected)}€
                       {effectivePrice(v.price, selected) !== v.price
                         ? ` (au lieu de ${v.price}€)`
                         : ""}

@@ -15,6 +15,7 @@ import {
   X, Plus, Minus, Loader2, Truck, Store, Package, Search, ShoppingBag, Check, Ticket,
 } from "lucide-react"
 import { backdropDismissProps } from "@/lib/backdrop-close"
+import { formatVariantQty } from "@/lib/format-qty"
 import { useAddressGeocode } from "@/hooks/use-address-geocode"
 
 type Props = {
@@ -298,7 +299,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                           className="rounded-lg border border-input bg-background px-2 py-1 text-xs outline-none focus:border-accent"
                         >
                           {prod.variants.map((v) => (
-                            <option key={v.qty} value={v.price}>{v.qty} × {v.price}€</option>
+                            <option key={v.qty} value={v.price}>{formatVariantQty(v.qty)} × {v.price}€</option>
                           ))}
                         </select>
                       )}

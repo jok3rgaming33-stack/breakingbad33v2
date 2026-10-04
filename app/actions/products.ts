@@ -52,10 +52,18 @@ export type ProductInput = {
   sortOrder?: number
 }
 
+/** Quantité au gramme, pas de 0,5. 0,4 est rejeté ; 0,5 / 1 / 2,5 passent. */
+function normalizeGramQty(raw: unknown): number {
+  const n = typeof raw === "string" ? Number(raw.replace(",", ".")) : Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  const stepped = Math.round(n * 2) / 2
+  return stepped >= 0.5 ? stepped : 0
+}
+
 function sanitizeVariants(variants: ProductVariant[]): ProductVariant[] {
   if (!Array.isArray(variants)) return []
   return variants
-    .map((v) => ({ qty: Math.max(1, Math.trunc(Number(v.qty) || 0)), price: Math.max(0, Math.trunc(Number(v.price) || 0)) }))
+    .map((v) => ({ qty: normalizeGramQty(v.qty), price: Math.max(0, Math.trunc(Number(v.price) || 0)) }))
     .filter((v) => v.qty > 0)
 }
 
