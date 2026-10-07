@@ -500,6 +500,15 @@ export type CustomerStats = {
   progress: number
   /** Texte court sur l'impact des bons */
   voucherPolicyHint: string
+  history: {
+    id: string
+    kind: "earned" | "spent" | "adjustment"
+    points: number
+    label: string
+    date: string | null
+    orderId?: number
+    code?: string
+  }[]
 }
 
 const VOUCHER_POLICY_HINT =
@@ -531,6 +540,7 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
     spentToNext: 100,
     progress: 0,
     voucherPolicyHint: VOUCHER_POLICY_HINT,
+    history: [],
   }
   const t = token?.trim()
   if (!t) return empty
@@ -538,6 +548,21 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
   await ensureFeatureSchema()
 
   const rows = await db.select().from(orderThreads).where(eq(orderThreads.customerToken, t))
+  const loyaltyHistory: CustomerStats["history"] = []
+  const loyaltyRows = await db
+    .select({ id: loyaltyCodes.id, code: loyaltyCodes.code, pointsCost: loyaltyCodes.pointsCost, createdAt: loyaltyCodes.createdAt })
+    .from(loyaltyCodes)
+    .where(eq(loyaltyCodes.userToken, t))
+  for (const code of loyaltyRows) {
+    loyaltyHistory.push({
+      id: `spent-${code.id}`,
+      kind: "spent",
+      points: -Math.abs(code.pointsCost || 0),
+      label: `Bon ${code.code}`,
+      date: code.createdAt ? new Date(code.createdAt).toISOString() : null,
+      code: code.code,
+    })
+  }
 
   let active = 0
   let past = 0
@@ -615,7 +640,40 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
   const peakTier = (u?.peakTier as LoyaltyTierId) || "bronze"
 
   const replay = replayLoyaltyOrders(livree, peakTier)
-  let points = Math.max(0, replay.points + (u?.loyaltyAdjustment ?? 0) - (u?.loyaltySpent ?? 0))
+  let runningQualifying = 0
+  for (const order of [...livree].sort((a, b) => a.id - b.id)) {
+    const net = Math.max(0, order.total ?? 0)
+    const discount = Math.max(0, order.loyaltyDiscount ?? 0)
+    const tierBefore = resolveEffectiveTier(runningQualifying, peakTier)
+    const earned =
+      order.loyaltyPointsAwarded != null && Number.isFinite(order.loyaltyPointsAwarded)
+        ? Math.max(0, order.loyaltyPointsAwarded)
+        : computeTierPoints(net, tierBefore.tier.pointsMultiplier)
+    if (earned > 0) {
+      const source = rows.find((row) => row.id === order.id)
+      loyaltyHistory.push({
+        id: `earned-${order.id}`,
+        kind: "earned",
+        points: earned,
+        label: `Commande #${order.id}`,
+        date: source?.updatedAt ? new Date(source.updatedAt).toISOString() : null,
+        orderId: order.id,
+      })
+    }
+    runningQualifying += net + discount
+  }
+  const adjustment = u?.loyaltyAdjustment ?? 0
+  if (adjustment !== 0) {
+    loyaltyHistory.push({
+      id: "adjustment",
+      kind: "adjustment",
+      points: adjustment,
+      label: "Ajustement manuel",
+      date: null,
+    })
+  }
+  loyaltyHistory.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))
+  let points = Math.max(0, replay.points + adjustment - (u?.loyaltySpent ?? 0))
 
   // Code parrain : toujours généré / renvoyé
   let referralCode = u?.referralCode?.trim() || null
@@ -701,6 +759,7 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
     spentToNext: resolved.spentToNext,
     progress: resolved.progress,
     voucherPolicyHint: VOUCHER_POLICY_HINT,
+    history: loyaltyHistory,
   }
 }
 

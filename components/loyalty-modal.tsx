@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { X, Gift, Check, Copy, Loader2, Ticket, AlertCircle, Crown, Truck, Timer } from "lucide-react"
+import { X, Gift, Check, Copy, Loader2, Ticket, AlertCircle, Crown, Truck, Timer, History } from "lucide-react"
 import { ensureReferralCode, getCustomerStats, type CustomerStats } from "@/app/actions/account"
 import { generateLoyaltyCode, listLoyaltyCodes } from "@/app/actions/promo"
 import type { LoyaltyCode } from "@/lib/db/schema"
@@ -35,7 +35,7 @@ type LoyaltyModalProps = {
 export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
   const token = userData?.token ?? ""
   const [stats, setStats] = useState<CustomerStats | null>(null)
-  const [view, setView] = useState<"rewards" | "codes" | "parrainage" | "paliers">("rewards")
+  const [view, setView] = useState<"rewards" | "codes" | "parrainage" | "paliers" | "history">("rewards")
   const [myCodes, setMyCodes] = useState<LoyaltyCode[]>([])
   const [generating, setGenerating] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -248,13 +248,14 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
         </div>
 
         {/* Onglets */}
-        <div className="mb-3 grid grid-cols-4 gap-1.5">
+        <div className="mb-3 grid grid-cols-5 gap-1.5">
           {(
             [
               ["rewards", "Récomp."],
               ["paliers", "Paliers"],
               ["codes", "Codes"],
               ["parrainage", "Parrain"],
+              ["history", "Suivi"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -278,7 +279,33 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
         )}
 
         <div className="flex-1 overflow-y-auto">
-          {view === "paliers" ? (
+          {view === "history" ? (
+            <div className="flex flex-col gap-3">
+              <div className="rounded-2xl border border-border bg-background/40 p-3 text-xs text-muted-foreground">
+                Chaque ligne explique les points gagnés, utilisés pour un bon ou ajoutés manuellement. Le solde actuel est recalculé à partir de cet historique.
+              </div>
+              {stats?.history?.length ? (
+                stats.history.map((entry) => (
+                  <div key={entry.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background/40 p-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <History className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{entry.label}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {entry.date ? new Date(entry.date).toLocaleString("fr-FR") : "Ajustement enregistré"}
+                        </div>
+                      </div>
+                    </div>
+                    <span className={`shrink-0 text-sm font-bold ${entry.points < 0 ? "text-destructive" : "text-accent"}`}>
+                      {entry.points > 0 ? "+" : ""}{entry.points} pts
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <p className="py-8 text-center text-sm text-muted-foreground">Aucune activité fidélité pour le moment.</p>
+              )}
+            </div>
+          ) : view === "paliers" ? (
             <div className="flex flex-col gap-2.5">
               <p className="text-xs text-muted-foreground">
                 Les paliers se basent sur tes <strong className="text-foreground">points de statut</strong>{" "}

@@ -3,7 +3,7 @@
 import { db } from "@/lib/db"
 import { loyaltyCodes, orderThreads, users } from "@/lib/db/schema"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
-import { computeLoyaltyPoints } from "@/lib/loyalty"
+import { computeLoyaltyPoints, replayLoyaltyOrders } from "@/lib/loyalty"
 import { normalizeStatus } from "@/lib/order-status"
 import { desc, eq, inArray, sql } from "drizzle-orm"
 
@@ -106,6 +106,7 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
       nickname: users.nickname,
       loyaltyAdjustment: users.loyaltyAdjustment,
       loyaltySpent: users.loyaltySpent,
+      peakTier: users.peakTier,
     })
     .from(users)
     .orderBy(desc(users.createdAt))
@@ -182,7 +183,10 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
   for (const u of allUsers) {
     const orderLines = (ordersByToken.get(u.token) ?? []).sort((a, b) => b.orderId - a.orderId)
     const codeLines = codesByToken.get(u.token) ?? []
-    const earned = orderLines.reduce((s, l) => s + l.points, 0)
+    const earned = replayLoyaltyOrders(
+      orderLines.map((line) => ({ id: line.orderId, total: line.total })),
+      u.peakTier,
+    ).points
     const adj = u.loyaltyAdjustment ?? 0
     const spent = u.loyaltySpent ?? 0
     const balance = Math.max(0, earned + adj - spent)
