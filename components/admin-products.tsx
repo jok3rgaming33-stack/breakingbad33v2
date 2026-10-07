@@ -146,6 +146,12 @@ export function AdminProducts() {
     setForm({ ...form, variants })
   }
 
+  const updateVariantUnit = (i: number, unit: "g" | "unit") => {
+    if (!form) return
+    const variants = form.variants.map((v, idx) => (idx === i ? { ...v, unit, qty: unit === "unit" ? Math.max(1, Math.trunc(v.qty) || 1) : v.qty } : v))
+    setForm({ ...form, variants })
+  }
+
   const addVariant = () => {
     if (!form) return
     setForm({ ...form, variants: [...form.variants, { qty: 0, price: 0 }] })
@@ -357,7 +363,7 @@ export function AdminProducts() {
 
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-sm font-medium">Variantes (grammes / prix €)</span>
+                  <span className="text-sm font-medium">Variantes (grammes ou unités / prix €)</span>
                   <button
                     type="button"
                     onClick={addVariant}
@@ -369,13 +375,24 @@ export function AdminProducts() {
 
                 <div className="space-y-2">
                   {form.variants.map((v, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={qtyDraft[i] ?? (v.qty ? String(v.qty).replace(".", ",") : "")}
-                        onChange={(e) => {
-                          const text = e.target.value.replace(/[^\d.,]/g, "").replace(".", ",")
+  <div key={i} className="flex items-center gap-2">
+  <select
+    value={v.unit ?? "g"}
+    onChange={(e) => updateVariantUnit(i, e.target.value as "g" | "unit")}
+    className="input w-28"
+    aria-label="Unité de la variante"
+  >
+    <option value="g">Gramme</option>
+    <option value="unit">Unité</option>
+  </select>
+  <input
+  type="text"
+  inputMode={v.unit === "unit" ? "numeric" : "decimal"}
+  value={qtyDraft[i] ?? (v.qty ? String(v.qty).replace(".", ",") : "")}
+  onChange={(e) => {
+  const text = v.unit === "unit"
+    ? e.target.value.replace(/\D/g, "")
+    : e.target.value.replace(/[^\d.,]/g, "").replace(".", ",")
                           setQtyDraft((d) => ({ ...d, [i]: text }))
                           if (text === "" || text === "," || text.endsWith(",")) {
                             updateVariant(i, "qty", 0)
@@ -392,8 +409,8 @@ export function AdminProducts() {
                           })
                         }}
                         className="input w-1/2"
-                        placeholder="0,5"
-                        aria-label="Quantité en grammes"
+  placeholder={v.unit === "unit" ? "1" : "0,5"}
+  aria-label={v.unit === "unit" ? "Quantité en unités" : "Quantité en grammes"}
                       />
                       <input
                         type="number"

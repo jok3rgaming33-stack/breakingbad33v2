@@ -173,7 +173,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
     const v = selected.variants[variantIdx]
     if (!v) return
     const price = effectivePrice(v.price, selected)
-    addToCart(`${selected.title} ×${formatVariantQty(v.qty)}`, price, selected.id)
+    addToCart(`${selected.title} ×${formatVariantQty(v.qty, v.unit ?? "g")}`, price, selected.id)
     await decrementStock(selected.id, 1)
     mutate()
     closeModal()
@@ -363,7 +363,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                   if (v.qty > selected.stock) return null
                   return (
                     <option key={`${v.qty}-${i}`} value={i}>
-                      {formatVariantQty(v.qty)} — {effectivePrice(v.price, selected)}€
+                      {formatVariantQty(v.qty, v.unit ?? "g")} — {effectivePrice(v.price, selected)}€
                       {effectivePrice(v.price, selected) !== v.price
                         ? ` (au lieu de ${v.price}€)`
                         : ""}

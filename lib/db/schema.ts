@@ -86,7 +86,7 @@ export const webauthnChallenges = pgTable("webauthn_challenges", {
 export type WebauthnCredential = typeof webauthnCredentials.$inferSelect
 
 // Variante de prix d'un produit (quantité -> prix).
-export type ProductVariant = { qty: number; price: number }
+export type ProductVariant = { qty: number; price: number; unit?: "g" | "unit" }
 
 // Média (image ou vidéo) réutilisé pour produits, news et notifications.
 export type MediaAttachment = { type: "image" | "video"; url: string }

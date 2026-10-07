@@ -523,7 +523,7 @@ export function VendorInbox({
       if ((t?.fulfillment || "").toLowerCase() === "meetup") {
         const existing =
           (t as { tracking?: { meetup?: { address?: string } } }).tracking?.meetup?.address ||
-          t.address ||
+          t?.address ||
           ""
         setMeetupAddr(existing)
         setMeetupError(null)
@@ -1476,7 +1476,7 @@ export function VendorInbox({
                             className="rounded-lg border border-input bg-background px-2 py-1 text-xs outline-none focus:border-accent"
                           >
                             {prod.variants.map((v) => (
-                              <option key={v.qty} value={v.price}>{formatVariantQty(v.qty)} × {v.price}€</option>
+                              <option key={v.qty} value={v.price}>{formatVariantQty(v.qty, v.unit ?? "g")} × {v.price}€</option>
                             ))}
                           </select>
                         )}

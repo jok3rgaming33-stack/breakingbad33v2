@@ -299,7 +299,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                           className="rounded-lg border border-input bg-background px-2 py-1 text-xs outline-none focus:border-accent"
                         >
                           {prod.variants.map((v) => (
-                            <option key={v.qty} value={v.price}>{formatVariantQty(v.qty)} × {v.price}€</option>
+                            <option key={v.qty} value={v.price}>{formatVariantQty(v.qty, v.unit ?? "g")} × {v.price}€</option>
                           ))}
                         </select>
                       )}

@@ -63,7 +63,11 @@ function normalizeGramQty(raw: unknown): number {
 function sanitizeVariants(variants: ProductVariant[]): ProductVariant[] {
   if (!Array.isArray(variants)) return []
   return variants
-    .map((v) => ({ qty: normalizeGramQty(v.qty), price: Math.max(0, Math.trunc(Number(v.price) || 0)) }))
+    .map((v) => ({
+      qty: v.unit === "unit" ? Math.max(1, Math.trunc(Number(v.qty) || 0)) : normalizeGramQty(v.qty),
+      price: Math.max(0, Math.trunc(Number(v.price) || 0)),
+      unit: v.unit === "unit" ? ("unit" as const) : ("g" as const),
+    }))
     .filter((v) => v.qty > 0)
 }
 

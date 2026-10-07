@@ -1,10 +1,10 @@
-/** Affiche une quantité en grammes : 0.5 → « 0,5g », 2 → « 2g ». */
-export function formatVariantQty(qty: number): string {
+/** Affiche une quantité en grammes ou en unités, en gardant les anciens produits en grammes. */
+export function formatVariantQty(qty: number, unit: "g" | "unit" = "g"): string {
   const n = Number(qty)
   if (!Number.isFinite(n)) return ""
   const rounded = Math.round(n * 10) / 10
   const label = Number.isInteger(rounded)
     ? String(rounded)
     : rounded.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
-  return `${label}g`
+  return `${label}${unit === "unit" ? (Number(qty) === 1 ? " unité" : " unités") : "g"}`
 }
