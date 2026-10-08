@@ -8,8 +8,9 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>
 }
 
-const STORAGE_KEY = "bb33_install_prompt_dismissed_at"
-const DISMISS_DAYS = 14
+/** Masqué seulement pour la session en cours. Fermer le navigateur = nouvelle reco. */
+const SESSION_KEY = "bb33_install_prompt_session"
+const LEGACY_DISMISS_KEY = "bb33_install_prompt_dismissed_at"
 /** Délai après que l'UI soit « calme » (pas de news / panier / toast). */
 const SHOW_DELAY_MS = 14000
 
@@ -24,13 +25,9 @@ function isIos() {
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent)
 }
 
-function wasDismissedRecently() {
+function dismissedThisSession() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return false
-    const ts = Number(raw)
-    if (!Number.isFinite(ts)) return false
-    return Date.now() - ts < DISMISS_DAYS * 86400000
+    return sessionStorage.getItem(SESSION_KEY) === "1"
   } catch {
     return false
   }
@@ -38,7 +35,8 @@ function wasDismissedRecently() {
 
 function markDismissed() {
   try {
-    localStorage.setItem(STORAGE_KEY, String(Date.now()))
+    sessionStorage.setItem(SESSION_KEY, "1")
+    localStorage.removeItem(LEGACY_DISMISS_KEY)
   } catch {
     /* ignore */
   }
@@ -47,6 +45,7 @@ function markDismissed() {
 /**
  * Toast in-app proposant d'installer la PWA (visiteurs navigateur uniquement).
  * Android/Chrome : beforeinstallprompt. iOS : tutoriel Partager → Écran d'accueil.
+ * Revient à chaque reconnexion tant que le site n'est pas ouvert en mode appli.
  * Attend que news / panier / toast soient calmés avant d'apparaître.
  */
 export function InstallAppPrompt({ enabled = true }: { enabled?: boolean }) {
@@ -60,8 +59,13 @@ export function InstallAppPrompt({ enabled = true }: { enabled?: boolean }) {
   useEffect(() => {
     if (!enabled) return
     if (typeof window === "undefined") return
+    try {
+      localStorage.removeItem(LEGACY_DISMISS_KEY)
+    } catch {
+      /* ignore */
+    }
     if (isStandalone()) return
-    if (wasDismissedRecently()) return
+    if (dismissedThisSession()) return
 
     const busySources = new Set<string>()
     const syncBusy = () => setUiBusy(busySources.size > 0)
@@ -115,7 +119,7 @@ export function InstallAppPrompt({ enabled = true }: { enabled?: boolean }) {
 
   // Affiche seulement quand l'UI est calme
   useEffect(() => {
-    if (!enabled || isStandalone() || wasDismissedRecently()) return
+    if (!enabled || isStandalone() || dismissedThisSession()) return
     if (uiBusy || newsPending) {
       setVisible(false)
       return
