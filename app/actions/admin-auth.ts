@@ -49,15 +49,30 @@ async function setSessionCookie(value: string) {
 export async function adminLogin(token: string): Promise<{ ok: boolean; pseudo?: string; error?: string }> {
   const throttled = await loginThrottled()
   if (throttled) return { ok: false, error: throttled }
-  if (process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN) {
-    await setSessionCookie(token)
-    return { ok: true, pseudo: ADMIN_PSEUDO }
+  // Une panne de la table admin ne doit jamais empêcher un client de se connecter :
+  // le formulaire enchaîne sur getAccount, et une exception ici s'affiche « réseau ».
+  try {
+    if (process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN) {
+      await setSessionCookie(token)
+      return { ok: true, pseudo: ADMIN_PSEUDO }
+    }
+    const rows = await db
+      .select({
+        token: adminAccounts.token,
+        pseudo: adminAccounts.pseudo,
+        active: adminAccounts.active,
+      })
+      .from(adminAccounts)
+      .where(eq(adminAccounts.token, token))
+      .limit(1)
+    const admin = rows[0]
+    if (!admin || !admin.active) return { ok: false, error: "Token invalide ou accès révoqué." }
+    await setSessionCookie(admin.token)
+    return { ok: true, pseudo: admin.pseudo }
+  } catch (e) {
+    console.error("[admin-auth] adminLogin:", e)
+    return { ok: false }
   }
-  const rows = await db.select().from(adminAccounts).where(eq(adminAccounts.token, token)).limit(1)
-  const admin = rows[0]
-  if (!admin || !admin.active) return { ok: false, error: "Token invalide ou accès révoqué." }
-  await setSessionCookie(admin.token)
-  return { ok: true, pseudo: admin.pseudo }
 }
 
 // Connexion par pseudo + mot de passe (comptes admin disposant d'un mot de passe).

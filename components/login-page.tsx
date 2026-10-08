@@ -10,7 +10,7 @@ import { TurnstileWidget } from "@/components/turnstile-widget"
 import { HowItWorksModal } from "@/components/how-it-works-modal"
 import { loginWithRestoreToken, setPasswordAfterRestore } from "@/app/actions/restore-access"
 import { submitLostKeyClaim } from "@/app/actions/lost-key"
-import { normalizeSecretKey } from "@/lib/normalize-token"
+import { MIN_LOGIN_KEY_LENGTH, normalizeSecretKey } from "@/lib/normalize-token"
 import { PASSWORD_RULES } from "@/lib/password-rules"
 import {
   startWebAuthnRegistration,
@@ -253,7 +253,7 @@ export function LoginPage({
 
   const loginWithKey = async () => {
     const token = normalizeSecretKey(loginInput)
-    if (token.length < 20) {
+    if (token.length < MIN_LOGIN_KEY_LENGTH) {
       setError("Colle ta clé secrète complète (sans espace ni retour à la ligne).")
       return
     }

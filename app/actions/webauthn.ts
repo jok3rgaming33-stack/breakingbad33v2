@@ -19,6 +19,7 @@ import type {
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { users, webauthnChallenges, webauthnCredentials } from "@/lib/db/schema"
+import { MIN_LOGIN_KEY_LENGTH } from "@/lib/normalize-token"
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000
 /** Préfixe du user_token WebAuthn pour une session admin (pas un compte client). */
@@ -224,11 +225,15 @@ export async function startWebAuthnRegistration(userToken: string): Promise<
       return { ok: false, error: SOFT_FAIL.schema }
     }
     const token = userToken?.trim()
-    if (!token || token.length < 20) {
+    if (!token || token.length < MIN_LOGIN_KEY_LENGTH) {
       return { ok: false, error: "Session invalide. Reconnecte-toi avec ta clé." }
     }
 
-    const account = await db.select().from(users).where(eq(users.token, token)).limit(1)
+    const account = await db
+      .select({ token: users.token, pseudo: users.pseudo })
+      .from(users)
+      .where(eq(users.token, token))
+      .limit(1)
     if (!account[0]) {
       return { ok: false, error: "Compte introuvable. Reconnecte-toi avec ta clé." }
     }
@@ -510,7 +515,11 @@ export async function finishWebAuthnAuthentication(input: {
       return { ok: true, admin: true, token: "", pseudo }
     }
 
-    const account = await db.select().from(users).where(eq(users.token, cred.userToken)).limit(1)
+    const account = await db
+      .select({ token: users.token, pseudo: users.pseudo })
+      .from(users)
+      .where(eq(users.token, cred.userToken))
+      .limit(1)
     if (!account[0]) {
       try {
         await db

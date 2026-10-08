@@ -455,7 +455,27 @@ export async function getAccount(token: string) {
   } catch (e) {
     console.error("[account] ensureLoginColumns:", e)
   }
-  const rows = await db.select().from(users).where(eq(users.token, t)).limit(1)
+  // Colonnes minimales : une colonne ajoutée plus tard au schéma ne doit pas
+  // couper la connexion de tout le monde tant que l'ALTER n'est pas passé.
+  const read = () =>
+    db
+      .select({
+        id: users.id,
+        token: users.token,
+        pseudo: users.pseudo,
+        flags: users.flags,
+      })
+      .from(users)
+      .where(eq(users.token, t))
+      .limit(1)
+  let rows: Awaited<ReturnType<typeof read>>
+  try {
+    rows = await read()
+  } catch (e) {
+    console.error("[account] getAccount select, nouvel essai après schéma:", e)
+    await ensureFeatureSchema()
+    rows = await read()
+  }
   const account = rows[0] ?? null
   if (account) {
     // Tout de suite : after() ip-api. Le schema ensure ne doit PAS manger le budget Vercel.

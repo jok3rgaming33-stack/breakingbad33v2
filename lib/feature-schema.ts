@@ -68,6 +68,9 @@ export async function ensureFeatureSchema(): Promise<void> {
 
         // Platine : démarre le mois de livraison offerte SANS attendre une visite client.
         // N'abaisse jamais un palier Ultimate déjà posé.
+        // Isolé : un échec ici ne doit pas empêcher les colonnes suivantes
+        // (sinon la connexion de tous les clients casse).
+        try {
         // 1) Déjà peak_tier = platinum sans date
         await db.execute(sql`
           UPDATE users
@@ -101,6 +104,9 @@ export async function ensureFeatureSchema(): Promise<void> {
               )
             )
         `)
+        } catch (e) {
+          console.error("[feature-schema] palier platine non bloquant:", e)
+        }
 
         await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_anchor_at TIMESTAMPTZ`)
         await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_cycle INTEGER NOT NULL DEFAULT 0`)

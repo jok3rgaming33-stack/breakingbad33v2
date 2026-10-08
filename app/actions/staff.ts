@@ -399,9 +399,9 @@ export async function resolveClientLogin(token: string): Promise<
   | { ok: true; pseudo: string; token: string }
   | { ok: false; error?: string; code?: "invalid" | "banned" | "short" | "recovery_closed" }
 > {
-  const { normalizeSecretKey } = await import("@/lib/normalize-token")
+  const { MIN_LOGIN_KEY_LENGTH, normalizeSecretKey } = await import("@/lib/normalize-token")
   const t = normalizeSecretKey(token)
-  if (!t || t.length < 20) {
+  if (!t || t.length < MIN_LOGIN_KEY_LENGTH) {
     return { ok: false, code: "short", error: "Clé trop courte. Colle la clé secrète complète." }
   }
 
@@ -411,23 +411,53 @@ export async function resolveClientLogin(token: string): Promise<
     console.error("[staff] ensureLoginColumns:", e)
   }
 
+  // Colonnes minimales, comme getAccount : le SELECT * casse si une colonne manque.
+  const readUser = (tokenValue: string) =>
+    db
+      .select({
+        id: users.id,
+        token: users.token,
+        pseudo: users.pseudo,
+        flags: users.flags,
+      })
+      .from(users)
+      .where(eq(users.token, tokenValue))
+      .limit(1)
+
   // 1) Compte users classique
-  let userRows = await db.select().from(users).where(eq(users.token, t)).limit(1)
+  let userRows: Awaited<ReturnType<typeof readUser>>
+  try {
+    userRows = await readUser(t)
+  } catch (e) {
+    console.error("[staff] lecture compte, nouvel essai après schéma:", e)
+    const { ensureFeatureSchema } = await import("@/lib/feature-schema")
+    await ensureFeatureSchema()
+    userRows = await readUser(t)
+  }
   let user = userRows[0]
 
-  // 2) Clé whitelist sans ligne users (orphelin) → recréer
-  const staffRows = await db
-    .select()
-    .from(staffMembers)
-    .where(and(eq(staffMembers.customerToken, t), eq(staffMembers.active, true)))
-    .limit(1)
-  const staff = staffRows[0]
+  // 2) Clé whitelist sans ligne users (orphelin) → recréer.
+  // Un souci sur cette table ne doit pas refuser un client déjà dans users.
+  let staff: { pseudo: string | null; customerToken: string | null } | undefined
+  try {
+    const staffRows = await db
+      .select({
+        pseudo: staffMembers.pseudo,
+        customerToken: staffMembers.customerToken,
+      })
+      .from(staffMembers)
+      .where(and(eq(staffMembers.customerToken, t), eq(staffMembers.active, true)))
+      .limit(1)
+    staff = staffRows[0]
+  } catch (e) {
+    console.error("[staff] lecture whitelist non bloquante:", e)
+  }
 
   if (!user && staff?.pseudo) {
     await db.insert(reservedPseudos).values({ pseudo: staff.pseudo }).onConflictDoNothing()
     // Si un user existe déjà sous ce pseudo avec un autre token, on le bascule sur cette clé
     const byPseudo = await db
-      .select()
+      .select({ id: users.id, token: users.token })
       .from(users)
       .where(eq(users.pseudo, staff.pseudo))
       .limit(1)
@@ -438,10 +468,10 @@ export async function resolveClientLogin(token: string): Promise<
         .set({ token: t, pseudo: staff.pseudo, flags: [] })
         .where(eq(users.id, byPseudo[0].id))
       await migrateTokenReferences(old, t, staff.pseudo)
-      user = (await db.select().from(users).where(eq(users.token, t)).limit(1))[0]
+      user = (await readUser(t))[0]
     } else {
       await db.insert(users).values({ token: t, pseudo: staff.pseudo, flags: [] })
-      user = (await db.select().from(users).where(eq(users.token, t)).limit(1))[0]
+      user = (await readUser(t))[0]
     }
   }
 
@@ -479,34 +509,37 @@ export async function resolveClientLogin(token: string): Promise<
     /* ignore */
   }
 
-  // Whitelist : imposer le pseudo staff et réparer les fils
-  if (staff?.pseudo) {
-    if (user.pseudo !== staff.pseudo || flags.length > 0) {
-      await db
-        .update(users)
-        .set({ pseudo: staff.pseudo, flags: [] })
-        .where(eq(users.id, user.id))
-      user = { ...user, pseudo: staff.pseudo, flags: [] }
+  // Réparation des fils : un échec ne refuse pas la connexion.
+  try {
+    if (staff?.pseudo) {
+      if (user.pseudo !== staff.pseudo || flags.length > 0) {
+        await db
+          .update(users)
+          .set({ pseudo: staff.pseudo, flags: [] })
+          .where(eq(users.id, user.id))
+        user = { ...user, pseudo: staff.pseudo, flags: [] }
+      }
+      await reattachAccountThreads(t, staff.pseudo)
+      return { ok: true, pseudo: staff.pseudo, token: t }
     }
-    await reattachAccountThreads(t, staff.pseudo)
-    return { ok: true, pseudo: staff.pseudo, token: t }
-  }
 
-  // Client normal : corriger au moins le nom sur ses fils
-  if (user.pseudo) {
-    await db
-      .update(orderThreads)
-      .set({ customerName: user.pseudo })
-      .where(
-        and(
-          eq(orderThreads.customerToken, t),
-          or(
-            eq(orderThreads.customerName, "Client"),
-            eq(orderThreads.customerName, "client"),
-            sql`${orderThreads.customerName} = ''`,
+    if (user.pseudo) {
+      await db
+        .update(orderThreads)
+        .set({ customerName: user.pseudo })
+        .where(
+          and(
+            eq(orderThreads.customerToken, t),
+            or(
+              eq(orderThreads.customerName, "Client"),
+              eq(orderThreads.customerName, "client"),
+              sql`${orderThreads.customerName} = ''`,
+            ),
           ),
-        ),
-      )
+        )
+    }
+  } catch (e) {
+    console.error("[staff] réparation du compte non bloquante:", e)
   }
 
   return { ok: true, pseudo: user.pseudo, token: t }

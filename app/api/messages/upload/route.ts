@@ -7,6 +7,7 @@ import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { isVendorAuthenticated } from "@/app/actions/vendor-auth"
 import { getClientIp } from "@/lib/ip-check"
 import { isRateLimited } from "@/lib/rate-limit"
+import { MIN_LOGIN_KEY_LENGTH } from "@/lib/normalize-token"
 
 // Upload messagerie : client (token compte) OU session vendeur/admin.
 // Utilisée dans les commandes et discussions.
@@ -107,7 +108,7 @@ async function isAuthorizedUploader(formData: FormData): Promise<boolean> {
   if (await isVendorAuthenticated()) return true
   if (await isAdminAuthenticated()) return true
   const token = String(formData.get("token") ?? "").trim()
-  if (!token || token.length < 20) return false
+  if (!token || token.length < MIN_LOGIN_KEY_LENGTH) return false
   const rows = await db.select({ id: users.id }).from(users).where(eq(users.token, token)).limit(1)
   return rows.length > 0
 }
