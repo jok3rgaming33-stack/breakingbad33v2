@@ -38,6 +38,12 @@ export const users = pgTable("users", {
   freeDeliveryStartNotifiedAt: timestamp("free_delivery_start_notified_at", { withTimezone: true }),
   /** Rappel J-7 avant la fin */
   freeDeliveryEndingNotifiedAt: timestamp("free_delivery_ending_notified_at", { withTimezone: true }),
+  /** Machine : 1ʳᵉ commande qui a crédité un tour payant après le lancement. */
+  slotAnchorAt: timestamp("slot_anchor_at", { withTimezone: true }),
+  slotCycle: integer("slot_cycle").notNull().default(0),
+  slotClaims: integer("slot_claims").notNull().default(0),
+  slotClaim3At: timestamp("slot_claim3_at", { withTimezone: true }),
+  slotFreeStopped: boolean("slot_free_stopped").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -232,6 +238,10 @@ export const orderThreads = pgTable("order_threads", {
   }>().notNull().default({}),
   /** Lien Mode tournée (avance statut sans ouvrir le panel). */
   runToken: text("run_token"),
+  /** Produits après remises, hors livraison, en centimes. Null = commande d'avant la machine. */
+  slotProductsCents: integer("slot_products_cents"),
+  /** loyalty | machine — aucun tour crédité. */
+  slotBlock: text("slot_block"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
@@ -488,3 +498,82 @@ export const productRatings = pgTable("product_ratings", {
 })
 
 export type ProductRating = typeof productRatings.$inferSelect
+
+/** Un crédit de tours par commande (même à 0, pour l'idempotence). */
+export const slotCredits = pgTable("slot_credits", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().unique(),
+  userToken: text("user_token").notNull(),
+  productsCents: integer("products_cents").notNull(),
+  spinsGranted: integer("spins_granted").notNull(),
+  blocked: text("blocked"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const slotGrants = pgTable("slot_grants", {
+  id: serial("id").primaryKey(),
+  userToken: text("user_token").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceId: text("source_id").notNull(),
+  orderId: integer("order_id"),
+  parentGrantId: integer("parent_grant_id"),
+  cascadeDepth: integer("cascade_depth").notNull().default(0),
+  status: text("status").notNull().default("available"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  testMode: boolean("test_mode").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const slotPlays = pgTable("slot_plays", {
+  id: serial("id").primaryKey(),
+  grantId: integer("grant_id").notNull().unique(),
+  userToken: text("user_token").notNull(),
+  outcome: text("outcome").notNull(),
+  symbols: jsonb("symbols").$type<string[]>().notNull(),
+  prize: jsonb("prize").$type<Record<string, unknown>>().notNull().default({}),
+  testMode: boolean("test_mode").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const slotVouchers = pgTable("slot_vouchers", {
+  id: serial("id").primaryKey(),
+  userToken: text("user_token").notNull(),
+  code: text("code").notNull().unique(),
+  kind: text("kind").notNull(),
+  amountEur: integer("amount_eur"),
+  status: text("status").notNull().default("active"),
+  playId: integer("play_id"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  usedOrderId: integer("used_order_id"),
+  testMode: boolean("test_mode").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const slotPointEntries = pgTable("slot_point_entries", {
+  id: serial("id").primaryKey(),
+  userToken: text("user_token").notNull(),
+  points: integer("points").notNull(),
+  reason: text("reason").notNull(),
+  sourceId: text("source_id").notNull().unique(),
+  playId: integer("play_id"),
+  orderId: integer("order_id"),
+  testMode: boolean("test_mode").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const slotFreeClaims = pgTable("slot_free_claims", {
+  id: serial("id").primaryKey(),
+  userToken: text("user_token").notNull(),
+  cycleIndex: integer("cycle_index").notNull(),
+  windowIndex: integer("window_index").notNull(),
+  grantId: integer("grant_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const slotWeightSets = pgTable("slot_weight_sets", {
+  id: serial("id").primaryKey(),
+  version: text("version").notNull().unique(),
+  weights: jsonb("weights").$type<{ id: string; w: number }[]>().notNull(),
+  signedNote: text("signed_note").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})

@@ -417,6 +417,29 @@ export async function approveRecoveryClaim(
     .set({ customerToken: newToken })
     .where(eq(notificationReads.customerToken, oldToken))
 
+  try {
+    const { pool } = await import("@/lib/db")
+    await pool.query(`UPDATE slot_credits SET user_token = $1 WHERE user_token = $2`, [newToken, oldToken])
+    await pool.query(`UPDATE slot_grants SET user_token = $1 WHERE user_token = $2`, [newToken, oldToken])
+    await pool.query(`UPDATE slot_plays SET user_token = $1 WHERE user_token = $2`, [newToken, oldToken])
+    await pool.query(`UPDATE slot_vouchers SET user_token = $1 WHERE user_token = $2`, [newToken, oldToken])
+    await pool.query(`UPDATE slot_point_entries SET user_token = $1 WHERE user_token = $2`, [newToken, oldToken])
+    await pool.query(`UPDATE slot_free_claims SET user_token = $1 WHERE user_token = $2`, [newToken, oldToken])
+    await pool.query(
+      `UPDATE users AS dst
+       SET slot_anchor_at = src.slot_anchor_at,
+           slot_cycle = src.slot_cycle,
+           slot_claims = src.slot_claims,
+           slot_claim3_at = src.slot_claim3_at,
+           slot_free_stopped = src.slot_free_stopped
+       FROM users AS src
+       WHERE dst.token = $1 AND src.token = $2`,
+      [newToken, oldToken],
+    )
+  } catch (e) {
+    console.error("[lost-key] slot token move:", e)
+  }
+
   // KYC du provisoire : marquer validé ; supprimer éventuel KYC orphelin de l'ancien token
   await db
     .update(userVerifications)

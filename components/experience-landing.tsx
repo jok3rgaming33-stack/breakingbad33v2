@@ -58,6 +58,19 @@ const TIERS = [
       "Bon -30€ à 900 pts",
     ],
   },
+  {
+    id: "ultimate",
+    emoji: "👑",
+    label: "Ultimate",
+    multi: "×1,3",
+    from: "dès 1 200 pts de statut",
+    color: "border-amber-200/40 bg-amber-200/10 text-amber-100",
+    perks: [
+      "Palier permanent, sans rattrapage",
+      "Tours gratuits sur la machine",
+      "Tous les avantages Platine",
+    ],
+  },
 ]
 
 const STEPS = [
@@ -101,7 +114,7 @@ const PILLARS = [
   {
     icon: Crown,
     title: "Club fidélité",
-    text: "4 paliers, multi points, bons, avantages exclusifs.",
+    text: "5 paliers, multi points, bons, avantages exclusifs.",
   },
   {
     icon: Shield,
@@ -159,7 +172,7 @@ export function ExperienceLanding() {
           </h1>
           <p className="mt-5 max-w-xl text-pretty text-base leading-relaxed text-zinc-400 sm:text-lg">
             Le shop qui te récompense vraiment : suivi clair, messagerie, et un club fidélité
-            Bronze → Platine avec bons jusqu’à <strong className="text-white">-30€</strong> — sans
+            Bronze → Ultimate avec bons jusqu’à <strong className="text-white">-30€</strong> — sans
             jamais te faire redescendre de palier.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -257,7 +270,7 @@ export function ExperienceLanding() {
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {TIERS.map((t) => (
               <article
                 key={t.id}

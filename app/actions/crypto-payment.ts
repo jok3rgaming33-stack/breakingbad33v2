@@ -275,6 +275,12 @@ async function applyStatusToThread(
         url: "/admin",
         tag: `crypto-${threadId}`,
       })
+      try {
+        const { creditSpinsForOrder } = await import("@/lib/slot-engine")
+        await creditSpinsForOrder(threadId)
+      } catch (e) {
+        console.error("[crypto] slot credit:", e)
+      }
     } catch (e) {
       console.error("[crypto] IPN notify:", e)
     }

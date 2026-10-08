@@ -5,6 +5,7 @@ import useSWR from "swr"
 import { useCart } from "@/components/cart-provider"
 import { createOrderThread } from "@/app/actions/messaging"
 import { validateCode, markLoyaltyCodeUsed } from "@/app/actions/promo"
+import { myMachineVouchers, previewMachineVoucher } from "@/app/actions/slot"
 import { needsVerification, submitVerification } from "@/app/actions/verification"
 import { getCustomerStats } from "@/app/actions/account"
 import { consumeReservationsForOrder } from "@/app/actions/product-reservations"
@@ -275,7 +276,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
         setCanRedeemFreeDelivery(!!s.canRedeemFreeDelivery)
         setFreeDeliveryPointsCost(s.freeDeliveryPointsCost || 150)
         setLoyaltyPoints(s.points ?? 0)
-        setIsPlatinum(s.tierId === "platinum")
+        setIsPlatinum(s.tierId === "platinum" || s.tierId === "ultimate")
       })
       .catch(() => {
         setFreeDeliveryActive(false)
@@ -372,6 +373,61 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
   const isLoyaltyCode = !!(promo && /^BB33-/i.test(promo.code))
   const loyaltyDiscountAmount = isLoyaltyCode ? promoDiscount : 0
 
+  const [machineVouchers, setMachineVouchers] = useState<{ code: string; label: string }[]>([])
+  const [machineCode, setMachineCode] = useState<string | null>(null)
+  const [machineQuote, setMachineQuote] = useState<{ discount: number; convertToPoints: boolean; label: string } | null>(null)
+  const [machineError, setMachineError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null
+    if (!token) {
+      setMachineVouchers([])
+      return
+    }
+    myMachineVouchers(token)
+      .then((rows) => setMachineVouchers(rows.map((r) => ({ code: r.code, label: r.label }))))
+      .catch(() => setMachineVouchers([]))
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!machineCode) {
+      setMachineQuote(null)
+      return
+    }
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null
+    if (!token) return
+    let cancelled = false
+    previewMachineVoucher({
+      token,
+      code: machineCode,
+      subtotal,
+      fulfillment: isMeetup ? "meetup" : isLocker ? "locker" : "livraison",
+      lat: coords?.lat ?? null,
+      lng: coords?.lng ?? null,
+      freeDeliveryActive,
+      deliveryAlreadyFree: freeDeliveryApplied,
+    })
+      .then((res) => {
+        if (cancelled) return
+        if (!res.ok) {
+          setMachineQuote(null)
+          setMachineError(res.error)
+          return
+        }
+        setMachineError(null)
+        setMachineQuote({ discount: res.discount, convertToPoints: res.convertToPoints, label: res.label })
+      })
+      .catch(() => {
+        if (!cancelled) setMachineError("Impossible de vérifier ce bon.")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [machineCode, subtotal, isMeetup, isLocker, coords?.lat, coords?.lng, freeDeliveryActive, freeDeliveryApplied])
+
+  const payableTotal = Math.max(0, total - (machineQuote?.discount ?? 0))
+
   if (!isOpen) return null
 
   // Valide un code (promo global OU fidélité) côté serveur et l'applique au panier.
@@ -379,7 +435,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     const code = codeInput.trim()
     if (!code || codeChecking) return
     // Empêcher le cumul : un seul coupon actif par commande.
-    if (promo) {
+    if (promo || machineCode) {
       setCodeError("Un code est déjà appliqué. Retire-le avant d'en saisir un autre.")
       return
     }
@@ -542,7 +598,8 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
       monthFreeApplied ? `Livraison : offerte (mois Platine)` : null,
       ptsFreeApplied ? `Livraison : offerte (−${freeDeliveryPointsCost} pts)` : null,
       promo && promoDiscount > 0 ? `Reduction (${promo.code}) : -${promoDiscount}€` : null,
-      `TOTAL : ${total}€`,
+      machineQuote ? `Bon machine : ${machineQuote.label}` : null,
+      `TOTAL : ${payableTotal}€`,
     ]
       .filter(Boolean)
       .join("\n")
@@ -560,6 +617,15 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
         total,
         loyaltyDiscount: loyaltyDiscountAmount,
         promoDiscount: promoDiscount > 0 ? promoDiscount : undefined,
+        promoCode: promo?.code ?? null,
+        machineVoucherCode: machineCode,
+        deliveryAlreadyFree: freeDeliveryApplied,
+        slotLines: items.map((i) => ({
+          productId: i.productId,
+          title: i.title,
+          qty: i.qty,
+          price: i.price,
+        })),
         fulfillment: isMeetup ? "meetup" : isLocker ? "locker" : "livraison",
         address: isMeetup ? undefined : isLocker ? lockerAddress : resolvedLabel ?? address,
         lat: isMeetup || isLocker ? null : coords?.lat ?? null,
@@ -1100,6 +1166,43 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                   </div>
                 )}
                 {codeError && <p className="mt-1.5 text-xs text-destructive">{codeError}</p>}
+                {machineVouchers.length > 0 && (
+                  <div className="mt-3 rounded-2xl border border-accent/30 bg-accent/5 p-3">
+                    <p className="text-xs font-semibold text-accent">Bon de la machine</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Un seul bon, et pas en même temps qu&apos;un code promo ou fidélité.
+                    </p>
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      {machineVouchers.map((v) => (
+                        <button
+                          key={v.code}
+                          type="button"
+                          disabled={!!promo && machineCode !== v.code}
+                          onClick={() => {
+                            if (promo) {
+                              setMachineError("Retire d'abord le code promo ou fidélité.")
+                              return
+                            }
+                            setMachineError(null)
+                            setMachineCode((cur) => (cur === v.code ? null : v.code))
+                          }}
+                          className={`rounded-xl border px-3 py-2 text-left text-xs ${
+                            machineCode === v.code
+                              ? "border-accent bg-accent/15 text-foreground"
+                              : "border-white/10 text-muted-foreground"
+                          }`}
+                        >
+                          <span className="font-mono text-[11px]">{v.code}</span>
+                          <span className="mt-0.5 block">{v.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {machineError && <p className="mt-1.5 text-xs text-destructive">{machineError}</p>}
+                    {machineQuote?.convertToPoints && (
+                      <p className="mt-1.5 text-[11px] text-amber-200">Ce bon Gus devient 150 points sur cette commande.</p>
+                    )}
+                  </div>
+                )}
                 {promo && promoDiscount === 0 && (
                   <p className="mt-1.5 text-xs text-muted-foreground">
                     Atteins {promo.minAmount}€ d&apos;achat pour activer cette réduction.
@@ -1267,9 +1370,15 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                   </span>
                 </div>
               )}
+              {machineQuote && machineQuote.discount > 0 && (
+                <div className="mb-1 flex justify-between text-sm text-accent">
+                  <span>Bon machine</span>
+                  <span>-{machineQuote.discount}€</span>
+                </div>
+              )}
               <div className="mb-3 flex justify-between text-lg font-bold">
                 <span>Total</span>
-                <span>{total}€</span>
+                <span>{payableTotal}€</span>
               </div>
               {onOpenHarmReduction && (
                 <button

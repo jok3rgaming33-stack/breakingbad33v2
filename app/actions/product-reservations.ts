@@ -86,7 +86,7 @@ export async function reserveProduct(productId: number, token: string) {
 
   const stats = await getCustomerStats(t)
   if (!stats.canReserve) {
-    return { ok: false as const, error: "Réservation réservée au palier Platine (CA livré ≥ 600€)." }
+    return { ok: false as const, error: "Réservation réservée aux paliers Platine et Ultimate." }
   }
 
   const [account] = await db.select({ id: users.id }).from(users).where(eq(users.token, t)).limit(1)

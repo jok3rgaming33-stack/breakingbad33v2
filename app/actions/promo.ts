@@ -175,6 +175,19 @@ export async function validateCode(rawCode: string, subtotal: number, token?: st
     return { ok: true, promo: { code: l.code, type: "fixed", value: l.discount, minAmount: l.minAmount } }
   }
 
+  try {
+    const hit = await db.execute(sql`SELECT id FROM slot_vouchers WHERE upper(code) = ${code} LIMIT 1`)
+    const row = (hit as unknown as { rows?: { id: number }[] }).rows?.[0]
+    if (row) {
+      return {
+        ok: false,
+        error: "Ce bon se choisit dans le bloc « Bon de la machine ». Il ne se cumule pas avec un autre code.",
+      }
+    }
+  } catch {
+    /* table pas encore créée */
+  }
+
   return { ok: false, error: "Code invalide." }
 }
 

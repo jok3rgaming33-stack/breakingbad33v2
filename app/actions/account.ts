@@ -22,6 +22,7 @@ import {
   PLATINUM_FREE_DELIVERY_POINTS_COST,
   shouldGrantPlatinumFreeMonth,
   computeFreeDeliveryUntil,
+  isPremiumTier,
   type LoyaltyTierId,
   REFERRAL_BONUS_REFEREE,
   REFERRAL_BONUS_REFERRER,
@@ -380,7 +381,7 @@ export async function grantReferralBonusOnFirstDelivery(customerToken: string | 
     let referrerBonus = REFERRAL_BONUS_REFERRER
     try {
       // Platine = peak_tier ou CA ≥ 600€
-      if ((referrer.peakTier as string) === "platinum") {
+      if (isPremiumTier(referrer.peakTier)) {
         referrerBonus += REFERRAL_BONUS_PLATINUM_EXTRA
       } else {
         const spentRows = await db
@@ -615,7 +616,14 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
   const peakTier = (u?.peakTier as LoyaltyTierId) || "bronze"
 
   const replay = replayLoyaltyOrders(livree, peakTier)
-  let points = Math.max(0, replay.points + (u?.loyaltyAdjustment ?? 0) - (u?.loyaltySpent ?? 0))
+  let machinePoints = 0
+  try {
+    const { sumSlotPoints } = await import("@/lib/slot-engine")
+    machinePoints = await sumSlotPoints(t)
+  } catch {
+    machinePoints = 0
+  }
+  let points = Math.max(0, replay.points + (u?.loyaltyAdjustment ?? 0) - (u?.loyaltySpent ?? 0) + machinePoints)
 
   // Code parrain : toujours généré / renvoyé
   let referralCode = u?.referralCode?.trim() || null
@@ -632,9 +640,9 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
     const patch: Partial<typeof users.$inferInsert> = {}
     if (newPeak !== peakTier) patch.peakTier = newPeak
 
-    const isPlatinum = resolved.tier.id === "platinum" || newPeak === "platinum"
+    const isPlatinum = isPremiumTier(resolved.tier.id) || isPremiumTier(newPeak)
     if (isPlatinum) {
-      const wasAlreadyPlatinum = peakTier === "platinum"
+      const wasAlreadyPlatinum = isPremiumTier(peakTier)
       if (
         shouldGrantPlatinumFreeMonth({
           wasAlreadyPlatinum,
@@ -669,7 +677,7 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
   }
 
   const freeUntil = u?.freeDeliveryUntil ? new Date(u.freeDeliveryUntil) : null
-  const isPlatinumNow = resolved.tier.id === "platinum"
+  const isPlatinumNow = isPremiumTier(resolved.tier.id)
   const freeDeliveryActive =
     isPlatinumNow && !!freeUntil && freeUntil.getTime() > Date.now()
   const freeDeliveryExpired =
@@ -752,10 +760,10 @@ export async function awardLoyaltyOnDelivery(opts: {
   if (u) {
     const patch: Record<string, unknown> = {}
     if (newPeak !== peakTier) patch.peakTier = newPeak
-    if (afterTier.tier.id === "platinum" || newPeak === "platinum") {
+    if (isPremiumTier(afterTier.tier.id) || isPremiumTier(newPeak)) {
       if (
         shouldGrantPlatinumFreeMonth({
-          wasAlreadyPlatinum: peakTier === "platinum",
+          wasAlreadyPlatinum: isPremiumTier(peakTier),
           freeDeliveryUntil: u.freeDeliveryUntil,
         })
       ) {

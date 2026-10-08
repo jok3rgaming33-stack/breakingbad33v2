@@ -191,7 +191,9 @@ export function UserDashboardModal({ isOpen, onClose, userData, onLogout }: User
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span
                 className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
-                  stats.tierId === "platinum"
+                  stats.tierId === "ultimate"
+                    ? "border-amber-200/40 bg-amber-200/15 text-amber-100"
+                    : stats.tierId === "platinum"
                     ? "border-cyan-400/40 bg-cyan-500/15 text-cyan-300"
                     : stats.tierId === "gold"
                       ? "border-yellow-500/40 bg-yellow-500/15 text-yellow-400"

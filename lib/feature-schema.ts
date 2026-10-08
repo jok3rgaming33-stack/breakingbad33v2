@@ -42,7 +42,8 @@ export async function ensureFeatureSchema(): Promise<void> {
         `)
         await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS run_token TEXT`)
 
-        // Platine : démarre le mois de livraison offerte SANS attendre une visite client
+        // Platine : démarre le mois de livraison offerte SANS attendre une visite client.
+        // N'abaisse jamais un palier Ultimate déjà posé.
         // 1) Déjà peak_tier = platinum sans date
         await db.execute(sql`
           UPDATE users
@@ -69,9 +70,112 @@ export async function ensureFeatureSchema(): Promise<void> {
           ) s
           WHERE u.token = s.token
             AND (
-              lower(COALESCE(u.peak_tier, 'bronze')) <> 'platinum'
-              OR u.free_delivery_until IS NULL
+              lower(COALESCE(u.peak_tier, 'bronze')) NOT IN ('platinum', 'ultimate')
+              OR (
+                lower(COALESCE(u.peak_tier, 'bronze')) = 'platinum'
+                AND u.free_delivery_until IS NULL
+              )
             )
+        `)
+
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_anchor_at TIMESTAMPTZ`)
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_cycle INTEGER NOT NULL DEFAULT 0`)
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_claims INTEGER NOT NULL DEFAULT 0`)
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_claim3_at TIMESTAMPTZ`)
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_free_stopped BOOLEAN NOT NULL DEFAULT false`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS slot_products_cents INTEGER`)
+        await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS slot_block TEXT`)
+
+        await db.execute(sql`
+          CREATE TABLE IF NOT EXISTS slot_credits (
+            id SERIAL PRIMARY KEY,
+            order_id INTEGER NOT NULL UNIQUE,
+            user_token TEXT NOT NULL,
+            products_cents INTEGER NOT NULL,
+            spins_granted INTEGER NOT NULL,
+            blocked TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `)
+        await db.execute(sql`
+          CREATE TABLE IF NOT EXISTS slot_grants (
+            id SERIAL PRIMARY KEY,
+            user_token TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            order_id INTEGER,
+            parent_grant_id INTEGER,
+            cascade_depth INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'available',
+            expires_at TIMESTAMPTZ NOT NULL,
+            test_mode BOOLEAN NOT NULL DEFAULT false,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (source_type, source_id)
+          )
+        `)
+        await db.execute(sql`
+          CREATE INDEX IF NOT EXISTS slot_grants_user_status_idx
+          ON slot_grants (user_token, status)
+        `)
+        await db.execute(sql`
+          CREATE TABLE IF NOT EXISTS slot_plays (
+            id SERIAL PRIMARY KEY,
+            grant_id INTEGER NOT NULL UNIQUE,
+            user_token TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            symbols JSONB NOT NULL,
+            prize JSONB NOT NULL DEFAULT '{}'::jsonb,
+            test_mode BOOLEAN NOT NULL DEFAULT false,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `)
+        await db.execute(sql`
+          CREATE TABLE IF NOT EXISTS slot_vouchers (
+            id SERIAL PRIMARY KEY,
+            user_token TEXT NOT NULL,
+            code TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL,
+            amount_eur INTEGER,
+            status TEXT NOT NULL DEFAULT 'active',
+            play_id INTEGER,
+            expires_at TIMESTAMPTZ,
+            used_order_id INTEGER,
+            test_mode BOOLEAN NOT NULL DEFAULT false,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `)
+        await db.execute(sql`
+          CREATE TABLE IF NOT EXISTS slot_point_entries (
+            id SERIAL PRIMARY KEY,
+            user_token TEXT NOT NULL,
+            points INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            source_id TEXT NOT NULL UNIQUE,
+            play_id INTEGER,
+            order_id INTEGER,
+            test_mode BOOLEAN NOT NULL DEFAULT false,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `)
+        await db.execute(sql`
+          CREATE TABLE IF NOT EXISTS slot_free_claims (
+            id SERIAL PRIMARY KEY,
+            user_token TEXT NOT NULL,
+            cycle_index INTEGER NOT NULL,
+            window_index INTEGER NOT NULL,
+            grant_id INTEGER,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (user_token, cycle_index, window_index)
+          )
+        `)
+        await db.execute(sql`
+          CREATE TABLE IF NOT EXISTS slot_weight_sets (
+            id SERIAL PRIMARY KEY,
+            version TEXT NOT NULL UNIQUE,
+            weights JSONB NOT NULL,
+            signed_note TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
         `)
 
         // Journal connexions : heure de déconnexion

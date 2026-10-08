@@ -449,7 +449,7 @@ export function ProductSection({ config }: { config: SectionConfig }) {
                       ? `💎 Réservé jusqu’au ${new Date(reservedUntil).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
                       : reserveBusy
                         ? "Réservation…"
-                        : "💎 Réserver (Platine · 48 h)"}
+                        : "💎 Réserver (Platine / Ultimate · 48 h)"}
                   </button>
                   {reserveMsg && (
                     <p className="mt-1.5 text-center text-[11px] text-cyan-200/80">{reserveMsg}</p>

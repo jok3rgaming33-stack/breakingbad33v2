@@ -206,12 +206,12 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
               </p>
             </div>
           )}
-          {tierId === "platinum" && !stats?.nextTierLabel && (
-            <p className="mt-2 text-[10px] font-semibold text-cyan-300">
-              💎 Palier Platine atteint — pts statut : {stats?.qualifyingSpend ?? 0}
+          {(tierId === "platinum" || tierId === "ultimate") && !stats?.nextTierLabel && (
+            <p className="mt-2 text-[10px] font-semibold text-amber-100">
+              {tierId === "ultimate" ? "👑" : "💎"} Palier {tierLabel} atteint — pts statut : {stats?.qualifyingSpend ?? 0}
             </p>
           )}
-          {stats?.tierId === "platinum" && stats.freeDeliveryActive && stats.freeDeliveryUntil && (
+          {(stats?.tierId === "platinum" || stats?.tierId === "ultimate") && stats.freeDeliveryActive && stats.freeDeliveryUntil && (
             <div className="mt-2 space-y-1.5 rounded-xl border border-cyan-500/35 bg-cyan-500/10 px-3 py-2.5 text-cyan-200">
               <div className="flex items-center gap-1.5 text-[11px] font-semibold">
                 <Truck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -228,7 +228,7 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
               </p>
             </div>
           )}
-          {stats?.tierId === "platinum" && stats.freeDeliveryExpired && (
+          {(stats?.tierId === "platinum" || stats?.tierId === "ultimate") && stats.freeDeliveryExpired && (
             <div className="mt-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2.5 text-[11px] text-cyan-200">
               <div className="flex items-center gap-1.5 font-semibold">
                 <Truck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -409,7 +409,7 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
               <p className="text-sm text-muted-foreground">
                 Partage ton code : à la <strong className="text-foreground">1ʳᵉ livraison</strong> de ton
                 filleul, il gagne <strong className="text-foreground">30 pts</strong> et tu gagnes{" "}
-                <strong className="text-foreground">50 pts</strong> (+25 si Platine). Aucun bonus à
+                <strong className="text-foreground">50 pts</strong> (+25 si Platine ou Ultimate). Aucun bonus à
                 l&apos;inscription seule.
               </p>
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4">

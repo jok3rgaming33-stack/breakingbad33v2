@@ -5,7 +5,7 @@ import { orderThreads, threadMessages, products, users } from "@/lib/db/schema"
 import { and, desc, eq, gt, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { normalizeStatus, statusMeta } from "@/lib/order-status"
-import { computeLoyaltyPoints, PLATINUM_FREE_DELIVERY_POINTS_COST } from "@/lib/loyalty"
+import { computeLoyaltyPoints, isPremiumTier, PLATINUM_FREE_DELIVERY_POINTS_COST } from "@/lib/loyalty"
 import { getCustomerStats } from "@/app/actions/account"
 // computeLoyaltyPoints encore utilisé ailleurs ; award multi via account
 import { notifyCustomer, notifyVendor } from "@/lib/push"
@@ -39,6 +39,14 @@ export type NewOrderInput = {
   loyaltyDiscount?: number
   /** Platine hors mois offert : déduire 150 pts pour livraison gratuite */
   redeemFreeDeliveryPoints?: boolean
+  /** Lignes du panier — le serveur revérifie les prix pour les tours. */
+  slotLines?: { productId?: number; title: string; qty: number; price: number }[]
+  /** Code promo ou fidélité déjà saisi, pour bloquer les tours si besoin. */
+  promoCode?: string | null
+  /** Bon machine (Walter, Jesse, Gus). Ne se cumule pas. */
+  machineVoucherCode?: string | null
+  /** Livraison déjà à 0€ (seuil, mois offert, ou 150 pts). */
+  deliveryAlreadyFree?: boolean
   fulfillment: "livraison" | "meetup" | "locker"
   address?: string
   lat?: number | null
@@ -189,7 +197,7 @@ export async function createOrderThread(input: NewOrderInput) {
     if (input.redeemFreeDeliveryPoints && token && input.fulfillment === "livraison") {
       const stats = await getCustomerStats(token)
       if (
-        stats.tierId === "platinum" &&
+        isPremiumTier(stats.tierId) &&
         !stats.freeDeliveryActive &&
         stats.points >= PLATINUM_FREE_DELIVERY_POINTS_COST
       ) {
@@ -209,16 +217,62 @@ export async function createOrderThread(input: NewOrderInput) {
       }
     }
 
+    let orderTotal = Math.max(0, Math.trunc(Number(input.total) || 0))
+    let slotProductsCents: number | null = null
+    let slotBlock: string | null = null
+    let machineDiscount = 0
+    let machineVoucherId: number | null = null
+    let machineConvert = false
+    let summary = input.summary
+    if (input.slotLines && input.slotLines.length > 0) {
+      let freeDeliveryActive = false
+      if (token) {
+        try {
+          const stats = await getCustomerStats(token)
+          freeDeliveryActive = !!stats.freeDeliveryActive
+        } catch {
+          /* le snapshot reste prudent */
+        }
+      }
+      const { prepareSlotSnapshot } = await import("@/lib/slot-engine")
+      const snap = await prepareSlotSnapshot({
+        token,
+        lines: input.slotLines,
+        total: orderTotal,
+        promoCode: input.promoCode,
+        machineCode: input.machineVoucherCode,
+        fulfillment: input.fulfillment,
+        lat: input.lat,
+        lng: input.lng,
+        freeDeliveryActive,
+        deliveryAlreadyFree: !!input.deliveryAlreadyFree,
+      })
+      if (!snap.ok) return { ok: false as const, error: snap.error }
+      slotProductsCents = snap.productsCents
+      slotBlock = snap.block
+      machineDiscount = snap.discount
+      machineVoucherId = snap.voucherId
+      machineConvert = snap.convertToPoints
+      if (machineDiscount > 0) {
+        orderTotal = Math.max(0, orderTotal - machineDiscount)
+        summary += `\nBon machine : -${machineDiscount}€\nTOTAL APRÈS BON : ${orderTotal}€`
+      } else if (machineConvert) {
+        summary += `\nBon Gus : livraison déjà offerte ou retrait — 150 points à la place.`
+      }
+    }
+
     const [thread] = await db
       .insert(orderThreads)
       .values({
         customerName: name,
         customerToken: token,
         trackingToken,
-        summary: input.summary,
+        summary,
         products: input.products?.trim() || null,
         productIds: input.productIds ?? [],
-        total: input.total,
+        total: orderTotal,
+        slotProductsCents,
+        slotBlock,
         fulfillment: input.fulfillment,
         address: input.address?.trim() || null,
         lat: input.lat ?? null,
@@ -232,11 +286,25 @@ export async function createOrderThread(input: NewOrderInput) {
       })
       .returning()
 
+    if (machineVoucherId && token) {
+      const { commitMachineVoucher } = await import("@/lib/slot-engine")
+      const committed = await commitMachineVoucher({
+        voucherId: machineVoucherId,
+        orderId: thread.id,
+        userToken: token,
+        convertToPoints: machineConvert,
+      })
+      if (!committed.ok) {
+        await db.delete(orderThreads).where(eq(orderThreads.id, thread.id))
+        return { ok: false as const, error: "Ce bon vient d'être utilisé. Retire-le et réessaie." }
+      }
+    }
+
     // Message initial du client (résumé de la commande)
     await db.insert(threadMessages).values({
       threadId: thread.id,
       sender: "client",
-      body: input.summary,
+      body: summary,
     })
 
     if (redeemedFreeDelivery) {
@@ -262,7 +330,7 @@ export async function createOrderThread(input: NewOrderInput) {
           `Merci pour ta commande Locker #${thread.id} !`,
           ``,
           `Mode de paiement : Paysafecard (code prépayé).`,
-          `Total à régler : ${input.total}€`,
+          `Total à régler : ${orderTotal}€`,
           ``,
           `⚠️ Achète UNIQUEMENT sur le site officiel Paysafecard :`,
           PAYSAFECARD_OFFICIAL.home,
@@ -294,7 +362,7 @@ export async function createOrderThread(input: NewOrderInput) {
             `Merci pour ta commande Locker #${thread.id} !`,
             ``,
             `Mode de paiement : Monero (XMR).`,
-            `Total à régler : ${input.total}€`,
+            `Total à régler : ${orderTotal}€`,
             ``,
             `Après validation par le vendeur, tu recevras l'adresse de dépôt XMR (ou un lien de paiement).`,
             `Une fois le dépôt effectué, signale-le dans ton suivi.`,
@@ -346,7 +414,7 @@ export async function createOrderThread(input: NewOrderInput) {
       try {
         const invPromise = createXmrPaymentForOrder({
           threadId: thread.id,
-          totalEur: input.total,
+          totalEur: orderTotal,
           customerToken: input.customerToken,
           customerName: name,
         })
@@ -897,6 +965,23 @@ export async function updateThreadStatus(
     .update(orderThreads)
     .set(updateData)
     .where(eq(orderThreads.id, threadId))
+
+  if (nextKey !== prevKey && nextKey === "livree") {
+    try {
+      const { creditSpinsForOrder } = await import("@/lib/slot-engine")
+      await creditSpinsForOrder(threadId)
+    } catch (e) {
+      console.error("[updateThreadStatus] slot credit:", e)
+    }
+  }
+  if (nextKey !== prevKey && nextKey === "annulee") {
+    try {
+      const { cancelSpinsForOrder } = await import("@/lib/slot-engine")
+      await cancelSpinsForOrder(threadId)
+    } catch (e) {
+      console.error("[updateThreadStatus] slot cancel:", e)
+    }
+  }
 
   if (nextKey !== prevKey && notifyBody) {
     // Invitation notation : reste un message (CTA), pas un statut.
@@ -1646,6 +1731,13 @@ export async function updateOrderProducts(
     })
     .where(eq(orderThreads.id, threadId))
 
+  try {
+    const { syncSlotBase } = await import("@/lib/slot-engine")
+    await syncSlotBase(threadId, Math.round(Math.max(0, subTotal - promoDiscount) * 100))
+  } catch (e) {
+    console.error("[updateOrderProducts] slot sync:", e)
+  }
+
   // Message récapitulatif au client (articles changés et/ou promo appliquée)
   if (changes.length > 0) {
     const body = [
@@ -2048,6 +2140,13 @@ export async function adminCreateOrder(input: AdminOrderInput) {
     productIds: input.items.map((i) => i.productId),
     total,
     promoDiscount: promoDiscount > 0 ? promoDiscount : undefined,
+    promoCode: promo?.code ?? null,
+    slotLines: input.items.map((i) => ({
+      productId: i.productId,
+      title: i.title,
+      qty: i.qty,
+      price: i.price,
+    })),
     fulfillment: input.fulfillment,
     address: address ?? undefined,
     lat: input.lat ?? null,

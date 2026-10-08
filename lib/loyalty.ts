@@ -66,7 +66,7 @@ export const LOYALTY_REWARDS: LoyaltyReward[] = [
 
 // ─── Paliers ──────────────────────────────────────────────────────────────────
 
-export type LoyaltyTierId = "bronze" | "silver" | "gold" | "platinum"
+export type LoyaltyTierId = "bronze" | "silver" | "gold" | "platinum" | "ultimate"
 
 export type LoyaltyTier = {
   id: LoyaltyTierId
@@ -170,6 +170,27 @@ export const LOYALTY_TIERS: LoyaltyTier[] = [
       "Tous les avantages Or",
     ],
   },
+  {
+    id: "ultimate",
+    label: "Ultimate",
+    minSpent: 1200,
+    pointsMultiplier: 1.3,
+    emoji: "👑",
+    priorityMessaging: true,
+    canReserve: true,
+    freeDelivery: true,
+    freeDeliveryMinOrder: 90,
+    color: "bg-amber-200/15 text-amber-100 border-amber-200/40",
+    perks: [
+      "Dès 1 200 pts de statut — palier permanent, sans rattrapage",
+      "Emoji 👑",
+      "Même multiplicateur que Platine (×1,3)",
+      "1 tour gratuit / 30 jours, 3 par cycle, à réclamer sur la machine",
+      "Après le 3ᵉ tour : 300€ de produits en 30 jours, sinon le droit s'arrête",
+      "Les anciennes commandes ne donnent pas de tour en retard",
+      "Tous les avantages Platine",
+    ],
+  },
 ]
 
 const TIER_RANK: Record<LoyaltyTierId, number> = {
@@ -177,6 +198,12 @@ const TIER_RANK: Record<LoyaltyTierId, number> = {
   silver: 1,
   gold: 2,
   platinum: 3,
+  ultimate: 4,
+}
+
+/** Platine ou au-dessus : livraison offerte, réservation, bonus parrain. */
+export function isPremiumTier(id: LoyaltyTierId | string | null | undefined): boolean {
+  return tierRank(id) >= TIER_RANK.platinum
 }
 
 export function tierRank(id: LoyaltyTierId | string | null | undefined): number {

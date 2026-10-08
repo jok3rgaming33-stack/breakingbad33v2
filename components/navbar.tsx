@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { label: "Livraison/Meet-up", action: "delivery" as const },
   { label: "Mes commandes", action: "orders" as const },
   { label: "Espace fidélité", action: "loyalty" as const },
+  { label: "La machine", action: "machine" as const },
   { label: "Réduction des risques", action: "harmreduction" as const },
   { label: "Comment ça marche", action: "howitworks" as const },
 ]
@@ -80,6 +81,8 @@ export function Navbar({
       e.preventDefault()
       setOpen(false)
       onOpenHowItWorks?.()
+    } else if (item.action === "machine") {
+      setOpen(false)
     }
   }
 
@@ -105,10 +108,12 @@ export function Navbar({
             return (
               <a
                 key={item.label}
-                href="#"
+                href={item.action === "machine" ? "/machine" : "#"}
                 onClick={(e) => handleNavClick(e, item)}
                 className={
-                  item.action === "howitworks" || item.action === "harmreduction"
+                  item.action === "machine"
+                    ? "flex items-center gap-1.5 rounded-full border border-accent/50 bg-accent/15 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-accent transition-colors hover:bg-accent/25"
+                    : item.action === "howitworks" || item.action === "harmreduction"
                     ? "flex items-center gap-1.5 rounded-full border border-white/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/80 transition-colors hover:border-white/40 hover:text-white"
                     : "relative flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.15em] text-muted-foreground transition-colors hover:text-foreground"
                 }
@@ -197,10 +202,12 @@ export function Navbar({
               return (
                 <a
                   key={item.label}
-                  href="#"
+                  href={item.action === "machine" ? "/machine" : "#"}
                   onClick={(e) => handleNavClick(e, item)}
                   className={
-                    item.action === "howitworks" || item.action === "harmreduction"
+                    item.action === "machine"
+                      ? "mt-1 flex items-center gap-2 rounded-md border border-accent/40 bg-accent/15 px-3 py-2 text-sm font-semibold text-accent"
+                      : item.action === "howitworks" || item.action === "harmreduction"
                       ? "mt-1 flex items-center gap-2 rounded-md border border-white/20 px-3 py-2 text-sm font-semibold text-white/80 transition-colors hover:bg-secondary hover:text-white"
                       : "flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                   }
