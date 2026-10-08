@@ -17,18 +17,16 @@ import type { MachineState, MachineVoucherView, PlayResult, UltimateView } from 
 import type { PoolClient } from "pg"
 
 /** 1 tour / 60€ de produits. Le client ne reçoit jamais cette table. */
-const WEIGHT_VERSION = "2026-10-08-v1"
+const WEIGHT_VERSION = "2026-10-08-v2"
 const WEIGHTS: { id: string; w: number }[] = [
-  { id: "miss", w: 420 },
-  { id: "tuco", w: 130 },
-  { id: "badger", w: 240 },
-  { id: "crystal", w: 50 },
-  { id: "gus", w: 90 },
-  { id: "jesse", w: 45 },
-  { id: "walter", w: 25 },
+  { id: "miss", w: 880 },
+  { id: "tuco", w: 40 },
+  { id: "badger", w: 36 },
+  { id: "crystal", w: 12 },
+  { id: "gus", w: 18 },
+  { id: "jesse", w: 8 },
+  { id: "walter", w: 6 },
 ]
-const WEIGHT_TOTAL = WEIGHTS.reduce((s, r) => s + r.w, 0)
-
 const SPIN_CENTS = 6000
 const SPIN_CAP = 10
 const SPIN_DAYS = 7
@@ -140,21 +138,23 @@ function voucherLabel(kind: string): string {
   return kind
 }
 
+function weightsMatch(raw: unknown): boolean {
+  if (!Array.isArray(raw) || raw.length !== WEIGHTS.length) return false
+  const byId = new Map(raw.map((row) => [String((row as { id?: string }).id), Number((row as { w?: number }).w)]))
+  return WEIGHTS.every((row) => byId.get(row.id) === row.w)
+}
+
 async function loadWeights(client: PoolClient): Promise<{ id: string; w: number }[]> {
   const found = await client.query(`SELECT weights FROM slot_weight_sets WHERE version = $1 LIMIT 1`, [
     WEIGHT_VERSION,
   ])
-  const raw = found.rows[0]?.weights
-  if (Array.isArray(raw)) {
-    const rows = raw as { id: string; w: number }[]
-    const sum = rows.reduce((s, r) => s + Number(r.w || 0), 0)
-    if (sum === WEIGHT_TOTAL && rows.length === WEIGHTS.length) return rows
-  }
+  if (weightsMatch(found.rows[0]?.weights)) return WEIGHTS
   await client.query(
     `INSERT INTO slot_weight_sets (version, weights, signed_note)
      VALUES ($1, $2::jsonb, $3)
-     ON CONFLICT (version) DO NOTHING`,
-    [WEIGHT_VERSION, JSON.stringify(WEIGHTS), "BB33 machine — table datée, lue uniquement côté serveur"],
+     ON CONFLICT (version) DO UPDATE
+       SET weights = EXCLUDED.weights, signed_note = EXCLUDED.signed_note`,
+    [WEIGHT_VERSION, JSON.stringify(WEIGHTS), "BB33 Albuquerque Luck Spin — table 2026-10-08-v2, serveur uniquement"],
   )
   return WEIGHTS
 }
@@ -343,7 +343,7 @@ export async function prepareSlotSnapshot(opts: {
   const promoCode = opts.promoCode?.trim().toUpperCase() || ""
   const machineCode = opts.machineCode?.trim().toUpperCase() || ""
   if (promoCode && machineCode) {
-    return { ok: false, error: "Un bon de la machine ne se cumule pas avec un autre code." }
+    return { ok: false, error: "Un bon Albuquerque Luck Spin ne se cumule pas avec un autre code." }
   }
   if (promoCode) {
     const loyalty = await pool.query(

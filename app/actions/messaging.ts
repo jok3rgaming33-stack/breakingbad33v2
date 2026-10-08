@@ -255,7 +255,7 @@ export async function createOrderThread(input: NewOrderInput) {
       machineConvert = snap.convertToPoints
       if (machineDiscount > 0) {
         orderTotal = Math.max(0, orderTotal - machineDiscount)
-        summary += `\nBon machine : -${machineDiscount}€\nTOTAL APRÈS BON : ${orderTotal}€`
+        summary += `\nBon Albuquerque Luck Spin : -${machineDiscount}€\nTOTAL APRÈS BON : ${orderTotal}€`
       } else if (machineConvert) {
         summary += `\nBon Gus : livraison déjà offerte ou retrait — 150 points à la place.`
       }

@@ -181,7 +181,7 @@ export async function validateCode(rawCode: string, subtotal: number, token?: st
     if (row) {
       return {
         ok: false,
-        error: "Ce bon se choisit dans le bloc « Bon de la machine ». Il ne se cumule pas avec un autre code.",
+        error: "Ce bon se choisit dans le bloc « Bon Albuquerque Luck Spin ». Il ne se cumule pas avec un autre code.",
       }
     }
   } catch {

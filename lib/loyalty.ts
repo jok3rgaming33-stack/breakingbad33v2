@@ -185,7 +185,7 @@ export const LOYALTY_TIERS: LoyaltyTier[] = [
       "Dès 1 200 pts de statut — palier permanent, sans rattrapage",
       "Emoji 👑",
       "Même multiplicateur que Platine (×1,3)",
-      "1 tour gratuit / 30 jours, 3 par cycle, à réclamer sur la machine",
+      "1 tour gratuit / 30 jours, 3 par cycle, à réclamer sur Albuquerque Luck Spin",
       "Après le 3ᵉ tour : 300€ de produits en 30 jours, sinon le droit s'arrête",
       "Les anciennes commandes ne donnent pas de tour en retard",
       "Tous les avantages Platine",

@@ -67,7 +67,7 @@ const TIERS = [
     color: "border-amber-200/40 bg-amber-200/10 text-amber-100",
     perks: [
       "Palier permanent, sans rattrapage",
-      "Tours gratuits sur la machine",
+      "Tours gratuits sur Albuquerque Luck Spin",
       "Tous les avantages Platine",
     ],
   },

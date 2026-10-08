@@ -598,7 +598,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
       monthFreeApplied ? `Livraison : offerte (mois Platine)` : null,
       ptsFreeApplied ? `Livraison : offerte (−${freeDeliveryPointsCost} pts)` : null,
       promo && promoDiscount > 0 ? `Reduction (${promo.code}) : -${promoDiscount}€` : null,
-      machineQuote ? `Bon machine : ${machineQuote.label}` : null,
+      machineQuote ? `Bon Albuquerque Luck Spin : ${machineQuote.label}` : null,
       `TOTAL : ${payableTotal}€`,
     ]
       .filter(Boolean)
@@ -1168,7 +1168,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                 {codeError && <p className="mt-1.5 text-xs text-destructive">{codeError}</p>}
                 {machineVouchers.length > 0 && (
                   <div className="mt-3 rounded-2xl border border-accent/30 bg-accent/5 p-3">
-                    <p className="text-xs font-semibold text-accent">Bon de la machine</p>
+                    <p className="text-xs font-semibold text-accent">Bon Albuquerque Luck Spin</p>
                     <p className="mt-1 text-[11px] text-muted-foreground">
                       Un seul bon, et pas en même temps qu&apos;un code promo ou fidélité.
                     </p>
@@ -1372,7 +1372,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
               )}
               {machineQuote && machineQuote.discount > 0 && (
                 <div className="mb-1 flex justify-between text-sm text-accent">
-                  <span>Bon machine</span>
+                  <span>Bon Luck Spin</span>
                   <span>-{machineQuote.discount}€</span>
                 </div>
               )}

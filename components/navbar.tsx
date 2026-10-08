@@ -14,7 +14,7 @@ const NAV_ITEMS = [
   { label: "Livraison/Meet-up", action: "delivery" as const },
   { label: "Mes commandes", action: "orders" as const },
   { label: "Espace fidélité", action: "loyalty" as const },
-  { label: "La machine", action: "machine" as const },
+  { label: "Albuquerque Luck Spin", action: "machine" as const },
   { label: "Réduction des risques", action: "harmreduction" as const },
   { label: "Comment ça marche", action: "howitworks" as const },
 ]
@@ -112,7 +112,7 @@ export function Navbar({
                 onClick={(e) => handleNavClick(e, item)}
                 className={
                   item.action === "machine"
-                    ? "flex items-center gap-1.5 rounded-full border border-accent/50 bg-accent/15 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-accent transition-colors hover:bg-accent/25"
+                    ? "flex items-center gap-1.5 rounded-full border border-accent/50 bg-accent/15 px-3 py-1.5 text-[11px] font-semibold normal-case tracking-normal text-accent transition-colors hover:bg-accent/25"
                     : item.action === "howitworks" || item.action === "harmreduction"
                     ? "flex items-center gap-1.5 rounded-full border border-white/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/80 transition-colors hover:border-white/40 hover:text-white"
                     : "relative flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.15em] text-muted-foreground transition-colors hover:text-foreground"

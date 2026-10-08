@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { claimFreeSpin, loadMachine, spinAdminTrial, spinMachine } from "@/app/actions/slot"
-import { PRIZE_CARDS, RULES, symbolCrop, symbolSrc, SLOT_SYMBOLS, type MachineState } from "@/lib/slot-public"
+import { PRIZE_CARDS, RULES, symbolSrc, SLOT_SYMBOLS, type MachineState } from "@/lib/slot-public"
 
 const PRIZE_OUTCOMES = new Set(["walter", "jesse", "gus", "badger", "crystal"])
 
@@ -32,21 +32,18 @@ function Reel({
   const shown = spinning ? flick : symbol
   return (
     <div
-      className={`relative aspect-[3/4] overflow-hidden rounded-xl border bg-black/80 shadow-[inset_0_0_24px_rgba(0,0,0,0.85)] ${
+      className={`relative aspect-square overflow-hidden rounded-xl border bg-black/80 shadow-[inset_0_0_24px_rgba(0,0,0,0.85)] ${
         bright ? "border-[#8fbc8f] shadow-[0_0_24px_rgba(62,103,87,0.55)]" : "border-white/10"
       }`}
     >
       {shown ? (
-        // Le cristal est recadré pour laisser le filigrane hors cadre.
+        // Photos entières. Seul le cristal est légèrement remonté pour sortir le filigrane.
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={symbolSrc(shown)}
           alt=""
-          className="h-full w-full object-cover"
-          style={{
-            objectPosition: symbolCrop(shown),
-            transform: shown === "crystal" ? "scale(1.35)" : undefined,
-          }}
+          className={shown === "crystal" ? "h-full w-full object-cover" : "h-full w-full object-contain"}
+          style={shown === "crystal" ? { objectPosition: "center 42%" } : undefined}
         />
       ) : (
         <div className="h-full w-full bg-[#0a0a0a]" />
@@ -93,7 +90,7 @@ export function MachineScreen() {
           setLabel(res.state.last.label)
         }
       })
-      .catch(() => setError("La machine ne répond pas."))
+      .catch(() => setError("Albuquerque Luck Spin ne répond pas."))
   }, [])
 
   const run = async (kind: "play" | "trial") => {
@@ -160,8 +157,8 @@ export function MachineScreen() {
       </header>
 
       <main className="relative z-10 mx-auto max-w-5xl px-4 py-8 sm:py-12">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8fbc8f]">La machine</p>
-        <h1 className="mt-2 max-w-xl text-3xl font-bold tracking-tight sm:text-5xl">Trois symboles. Un lot. Jamais d&apos;argent.</h1>
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8fbc8f]">Albuquerque Luck Spin</p>
+        <h1 className="mt-2 max-w-xl text-3xl font-bold tracking-tight sm:text-5xl">3 Précurseurs identiques = un lot</h1>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/70 sm:text-base">
           Les tours viennent des commandes payées. Le palier Ultimate ouvre en plus un tour gratuit à réclamer.
           Les chances ne sont pas affichées.
@@ -272,16 +269,18 @@ export function MachineScreen() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {PRIZE_CARDS.map((card) => (
               <article key={card.id} className="overflow-hidden rounded-2xl border border-white/10 bg-black/60">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={symbolSrc(card.id)}
-                  alt={card.title}
-                  className="h-36 w-full object-cover"
-                  style={{
-                    objectPosition: symbolCrop(card.id),
-                    transform: card.id === "crystal" ? "scale(1.35)" : undefined,
-                  }}
-                />
+                <div className="flex h-52 items-center justify-center bg-[#0c0c0c] sm:h-60">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={symbolSrc(card.id)}
+                    alt={card.title}
+                    className={
+                      card.id === "crystal"
+                        ? "h-full w-full object-cover object-[center_40%]"
+                        : "h-full w-full object-contain"
+                    }
+                  />
+                </div>
                 <div className="p-4">
                   <h3 className="font-semibold">{card.title}</h3>
                   <p className="text-sm text-[#8fbc8f]">{card.gain}</p>

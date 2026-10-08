@@ -106,19 +106,19 @@ export type PlayResult =
 export const RULES: { title: string; body: string }[] = [
   {
     title: "Comment obtenir un tour",
-    body: "1 tour par tranche de 60€ de produits, après les remises déjà appliquées. La livraison, le pourboire et l'avoir ne comptent pas. 59,99€ = 0 tour, 60€ = 1 tour. Maximum 10 tours par commande. Uniquement sur un compte connecté, une fois le paiement confirmé (espèces : commande livrée ; Monero locker : paiement confirmé). Chaque tour expire 7 jours après son attribution. Les commandes passées avant l'ouverture de la machine ne donnent rien.",
+    body: "1 tour par tranche de 60€ de produits, après les remises déjà appliquées. La livraison, le pourboire et l'avoir ne comptent pas. 59,99€ = 0 tour, 60€ = 1 tour. Maximum 10 tours par commande. Uniquement sur un compte connecté, une fois le paiement confirmé (espèces : commande livrée ; Monero locker : paiement confirmé). Chaque tour expire 7 jours après son attribution. Les commandes passées avant l'ouverture d'Albuquerque Luck Spin ne donnent rien.",
   },
   {
     title: "Ce qui ne donne aucun tour",
-    body: "Une commande payée avec un bon de la machine, ou avec un code généré par tes points fidélité, ne crédite aucun tour. Retirer la remise du calcul ne suffit pas.",
+    body: "Une commande payée avec un bon Albuquerque Luck Spin, ou avec un code généré par tes points fidélité, ne crédite aucun tour. Retirer la remise du calcul ne suffit pas.",
   },
   {
     title: "Comment gagner",
-    body: "Trois symboles identiques sur la ligne. Tout le reste est un tour sans lot. Les gains sont des avantages boutique (bons, livraison, points, tours). Jamais d'argent.",
+    body: "3 précurseurs identiques sur la ligne. Tout le reste est un tour sans lot. Les gains sont des avantages boutique : bons, livraison, points ou tours.",
   },
   {
     title: "Les bons",
-    body: "Walter et Jesse agissent sur les produits, Gus sur la livraison : ces deux familles peuvent être actives en même temps. Tu ne gardes qu'un seul bon produits : si tu en gagnes un second alors que le premier n'est pas utilisé, le plus intéressant reste, l'autre tombe. Un bon machine ne se cumule pas avec un code promo ni un code fidélité.",
+    body: "Walter et Jesse agissent sur les produits, Gus sur la livraison : ces deux familles peuvent être actives en même temps. Tu ne gardes qu'un seul bon produits : si tu en gagnes un second alors que le premier n'est pas utilisé, le plus intéressant reste, l'autre tombe. Un bon Albuquerque Luck Spin ne se cumule pas avec un code promo ni un code fidélité.",
   },
   {
     title: "Ultimate",
