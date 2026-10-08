@@ -277,6 +277,11 @@ export function LoginPage({
       }
       // Vérifie côté serveur si ce token correspond à l'accès admin (Heisenberg)
       const res = await adminLogin(token)
+      if (res.error?.startsWith("Session admin")) {
+        setError(res.error)
+        setResetLogin((n) => n + 1)
+        return
+      }
       if (res.ok && res.pseudo) {
         localStorage.setItem("authToken", token)
         localStorage.setItem("userPseudo", res.pseudo)

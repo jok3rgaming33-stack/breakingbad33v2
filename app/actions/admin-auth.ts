@@ -47,15 +47,24 @@ async function setSessionCookie(value: string) {
 
 // Connexion par token : super-admin (env) ou compte admin actif.
 export async function adminLogin(token: string): Promise<{ ok: boolean; pseudo?: string; error?: string }> {
+  const { normalizeSecretKey } = await import("@/lib/normalize-token")
+  const t = normalizeSecretKey(token)
+  // Le super-admin n'est pas soumis au quota : sinon quelques essais
+  // affichent « clé invalide » alors que le token est le bon.
+  if (process.env.ADMIN_TOKEN && t === process.env.ADMIN_TOKEN) {
+    try {
+      await setSessionCookie(t)
+      return { ok: true, pseudo: ADMIN_PSEUDO }
+    } catch (e) {
+      console.error("[admin-auth] session super-admin:", e)
+      return { ok: false, error: "Session admin impossible. Réessaie dans un instant." }
+    }
+  }
   const throttled = await loginThrottled()
   if (throttled) return { ok: false, error: throttled }
   // Une panne de la table admin ne doit jamais empêcher un client de se connecter :
   // le formulaire enchaîne sur getAccount, et une exception ici s'affiche « réseau ».
   try {
-    if (process.env.ADMIN_TOKEN && token === process.env.ADMIN_TOKEN) {
-      await setSessionCookie(token)
-      return { ok: true, pseudo: ADMIN_PSEUDO }
-    }
     const rows = await db
       .select({
         token: adminAccounts.token,
@@ -63,7 +72,7 @@ export async function adminLogin(token: string): Promise<{ ok: boolean; pseudo?:
         active: adminAccounts.active,
       })
       .from(adminAccounts)
-      .where(eq(adminAccounts.token, token))
+      .where(eq(adminAccounts.token, t))
       .limit(1)
     const admin = rows[0]
     if (!admin || !admin.active) return { ok: false, error: "Token invalide ou accès révoqué." }

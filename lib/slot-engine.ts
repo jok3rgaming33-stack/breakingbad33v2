@@ -16,8 +16,6 @@ import { isRateLimited } from "@/lib/rate-limit"
 import type { MachineState, MachineVoucherView, PlayResult, UltimateView } from "@/lib/slot-public"
 import type { PoolClient } from "pg"
 
-export type { MachineState, MachineVoucherView, PlayResult, UltimateView }
-
 /** 1 tour / 60€ de produits. Le client ne reçoit jamais cette table. */
 const WEIGHT_VERSION = "2026-10-08-v1"
 const WEIGHTS: { id: string; w: number }[] = [

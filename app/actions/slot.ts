@@ -8,12 +8,8 @@ import {
   playAdminTrial,
   playSpin,
   quoteMachineVoucher,
-  type MachineState,
-  type MachineVoucherView,
-  type PlayResult,
 } from "@/lib/slot-engine"
-
-export type { MachineState, MachineVoucherView, PlayResult }
+import type { MachineState, MachineVoucherView, PlayResult } from "@/lib/slot-public"
 
 export async function loadMachine(token: string | null): Promise<{ state: MachineState; admin: boolean }> {
   const [state, admin] = await Promise.all([
