@@ -17,15 +17,15 @@ import type { MachineState, MachineVoucherView, PlayResult, UltimateView } from 
 import type { PoolClient } from "pg"
 
 /** 1 tour / 60€ de produits. Le client ne reçoit jamais cette table. */
-const WEIGHT_VERSION = "2026-10-08-v2"
+const WEIGHT_VERSION = "2026-10-08-v3"
 const WEIGHTS: { id: string; w: number }[] = [
-  { id: "miss", w: 880 },
-  { id: "tuco", w: 40 },
-  { id: "badger", w: 36 },
-  { id: "crystal", w: 12 },
-  { id: "gus", w: 18 },
-  { id: "jesse", w: 8 },
-  { id: "walter", w: 6 },
+  { id: "miss", w: 730 },
+  { id: "tuco", w: 70 },
+  { id: "badger", w: 106 },
+  { id: "crystal", w: 22 },
+  { id: "gus", w: 40 },
+  { id: "jesse", w: 20 },
+  { id: "walter", w: 12 },
 ]
 const SPIN_CENTS = 6000
 const SPIN_CAP = 10
@@ -154,7 +154,7 @@ async function loadWeights(client: PoolClient): Promise<{ id: string; w: number 
      VALUES ($1, $2::jsonb, $3)
      ON CONFLICT (version) DO UPDATE
        SET weights = EXCLUDED.weights, signed_note = EXCLUDED.signed_note`,
-    [WEIGHT_VERSION, JSON.stringify(WEIGHTS), "BB33 Albuquerque Luck Spin — table 2026-10-08-v2, serveur uniquement"],
+    [WEIGHT_VERSION, JSON.stringify(WEIGHTS), "BB33 Albuquerque Luck Spin — table 2026-10-08-v3, serveur uniquement"],
   )
   return WEIGHTS
 }
