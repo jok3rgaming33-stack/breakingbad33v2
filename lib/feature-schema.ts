@@ -6,6 +6,30 @@ import { sql } from "drizzle-orm"
 let schemaPromise: Promise<void> | null = null
 
 /**
+ * Colonnes lues par la connexion (drizzle sélectionne toute la ligne users).
+ * Court exprès : le gros ensure (UPDATE de palier) ne doit pas passer sur le login.
+ */
+let loginColsPromise: Promise<void> | null = null
+
+export async function ensureLoginColumns(): Promise<void> {
+  if (!loginColsPromise) {
+    loginColsPromise = (async () => {
+      try {
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_anchor_at TIMESTAMPTZ`)
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_cycle INTEGER NOT NULL DEFAULT 0`)
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_claims INTEGER NOT NULL DEFAULT 0`)
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_claim3_at TIMESTAMPTZ`)
+        await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS slot_free_stopped BOOLEAN NOT NULL DEFAULT false`)
+      } catch (e) {
+        loginColsPromise = null
+        throw e
+      }
+    })()
+  }
+  await loginColsPromise
+}
+
+/**
  * Colonnes / index pour les features top 5 (idempotent).
  * Évite une migration manuelle sur Neon/Vercel.
  */

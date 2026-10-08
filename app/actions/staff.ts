@@ -28,6 +28,7 @@ import {
 import { eq, and, or, isNull, ne, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { isAdminAuthenticated } from "./admin-auth"
+import { ensureLoginColumns } from "@/lib/feature-schema"
 
 export type StaffRow = {
   id: number
@@ -402,6 +403,12 @@ export async function resolveClientLogin(token: string): Promise<
   const t = normalizeSecretKey(token)
   if (!t || t.length < 20) {
     return { ok: false, code: "short", error: "Clé trop courte. Colle la clé secrète complète." }
+  }
+
+  try {
+    await ensureLoginColumns()
+  } catch (e) {
+    console.error("[staff] ensureLoginColumns:", e)
   }
 
   // 1) Compte users classique

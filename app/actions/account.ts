@@ -33,7 +33,7 @@ import { getClientIp, isVpnOrProxy } from "@/lib/ip-check"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { USER_FLAGS } from "@/lib/user-flags"
 import { recordLogin, deleteLoginLogsByToken } from "@/app/actions/login-logs"
-import { ensureFeatureSchema } from "@/lib/feature-schema"
+import { ensureFeatureSchema, ensureLoginColumns } from "@/lib/feature-schema"
 
 // Crée (ou réenregistre) un compte anonyme : associe une clé secrète à un pseudo.
 // Idempotent : si la clé existe déjà, on conserve le pseudo d'origine.
@@ -448,6 +448,13 @@ export async function getAccount(token: string) {
   const { normalizeSecretKey } = await import("@/lib/normalize-token")
   const t = normalizeSecretKey(token)
   if (!t) return null
+  // La ligne users inclut les colonnes machine. Sans elles, Postgres jette
+  // et l'écran de login affiche « Connexion impossible (réseau) ».
+  try {
+    await ensureLoginColumns()
+  } catch (e) {
+    console.error("[account] ensureLoginColumns:", e)
+  }
   const rows = await db.select().from(users).where(eq(users.token, t)).limit(1)
   const account = rows[0] ?? null
   if (account) {
