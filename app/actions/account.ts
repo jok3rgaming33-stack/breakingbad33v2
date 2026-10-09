@@ -843,6 +843,8 @@ export type AdminUserRow = {
   kycStatus: string | null
   /** ID user_verifications pour validation rapide depuis le répertoire */
   kycId: number | null
+  /** Tours Albuquerque Luck Spin encore jouables (non expirés). */
+  availableSpins: number
 }
 
 // Répertoire de tous les comptes enregistrés, avec nombre de commandes et total dépensé.
@@ -901,12 +903,21 @@ export async function listUsers(): Promise<AdminUserRow[]> {
     console.error("[listUsers] kyc enrich failed:", e)
   }
 
+  let spinsByToken = new Map<string, number>()
+  try {
+    const { availableSpinsByToken } = await import("@/lib/slot-engine")
+    spinsByToken = await availableSpinsByToken()
+  } catch (e) {
+    console.error("[listUsers] spins:", e)
+  }
+
   return rows.map((r) => {
     const kyc = kycByToken.get(r.token)
     return {
       ...r,
       kycStatus: kyc?.status ?? null,
       kycId: kyc?.id ?? null,
+      availableSpins: spinsByToken.get(r.token) ?? 0,
     }
   })
 }

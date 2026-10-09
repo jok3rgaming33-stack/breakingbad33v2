@@ -1168,3 +1168,117 @@ export async function listActiveVouchers(userToken: string): Promise<MachineVouc
   const state = await getMachineState(userToken)
   return state.vouchers
 }
+
+/** Tours encore jouables, par compte. N'écrit rien. */
+export async function availableSpinsByToken(): Promise<Map<string, number>> {
+  try {
+    await ensureFeatureSchema()
+    const res = await pool.query(
+      `SELECT user_token, COUNT(*)::int AS n
+       FROM slot_grants
+       WHERE status = 'available' AND expires_at > NOW() AND test_mode = false
+       GROUP BY user_token`,
+    )
+    return new Map(res.rows.map((r) => [String(r.user_token), Number(r.n) || 0]))
+  } catch (e) {
+    console.error("[slot] spin counts", e)
+    return new Map()
+  }
+}
+
+export async function spinSnapshot(userToken: string): Promise<{ available: number; soonestExpiry: string | null }> {
+  const token = userToken?.trim()
+  if (!token) return { available: 0, soonestExpiry: null }
+  try {
+    await ensureFeatureSchema()
+    const res = await pool.query(
+      `SELECT COUNT(*)::int AS n, MIN(expires_at) AS soon
+       FROM slot_grants
+       WHERE user_token = $1 AND status = 'available' AND expires_at > NOW() AND test_mode = false`,
+      [token],
+    )
+    const soon = res.rows[0]?.soon
+    return {
+      available: Number(res.rows[0]?.n ?? 0),
+      soonestExpiry: soon ? new Date(soon).toISOString() : null,
+    }
+  } catch (e) {
+    console.error("[slot] snapshot", e)
+    return { available: 0, soonestExpiry: null }
+  }
+}
+
+const ADMIN_SPIN_CAP = 30
+
+/**
+ * Crédit ou retrait manuel. Le crédit n'est pas lié à une commande :
+ * il n'écrit pas dans slot_credits et ne démarre pas le compteur Ultimate.
+ * Le retrait annule d'abord le tour qui expire le plus tôt.
+ */
+export async function adjustAvailableSpins(
+  userToken: string,
+  delta: number,
+): Promise<{ ok: true; available: number; changed: number } | { ok: false; error: string }> {
+  const token = userToken.trim()
+  const n = Math.trunc(delta)
+  if (!token) return { ok: false, error: "Compte introuvable." }
+  if (!Number.isFinite(n) || n === 0 || Math.abs(n) > ADMIN_SPIN_CAP) {
+    return { ok: false, error: `Entre 1 et ${ADMIN_SPIN_CAP} tours à la fois.` }
+  }
+  await ensureFeatureSchema()
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    const user = await client.query(`SELECT id FROM users WHERE token = $1 LIMIT 1`, [token])
+    if (!user.rows[0]) {
+      await client.query("ROLLBACK")
+      return { ok: false, error: "Compte introuvable." }
+    }
+    await client.query(
+      `UPDATE slot_grants SET status = 'expired'
+       WHERE user_token = $1 AND status = 'available' AND expires_at <= NOW() AND test_mode = false`,
+      [token],
+    )
+    let changed = 0
+    if (n > 0) {
+      for (let i = 0; i < n; i++) {
+        const sourceId = `manual:${crypto.randomUUID()}`
+        const ins = await client.query(
+          `INSERT INTO slot_grants (user_token, source_type, source_id, cascade_depth, status, expires_at, test_mode)
+           VALUES ($1, 'admin', $2, 0, 'available', NOW() + make_interval(days => $3::int), false)`,
+          [token, sourceId, SPIN_DAYS],
+        )
+        changed += ins.rowCount ?? 0
+      }
+    } else {
+      const picked = await client.query(
+        `SELECT id FROM slot_grants
+         WHERE user_token = $1 AND status = 'available' AND expires_at > NOW() AND test_mode = false
+         ORDER BY expires_at ASC, id ASC
+         LIMIT $2
+         FOR UPDATE`,
+        [token, -n],
+      )
+      const ids = picked.rows.map((r) => Number(r.id))
+      if (ids.length === 0) {
+        await client.query("ROLLBACK")
+        return { ok: false, error: "Aucun tour à retirer." }
+      }
+      const upd = await client.query(
+        `UPDATE slot_grants SET status = 'cancelled'
+         WHERE id = ANY($1::int[]) AND status = 'available'`,
+        [ids],
+      )
+      changed = upd.rowCount ?? 0
+    }
+    const available = await countAvailable(client, token)
+    await client.query("COMMIT")
+    return { ok: true, available, changed }
+  } catch (e) {
+    await client.query("ROLLBACK")
+    console.error("[slot] adjust", e)
+    return { ok: false, error: "Ajustement impossible." }
+  } finally {
+    client.release()
+  }
+}

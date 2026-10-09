@@ -147,6 +147,7 @@ export async function ensureFeatureSchema(): Promise<void> {
           CREATE INDEX IF NOT EXISTS slot_grants_user_status_idx
           ON slot_grants (user_token, status)
         `)
+        await db.execute(sql`ALTER TABLE slot_grants ADD COLUMN IF NOT EXISTS expiry_reminded_at TIMESTAMPTZ`)
         await db.execute(sql`
           CREATE TABLE IF NOT EXISTS slot_plays (
             id SERIAL PRIMARY KEY,
@@ -174,6 +175,7 @@ export async function ensureFeatureSchema(): Promise<void> {
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
           )
         `)
+        await db.execute(sql`ALTER TABLE slot_vouchers ADD COLUMN IF NOT EXISTS expiry_reminded_at TIMESTAMPTZ`)
         await db.execute(sql`
           CREATE TABLE IF NOT EXISTS slot_point_entries (
             id SERIAL PRIMARY KEY,

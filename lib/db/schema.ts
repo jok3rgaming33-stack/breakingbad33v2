@@ -526,6 +526,8 @@ export const slotGrants = pgTable("slot_grants", {
   cascadeDepth: integer("cascade_depth").notNull().default(0),
   status: text("status").notNull().default("available"),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  /** Rappel envoyé une fois, dans la fenêtre des 36 h avant expiration. */
+  expiryRemindedAt: timestamp("expiry_reminded_at", { withTimezone: true }),
   testMode: boolean("test_mode").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
@@ -550,6 +552,8 @@ export const slotVouchers = pgTable("slot_vouchers", {
   status: text("status").notNull().default("active"),
   playId: integer("play_id"),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
+  /** Rappel envoyé une fois, dans la fenêtre des 36 h avant expiration. */
+  expiryRemindedAt: timestamp("expiry_reminded_at", { withTimezone: true }),
   usedOrderId: integer("used_order_id"),
   testMode: boolean("test_mode").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -33,6 +33,7 @@ import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { createGeneralInquiryThread } from "@/app/actions/messaging"
 import { grantRestoreAccess } from "@/app/actions/restore-access"
 import { validateAndPurge, adminForceValidateKyc } from "@/app/actions/verification"
+import { adjustClientSpins } from "@/app/actions/slot"
 
 const FLAG_OPTIONS: { value: string; label: string; short: string; className: string }[] = [
   { value: "absent", label: "Absent lors de la livraison", short: "Absent", className: "bg-amber-500/15 text-amber-500 border-amber-500/30" },
@@ -293,6 +294,43 @@ function RowActionsMenu({
   )
 }
 
+function SpinControl({
+  user,
+  busy,
+  onAdjust,
+}: {
+  user: AdminUserRow
+  busy: boolean
+  onAdjust: (user: AdminUserRow, delta: number) => void
+}) {
+  const count = user.availableSpins ?? 0
+  return (
+    <div className="inline-flex items-center gap-1" title="Tours Albuquerque Luck Spin encore jouables">
+      <button
+        type="button"
+        disabled={busy || count < 1}
+        onClick={() => onAdjust(user, -1)}
+        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm font-bold text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40"
+        aria-label={`Retirer un tour à ${user.pseudo}`}
+        title="Retirer le tour qui expire le plus tôt"
+      >
+        −
+      </button>
+      <span className="min-w-[1.25rem] text-center text-sm font-semibold tabular-nums">{count}</span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onAdjust(user, 1)}
+        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-sm font-bold text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40"
+        aria-label={`Ajouter un tour à ${user.pseudo}`}
+        title="Ajouter un tour, valable 7 jours"
+      >
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "+"}
+      </button>
+    </div>
+  )
+}
+
 export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [users, setUsers] = useState<AdminUserRow[]>(initialUsers)
   const [query, setQuery] = useState("")
@@ -315,6 +353,8 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [nickValue, setNickValue] = useState("")
   const [nickSavingId, setNickSavingId] = useState<number | null>(null)
   const [profileUserId, setProfileUserId] = useState<number | null>(null)
+  const [spinBusyId, setSpinBusyId] = useState<number | null>(null)
+  const [spinNote, setSpinNote] = useState<string | null>(null)
 
   // Aligné sur getAccount : points = CA livré + ajustement − dépensés
   const totalPoints = (u: AdminUserRow) =>
@@ -387,6 +427,33 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
       }
     } finally {
       setSavingId(null)
+    }
+  }
+
+  const handleAdjustSpins = async (u: AdminUserRow, delta: number) => {
+    if (spinBusyId != null) return
+    const adding = delta > 0
+    const count = u.availableSpins ?? 0
+    if (!adding && count < 1) return
+    const ok = window.confirm(
+      adding
+        ? `Ajouter 1 tour à ${u.pseudo} ? Il est valable 7 jours.`
+        : `Retirer 1 tour à ${u.pseudo} ? Le tour qui expire le plus tôt est annulé.`,
+    )
+    if (!ok) return
+    setSpinBusyId(u.id)
+    setSpinNote(null)
+    try {
+      const res = await adjustClientSpins(u.id, delta)
+      if (!res.ok) {
+        setSpinNote(res.error || "Ajustement impossible.")
+        return
+      }
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, availableSpins: res.available } : x)))
+    } catch {
+      setSpinNote("Ajustement impossible.")
+    } finally {
+      setSpinBusyId(null)
     }
   }
 
@@ -604,6 +671,11 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
           className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-9 pr-3 text-sm outline-none transition-colors focus:border-accent"
         />
       </div>
+      {spinNote && (
+        <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {spinNote}
+        </p>
+      )}
 
       {/* Mobile : cartes compactes */}
       <div className="flex flex-col gap-3 md:hidden">
@@ -668,6 +740,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                       <ShoppingBag className="h-3 w-3 text-accent" />
                       {u.orderCount}
                     </span>
+                    <SpinControl user={u} busy={spinBusyId === u.id} onAdjust={handleAdjustSpins} />
                     {editingId === u.id ? (
                       <div className="flex items-center gap-1">
                         <input
@@ -744,6 +817,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                 <th className="px-3 py-3 font-medium">Envois</th>
                 <th className="hidden px-3 py-3 font-medium xl:table-cell">Token</th>
                 <th className="px-3 py-3 font-medium">Cmd</th>
+                <th className="px-3 py-3 font-medium">Tours</th>
                 <th className="px-3 py-3 font-medium">KYC</th>
                 <th className="px-3 py-3 font-medium">Points</th>
                 <th className="sticky right-0 bg-background/95 px-3 py-3 text-right font-medium backdrop-blur">
@@ -754,7 +828,7 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                  <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
                     Aucun compte à afficher.
                   </td>
                 </tr>
@@ -829,6 +903,9 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
                         <ShoppingBag className="h-3.5 w-3.5 text-accent" />
                         {u.orderCount}
                       </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <SpinControl user={u} busy={spinBusyId === u.id} onAdjust={handleAdjustSpins} />
                     </td>
                     <td className="px-3 py-3">
                       {u.kycStatus === "pending" ? (
@@ -1078,7 +1155,13 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
       )}
 
       {profileUserId != null && (
-        <AdminUser360 userId={profileUserId} onClose={() => setProfileUserId(null)} />
+        <AdminUser360
+          userId={profileUserId}
+          onClose={() => setProfileUserId(null)}
+          onSpinsChange={(id, available) =>
+            setUsers((prev) => prev.map((x) => (x.id === id ? { ...x, availableSpins: available } : x)))
+          }
+        />
       )}
     </div>
   )

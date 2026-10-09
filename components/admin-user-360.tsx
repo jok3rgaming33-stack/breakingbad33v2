@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { getUser360, type User360Data } from "@/app/actions/user-360"
+import { adjustClientSpins } from "@/app/actions/slot"
 import {
   validateAndPurge,
   rejectVerification,
@@ -43,9 +44,10 @@ function formatDate(d: Date | string) {
 type Props = {
   userId: number
   onClose: () => void
+  onSpinsChange?: (userId: number, available: number) => void
 }
 
-export function AdminUser360({ userId, onClose }: Props) {
+export function AdminUser360({ userId, onClose, onSpinsChange }: Props) {
   const [data, setData] = useState<User360Data | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -55,6 +57,8 @@ export function AdminUser360({ userId, onClose }: Props) {
   const [kycErr, setKycErr] = useState<string | null>(null)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState("")
+  const [spinBusy, setSpinBusy] = useState(false)
+  const [spinErr, setSpinErr] = useState<string | null>(null)
 
   const reload = () => {
     setLoading(true)
@@ -95,6 +99,35 @@ export function AdminUser360({ userId, onClose }: Props) {
       cancelled = true
     }
   }, [userId])
+
+  const handleAdjustSpins = async (delta: number) => {
+    if (!data || spinBusy) return
+    const adding = delta > 0
+    if (!adding && data.availableSpins < 1) return
+    const ok = window.confirm(
+      adding
+        ? `Ajouter 1 tour à ${data.pseudo} ? Il est valable 7 jours.`
+        : `Retirer 1 tour à ${data.pseudo} ? Le tour qui expire le plus tôt est annulé.`,
+    )
+    if (!ok) return
+    setSpinBusy(true)
+    setSpinErr(null)
+    try {
+      const res = await adjustClientSpins(data.id, delta)
+      if (!res.ok) {
+        setSpinErr(res.error || "Ajustement impossible.")
+        return
+      }
+      onSpinsChange?.(data.id, res.available)
+      const fresh = await getUser360(userId)
+      if (fresh.ok) setData(fresh.data)
+      else setData((prev) => (prev ? { ...prev, availableSpins: res.available } : prev))
+    } catch {
+      setSpinErr("Ajustement impossible.")
+    } finally {
+      setSpinBusy(false)
+    }
+  }
 
   const handleValidateKyc = async () => {
     if (!data || kycBusy) return
@@ -341,6 +374,46 @@ export function AdminUser360({ userId, onClose }: Props) {
                     {data.verification ? data.verification.status : "aucune"}
                   </span>
                 </div>
+              </section>
+
+              <section className="rounded-2xl border border-border bg-background/50 p-4">
+                <h3 className="mb-3 text-sm font-bold">Tours — Albuquerque Luck Spin</h3>
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="text-2xl font-bold tabular-nums">{data.availableSpins}</p>
+                  <span className="text-xs text-muted-foreground">
+                    {data.availableSpins > 1 ? "tours disponibles" : "tour disponible"}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={spinBusy || data.availableSpins < 1}
+                      onClick={() => void handleAdjustSpins(-1)}
+                      className="rounded-xl border border-border px-3 py-2 text-sm font-semibold hover:bg-secondary disabled:opacity-40"
+                    >
+                      Retirer
+                    </button>
+                    <button
+                      type="button"
+                      disabled={spinBusy}
+                      onClick={() => void handleAdjustSpins(1)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-40"
+                    >
+                      {spinBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+                      Ajouter
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {data.soonestSpinExpiry
+                    ? `Le plus proche expire le ${formatDate(data.soonestSpinExpiry)}.`
+                    : "Aucun tour en cours."}{" "}
+                  Un tour ajouté ici est valable 7 jours et ne démarre pas le compteur Ultimate.
+                </p>
+                {spinErr && (
+                  <p className="mt-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    {spinErr}
+                  </p>
+                )}
               </section>
 
               {/* Vérification d'identité — validation directe ou manuelle */}

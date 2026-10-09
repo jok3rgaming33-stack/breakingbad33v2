@@ -66,6 +66,9 @@ export type User360Data = {
   loyaltyCodes: { code: string; discount: number; used: boolean; createdAt: Date | string }[]
   unreadVendorMessages: number
   discussionCount: number
+  /** Tours Albuquerque Luck Spin encore jouables. */
+  availableSpins: number
+  soonestSpinExpiry: string | null
 }
 
 export type GetUser360Result =
@@ -262,6 +265,17 @@ export async function getUser360(userId: number): Promise<GetUser360Result> {
       unreadVendorMessages = 0
     }
 
+    let availableSpins = 0
+    let soonestSpinExpiry: string | null = null
+    try {
+      const { spinSnapshot } = await import("@/lib/slot-engine")
+      const snap = await spinSnapshot(u.token)
+      availableSpins = snap.available
+      soonestSpinExpiry = snap.soonestExpiry
+    } catch (e) {
+      console.error("[user-360] spins:", e)
+    }
+
     const data: User360Data = {
       id: u.id,
       pseudo: u.pseudo,
@@ -286,6 +300,8 @@ export async function getUser360(userId: number): Promise<GetUser360Result> {
       loyaltyCodes: codes,
       unreadVendorMessages,
       discussionCount,
+      availableSpins,
+      soonestSpinExpiry,
     }
 
     return { ok: true, data }

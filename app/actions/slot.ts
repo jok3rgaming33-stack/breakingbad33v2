@@ -1,7 +1,11 @@
 "use server"
 
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
+import { db } from "@/lib/db"
+import { users } from "@/lib/db/schema"
+import { eq } from "drizzle-orm"
 import {
+  adjustAvailableSpins,
   claimUltimateSpin,
   getMachineState,
   listActiveVouchers,
@@ -50,4 +54,18 @@ export async function previewMachineVoucher(input: {
 export async function myMachineVouchers(token: string): Promise<MachineVoucherView[]> {
   if (!token?.trim()) return []
   return listActiveVouchers(token)
+}
+
+/** Crédite (delta > 0) ou retire (delta < 0) des tours jouables. Réservé à l'admin. */
+export async function adjustClientSpins(userId: number, delta: number) {
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "Non autorisé." }
+  const id = Math.trunc(userId)
+  const n = Math.trunc(delta)
+  if (!id || !Number.isFinite(n) || n === 0) return { ok: false as const, error: "Montant invalide." }
+  const rows = await db.select({ token: users.token }).from(users).where(eq(users.id, id)).limit(1)
+  const token = rows[0]?.token
+  if (!token) return { ok: false as const, error: "Compte introuvable." }
+  const res = await adjustAvailableSpins(token, n)
+  if (!res.ok) return { ok: false as const, error: res.error }
+  return { ok: true as const, available: res.available, changed: res.changed }
 }
