@@ -230,7 +230,7 @@ export default function Home() {
     }
   }, [])
 
-  const handleLoginSuccess = (opts?: { openOrders?: boolean; openMessaging?: boolean; openLatestMessaging?: boolean; openKyc?: boolean }) => {
+  const handleLoginSuccess = (opts?: { openOrders?: boolean; openMessaging?: boolean; openLatestMessaging?: boolean; openThreadId?: number; openKyc?: boolean }) => {
     setIsAuthenticated(true)
     const pseudo = localStorage.getItem("userPseudo") ?? undefined
     const token = localStorage.getItem("authToken") ?? undefined
@@ -238,7 +238,10 @@ export default function Home() {
     setIsAdmin(localStorage.getItem("isAdmin") === "1")
     if (opts?.openOrders) setIsOrdersOpen(true)
     if (opts?.openMessaging) setIsMessagingOpen(true)
-    if (opts?.openLatestMessaging) {
+    if (opts?.openThreadId) {
+      setFocusThreadId(opts.openThreadId)
+      setIsMessagingOpen(true)
+    } else if (opts?.openLatestMessaging) {
       setAutoOpenLatestMessaging(true)
       setIsMessagingOpen(true)
     }
@@ -326,7 +329,10 @@ export default function Home() {
             {!isAdmin && (
               <RecoveryBanner
                 token={userData?.token}
-                onOpenMessaging={() => setIsMessagingOpen(true)}
+                onOpenMessaging={(threadId) => {
+                  if (threadId) setFocusThreadId(threadId)
+                  setIsMessagingOpen(true)
+                }}
               />
             )}
             <Hero />

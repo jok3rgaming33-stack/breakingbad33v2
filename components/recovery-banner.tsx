@@ -8,7 +8,7 @@ import Link from "next/link"
 
 type Props = {
   token?: string
-  onOpenMessaging?: () => void
+  onOpenMessaging?: (threadId: number | null) => void
 }
 
 /**
@@ -21,6 +21,7 @@ export function RecoveryBanner({ token, onOpenMessaging }: Props) {
     status: string | null
     claimedPseudo: string | null
     needsKyc: boolean
+    threadId: number | null
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [unreadReplies, setUnreadReplies] = useState(0)
@@ -96,7 +97,7 @@ export function RecoveryBanner({ token, onOpenMessaging }: Props) {
           {onOpenMessaging && (
             <button
               type="button"
-              onClick={onOpenMessaging}
+              onClick={() => onOpenMessaging?.(status.threadId ?? null)}
               className="inline-flex items-center gap-1.5 rounded-xl border border-amber-400/40 bg-background/40 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-background/60"
             >
               <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />

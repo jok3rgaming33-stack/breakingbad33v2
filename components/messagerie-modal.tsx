@@ -167,8 +167,24 @@ export function MessagerieModal({
 
   useEffect(() => {
     if (!isOpen || !autoOpenLatest || selected || !threads.length || focusThreadId) return
-    void openThread(threads[0])
+    const latestDiscussion = threads.find((t) => isMessagingThreadStatus(t.status))
+    void openThread(latestDiscussion ?? threads[0])
   }, [autoOpenLatest, isOpen, selected, threads, focusThreadId])
+
+  // Un compte sans commande (récupération de clé, discussion seule) ne doit pas
+  // atterrir sur l'onglet Commandes, vide, alors que le fil est dans Discussions.
+  const pickedTab = useRef(false)
+  useEffect(() => {
+    if (!isOpen) {
+      pickedTab.current = false
+      return
+    }
+    if (pickedTab.current || selected || !threads.length) return
+    const hasOrders = threads.some((t) => !isMessagingThreadStatus(t.status))
+    const hasDiscussions = threads.some((t) => isMessagingThreadStatus(t.status))
+    if (!hasOrders && hasDiscussions) setTab("discussions")
+    pickedTab.current = true
+  }, [isOpen, threads, selected])
 
   // Deep-link : ouvrir le fil ciblé UNE seule fois (Discussions pour notifs, Commandes sinon).
   // Ne pas re-dépendre de `threads` : le polling réinjecterait le fil notif et ferait
@@ -192,6 +208,7 @@ export function MessagerieModal({
   }, [isOpen, focusThreadId, threads])
 
   const openThread = async (thread: Thread) => {
+    setTab(isMessagingThreadStatus(thread.status) ? "discussions" : "commandes")
     setSelected(thread)
     setView("thread")
     setLoadingThread(true)
@@ -325,7 +342,7 @@ export function MessagerieModal({
   return (
     <>
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-background/90 p-4"
+      className="fixed inset-0 z-[180] flex items-center justify-center bg-background/90 p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Messagerie"
@@ -411,17 +428,25 @@ export function MessagerieModal({
                       {orderThreads.length === 0 ? (
                         <li className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
                           <Package className="h-10 w-10" aria-hidden="true" />
-                          <p className="text-sm">Aucune commande pour le moment.</p>
+                          <p className="text-sm">
+                            {discussionThreads.length > 0
+                              ? "Pas de commande. Tes messages sont dans Discussions."
+                              : "Aucune commande pour le moment."}
+                          </p>
                           <div className="mt-1 flex flex-col items-center gap-2">
                             <button
                               type="button"
                               onClick={() => {
+                                if (discussionThreads.length > 0) {
+                                  setTab("discussions")
+                                  return
+                                }
                                 setTab("discussions")
                                 setView("compose")
                               }}
                               className="rounded-xl bg-accent px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-accent-foreground"
                             >
-                              Écrire au chimiste
+                              {discussionThreads.length > 0 ? "Voir la discussion" : "Écrire au chimiste"}
                             </button>
                             {onOpenHowItWorks && (
                               <button

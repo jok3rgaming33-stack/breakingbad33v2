@@ -75,6 +75,30 @@ export async function ensureRecoverySchema() {
   `)
 }
 
+function pseudoKey(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase()
+}
+
+function isProvisionalAccount(flags: string[] | null | undefined) {
+  return Array.isArray(flags) && flags.includes("lost_key_provisional")
+}
+
+/**
+ * Comptes réels dont le pseudo correspond au déclaré.
+ * La casse ne compte pas : Swiftwolf trouve SwiftWolf.
+ * Les comptes provisoires (recup_…) sont exclus.
+ */
+async function findOriginCandidates(claimedPseudo: string, provisionalToken?: string) {
+  const key = pseudoKey(claimedPseudo)
+  if (!key) return []
+  const rows = await db
+    .select()
+    .from(users)
+    .where(sql`lower(trim(${users.pseudo})) = ${key}`)
+    .limit(10)
+  return rows.filter((u) => u.token !== provisionalToken && !isProvisionalAccount(u.flags))
+}
+
 /**
  * Client : demande « clé perdue ».
  * Retourne une clé provisoire pour se connecter tout de suite + id fil messagerie.
@@ -99,16 +123,10 @@ export async function submitLostKeyClaim(input: {
     return { ok: false, error: "Indique le pseudo du compte à récupérer." }
   }
 
-  // Compte d'origine possible (aide admin)
-  const originals = await db
-    .select({ id: users.id, pseudo: users.pseudo, token: users.token })
-    .from(users)
-    .where(eq(users.pseudo, claimedPseudo))
-    .limit(5)
-
-  // Ne pas créer de provisoire si le pseudo n'existe pas du tout (évite spam)
-  // Mais un client peut mal orthographier — on accepte quand même et l'admin tranche.
+  // Compte d'origine possible (aide admin). Casse ignorée : Swiftwolf = SwiftWolf.
+  // Un client peut mal orthographier — on accepte quand même et l'admin tranche.
   // On pré-remplit originalUserId s'il y a un match unique.
+  const originals = await findOriginCandidates(claimedPseudo)
   const originalUserId = originals.length === 1 ? originals[0].id : null
 
   const provisionalToken = generateSecretKey()
@@ -209,9 +227,18 @@ export async function getMyRecoveryStatus(token: string): Promise<{
   claimedPseudo: string | null
   needsKyc: boolean
   claimId: number | null
+  threadId: number | null
 } | null> {
   const t = token?.trim()
   if (!t) return null
+  const idle = {
+    active: false,
+    status: null as string | null,
+    claimedPseudo: null as string | null,
+    needsKyc: false,
+    claimId: null as number | null,
+    threadId: null as number | null,
+  }
   await ensureRecoverySchema()
   try {
     const rows = await db
@@ -221,14 +248,16 @@ export async function getMyRecoveryStatus(token: string): Promise<{
       .orderBy(desc(accountRecoveryClaims.createdAt))
       .limit(1)
     const c = rows[0]
-    if (!c) return { active: false, status: null, claimedPseudo: null, needsKyc: false, claimId: null }
-    if (c.status === "approved" || c.status === "rejected") {
+    if (!c) return idle
+    const done = c.status === "approved" || c.status === "rejected" || c.status === "closed"
+    if (done) {
       return {
         active: false,
         status: c.status,
         claimedPseudo: c.claimedPseudo,
         needsKyc: false,
         claimId: c.id,
+        threadId: c.threadId,
       }
     }
     return {
@@ -237,9 +266,10 @@ export async function getMyRecoveryStatus(token: string): Promise<{
       claimedPseudo: c.claimedPseudo,
       needsKyc: c.status === "pending_kyc",
       claimId: c.id,
+      threadId: c.threadId,
     }
   } catch {
-    return { active: false, status: null, claimedPseudo: null, needsKyc: false, claimId: null }
+    return idle
   }
 }
 
@@ -342,17 +372,33 @@ export async function approveRecoveryClaim(
   if (!claim) return { ok: false, error: "Dossier introuvable." }
   if (claim.status === "approved") return { ok: false, error: "Déjà validé." }
   if (claim.status === "rejected") return { ok: false, error: "Dossier refusé." }
+  if (claim.status === "closed") return { ok: false, error: "Dossier déjà fermé." }
+
+  const claimedKey = pseudoKey(claim.claimedPseudo)
+  if (claimedKey) {
+    const newer = await db
+      .select({ id: accountRecoveryClaims.id })
+      .from(accountRecoveryClaims)
+      .where(
+        and(
+          sql`lower(trim(${accountRecoveryClaims.claimedPseudo})) = ${claimedKey}`,
+          inArray(accountRecoveryClaims.status, ["pending_kyc", "kyc_submitted"]),
+          sql`${accountRecoveryClaims.id} > ${claim.id}`,
+        ),
+      )
+      .limit(1)
+    if (newer[0]) {
+      return {
+        ok: false,
+        error:
+          "Un dossier plus récent existe pour ce pseudo. Fusionne celui-là : c'est la clé que le client utilise maintenant.",
+      }
+    }
+  }
 
   const targetId = originalUserId ?? claim.originalUserId
   if (!targetId) {
-    // Essayer match pseudo
-    const byPseudo = await db
-      .select()
-      .from(users)
-      .where(eq(users.pseudo, claim.claimedPseudo))
-      .limit(5)
-    // Exclure le provisoire
-    const candidates = byPseudo.filter((u) => u.token !== claim.provisionalToken)
+    const candidates = await findOriginCandidates(claim.claimedPseudo, claim.provisionalToken)
     if (candidates.length !== 1) {
       return {
         ok: false,
