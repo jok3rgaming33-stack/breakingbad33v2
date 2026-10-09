@@ -1314,7 +1314,7 @@ export async function getAdminBadgeCounts(): Promise<{
     const isNew = t.status === "en_attente" || t.status === "nouveau"
 
     if (isDiscussion) {
-      if (waitingClient || t.status === "discussion") messaging++
+      if (waitingClient) messaging++
       continue
     }
 

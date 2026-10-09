@@ -17,6 +17,7 @@ let originColumnReady = false
 export async function ensurePushOriginColumn() {
   if (originColumnReady) return
   await db.execute(sql`ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS origin text`)
+  await db.execute(sql`ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS expired_at timestamptz`)
   originColumnReady = true
 }
 
@@ -64,10 +65,21 @@ export type PushPayload = {
   /** Deep-link : id fil + section (messaging | orders | locker) */
   threadId?: number
   open?: string
+  /** Vendeur : la bannière Android reste affichée jusqu'au clic. */
+  sticky?: boolean
 }
 
-// 404/410 = abonnement mort. 401/403 = clé VAPID qui ne correspond plus :
-// on retire la ligne pour que le navigateur puisse se réabonner.
+function isApplePushEndpoint(endpoint: string) {
+  try {
+    const host = new URL(endpoint).hostname.toLowerCase()
+    return host === "web.push.apple.com" || host.endsWith(".push.apple.com")
+  } catch {
+    return false
+  }
+}
+
+// 404/410 = abonnement mort. 401/403 = clé VAPID qui ne correspond plus.
+// La ligne est marquée expirée, pas supprimée : le téléphone la retrouve pour tourner l'adresse.
 function isDeadSubscription(statusCode: number | undefined) {
   return statusCode === 401 || statusCode === 403 || statusCode === 404 || statusCode === 410
 }
@@ -75,15 +87,16 @@ function isDeadSubscription(statusCode: number | undefined) {
 // Envoie une notification à une liste d'abonnements et nettoie ceux qui sont expirés.
 // Chaque envoi a son propre délai : un endpoint qui ne répond pas ne bloque pas les autres.
 /**
- * iOS n'affiche pas le push si le service worker ne se réveille pas (app fermée,
- * téléphone verrouillé). Le format déclaratif est affiché par le système lui-même.
- * On ne l'ajoute que si l'origine de l'app est connue : une URL d'un autre domaine
- * ferait jeter le message entier.
+ * iOS n'affiche pas le push si le service worker ne se réveille pas.
+ * Ce format est réservé à Apple : sur Chrome Android, le même JSON peut être
+ * pris pour une notification déclarative et ne jamais réveiller le service worker
+ * (donc pas de bannière, pas de vibration).
  */
-function encodePush(payload: PushPayload, origin: string | null) {
+function encodePush(payload: PushPayload, origin: string | null, endpoint: string) {
   const title = (payload.title || "BreakingBad33").trim() || "BreakingBad33"
   const body = payload.body || ""
   const base = { ...payload, title, body }
+  if (!isApplePushEndpoint(endpoint)) return base
   const safe = safePushOrigin(origin)
   if (!safe) return base
   const path = payload.url?.trim() || "/"
@@ -120,9 +133,12 @@ async function sendToRows(
   } catch (e) {
     console.log("[v0] push origin column:", e)
   }
+  await db
+    .execute(sql`DELETE FROM push_subscriptions WHERE expired_at IS NOT NULL AND expired_at < now() - interval '14 days'`)
+    .catch(() => {})
   await Promise.all(
     rows.map(async (row) => {
-      const data = JSON.stringify(encodePush(payload, row.origin ?? null))
+      const data = JSON.stringify(encodePush(payload, row.origin ?? null, row.endpoint))
       try {
         await Promise.race([
           webpush.sendNotification(
@@ -144,7 +160,13 @@ async function sendToRows(
         ])
       } catch (err: any) {
         if (isDeadSubscription(err?.statusCode)) {
-          await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, row.id)).catch(() => {})
+          // On garde la ligne : le téléphone s'en sert pour poser la nouvelle adresse
+          // sans que personne rouvre l'appli. Un delete ici coupait tout jusqu'à la prochaine ouverture.
+          await db
+            .update(pushSubscriptions)
+            .set({ expiredAt: new Date() })
+            .where(eq(pushSubscriptions.id, row.id))
+            .catch(() => {})
         } else {
           console.log("[v0] push send error:", err?.statusCode, err?.body || err?.message)
         }
@@ -219,6 +241,7 @@ export async function notifyCustomer(customerToken: string | null | undefined, p
           isNull(users.excludeNotifications),
           eq(users.excludeNotifications, false),
         ),
+        isNull(pushSubscriptions.expiredAt),
       ),
     )
   await sendToRows(rows, payload)
@@ -236,8 +259,8 @@ export async function notifyVendor(payload: PushPayload) {
       origin: pushSubscriptions.origin,
     })
     .from(pushSubscriptions)
-    .where(inArray(pushSubscriptions.role, ["vendeur", "both"]))
-  await sendToRows(rows, payload)
+    .where(and(inArray(pushSubscriptions.role, ["vendeur", "both"]), isNull(pushSubscriptions.expiredAt)))
+  await sendToRows(rows, { ...payload, sticky: true })
 }
 
 // Notifie tous les clients abonnés (diffusion, ex. publication d'une news).
@@ -261,6 +284,7 @@ export async function notifyAllClients(payload: PushPayload) {
           isNull(users.excludeNotifications),
           eq(users.excludeNotifications, false),
         ),
+        isNull(pushSubscriptions.expiredAt),
       ),
     )
   await sendToRows(rows, payload)

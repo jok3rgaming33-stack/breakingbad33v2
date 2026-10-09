@@ -276,6 +276,9 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   // Origine de l'app installée (https://www… ou apex). Sert à l'URL de la notification
   // affichée par iOS même quand le service worker ne se réveille pas.
   origin: text("origin"),
+  // Adresse refusée par le service push (410). On la garde pour que le téléphone
+  // puisse la remplacer sans rouvrir l'appli. Les envois l'ignorent.
+  expiredAt: timestamp("expired_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 

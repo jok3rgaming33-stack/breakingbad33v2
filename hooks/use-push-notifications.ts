@@ -14,6 +14,13 @@ function urlBase64ToUint8Array(base64String: string) {
   return output
 }
 
+function rememberPushEndpoint(endpoint: string) {
+  if (!endpoint || typeof navigator === "undefined" || !("serviceWorker" in navigator)) return
+  navigator.serviceWorker.ready
+    .then((reg) => reg.active?.postMessage({ type: "BB33_PUSH_ENDPOINT", endpoint }))
+    .catch(() => {})
+}
+
 function sameKey(existing: ArrayBuffer | null | undefined, vapid: string) {
   if (!existing) return true
   const current = urlBase64ToUint8Array(vapid)
@@ -82,6 +89,7 @@ export async function syncPushSubscription(opts: {
       customerToken: opts.customerToken ?? null,
       origin: window.location.origin,
     })
+    rememberPushEndpoint(json.endpoint)
     return true
   } catch (e) {
     console.log("[v0] syncPushSubscription:", e)
@@ -138,6 +146,7 @@ export function usePushNotifications({ role, customerToken }: Options) {
         customerToken: customerToken ?? null,
         origin: window.location.origin,
       })
+      rememberPushEndpoint(json.endpoint)
       syncedRef.current = syncKey
       setSubscribed(true)
     } catch (e) {
@@ -224,6 +233,7 @@ export function usePushNotifications({ role, customerToken }: Options) {
         customerToken: customerToken ?? null,
         origin: window.location.origin,
       })
+      rememberPushEndpoint(json.endpoint)
       syncedRef.current = `${json.endpoint}|${role}|${customerToken ?? ""}`
       setSubscribed(true)
       return true

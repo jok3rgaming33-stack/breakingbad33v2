@@ -7,8 +7,34 @@ self.addEventListener("install", (event) => {
 })
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim())
+  event.waitUntil(
+    (async () => {
+      await self.clients.claim()
+      try {
+        const sub = await self.registration.pushManager.getSubscription()
+        if (sub) await rememberEndpoint(sub.endpoint)
+      } catch (e) {}
+    })(),
+  )
 })
+
+async function rememberEndpoint(endpoint) {
+  if (!endpoint) return
+  const cache = await caches.open("bb33-push")
+  await cache.put("/__push_endpoint", new Response(endpoint))
+}
+
+async function recalledEndpoint() {
+  try {
+    const cache = await caches.open("bb33-push")
+    const res = await cache.match("/__push_endpoint")
+    if (!res) return null
+    const text = (await res.text()).trim()
+    return text.startsWith("https://") ? text : null
+  } catch (e) {
+    return null
+  }
+}
 
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
@@ -38,6 +64,10 @@ self.addEventListener("push", (event) => {
     badge: "/apple-icon.png",
     tag: note.tag || (data.tag ? `${data.tag}-${stamp}` : `bb33-${stamp}`),
     renotify: true,
+    // Sans vibration, Android range l'alerte dans le volet sans bannière.
+    silent: false,
+    vibrate: [200, 100, 200, 100, 200],
+    requireInteraction: data.sticky === true,
     data: {
       url: targetUrl,
       threadId: data.threadId || null,
@@ -53,6 +83,9 @@ self.addEventListener("push", (event) => {
     self.registration.showNotification(title, {
       body: options.body,
       tag: options.tag,
+      renotify: true,
+      vibrate: [200, 100, 200, 100, 200],
+      requireInteraction: data.sticky === true,
       data: options.data,
     }),
   )
@@ -93,8 +126,8 @@ self.addEventListener("push", (event) => {
   )
 })
 
-// iOS change l'adresse de push sans ouvrir l'app. Sans ça, les envois suivants
-// partent dans le vide jusqu'à la prochaine ouverture.
+// Chrome Android oublie souvent l'ancienne adresse dans cet événement.
+// On a mémorisé la dernière, sinon le serveur ne peut pas reporter le rôle vendeur.
 self.addEventListener("pushsubscriptionchange", (event) => {
   event.waitUntil(
     (async () => {
@@ -111,17 +144,29 @@ self.addEventListener("pushsubscriptionchange", (event) => {
       }
       const json = sub.toJSON()
       if (!json.endpoint || !json.keys) return
+      const oldEndpoint =
+        (event.oldSubscription && event.oldSubscription.endpoint) || (await recalledEndpoint())
+      await rememberEndpoint(json.endpoint)
+      if (!oldEndpoint) return
       await fetch("/api/push/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          oldEndpoint: event.oldSubscription ? event.oldSubscription.endpoint : null,
+          oldEndpoint,
           endpoint: json.endpoint,
           keys: json.keys,
+          origin: self.location.origin,
         }),
       })
     })(),
   )
+})
+
+self.addEventListener("message", (event) => {
+  const data = event.data || {}
+  if (data.type === "BB33_PUSH_ENDPOINT" && typeof data.endpoint === "string") {
+    event.waitUntil(rememberEndpoint(data.endpoint))
+  }
 })
 
 self.addEventListener("notificationclick", (event) => {

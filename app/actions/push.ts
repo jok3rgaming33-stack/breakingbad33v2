@@ -65,10 +65,11 @@ export async function savePushSubscription(input: PushSubscriptionInput) {
       role,
       customerToken,
       origin,
+      expiredAt: null,
     })
     .onConflictDoUpdate({
       target: pushSubscriptions.endpoint,
-      set: { p256dh: input.p256dh, auth: input.auth, role, customerToken, origin },
+      set: { p256dh: input.p256dh, auth: input.auth, role, customerToken, origin, expiredAt: null },
     })
 
   if ((isNew || tokenJustLinked) && customerToken) {

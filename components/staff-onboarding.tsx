@@ -91,6 +91,7 @@ export function StaffOnboarding({
             customerToken: customerToken ?? null,
             origin: window.location.origin,
           })
+          reg.active?.postMessage({ type: "BB33_PUSH_ENDPOINT", endpoint: json.endpoint })
         }
       }
       setNotifStep("granted")
