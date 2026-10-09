@@ -31,6 +31,7 @@ import {
   type DualProduct,
   type DualVendor,
 } from "@/app/demo/_data/dual-mock"
+import { DemoSpotifyPlayer } from "@/app/demo/_components/demo-spotify-player"
 
 type VendorId = DualVendor["id"]
 
@@ -251,6 +252,8 @@ export function DualCatalogDemo({
             </div>
           </div>
         </div>
+
+        <DemoSpotifyPlayer />
 
         {/* Catalogue — même shell que ShopSections */}
         <div
