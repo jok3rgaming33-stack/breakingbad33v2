@@ -2,7 +2,7 @@ import "server-only"
 import webpush from "web-push"
 import { db } from "@/lib/db"
 import { pushSubscriptions, users } from "@/lib/db/schema"
-import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm"
+import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm"
 import { orderThreads, threadMessages } from "@/lib/db/schema"
 import { clientThreadUrl, sectionForThreadStatus } from "@/lib/deep-links"
 
@@ -11,6 +11,34 @@ const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY
 const SUBJECT = process.env.VAPID_SUBJECT || "mailto:contact@breakingbad33.com"
 
 let configured = false
+let originColumnReady = false
+
+/** Colonne ajoutée sans migration Drizzle : l'origine de l'app installée. */
+export async function ensurePushOriginColumn() {
+  if (originColumnReady) return
+  await db.execute(sql`ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS origin text`)
+  originColumnReady = true
+}
+
+export function safePushOrigin(value: string | null | undefined) {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    if (url.protocol !== "https:") return null
+    const host = url.hostname
+    if (
+      host === "breakingbad33.com" ||
+      host.endsWith(".breakingbad33.com") ||
+      host.endsWith(".vercel.app")
+    ) {
+      return url.origin
+    }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
 function ensureConfigured() {
   if (configured) return true
   if (!PUBLIC_KEY || !PRIVATE_KEY) {
@@ -46,14 +74,55 @@ function isDeadSubscription(statusCode: number | undefined) {
 
 // Envoie une notification à une liste d'abonnements et nettoie ceux qui sont expirés.
 // Chaque envoi a son propre délai : un endpoint qui ne répond pas ne bloque pas les autres.
+/**
+ * iOS n'affiche pas le push si le service worker ne se réveille pas (app fermée,
+ * téléphone verrouillé). Le format déclaratif est affiché par le système lui-même.
+ * On ne l'ajoute que si l'origine de l'app est connue : une URL d'un autre domaine
+ * ferait jeter le message entier.
+ */
+function encodePush(payload: PushPayload, origin: string | null) {
+  const title = (payload.title || "BreakingBad33").trim() || "BreakingBad33"
+  const body = payload.body || ""
+  const base = { ...payload, title, body }
+  const safe = safePushOrigin(origin)
+  if (!safe) return base
+  const path = payload.url?.trim() || "/"
+  let navigate = safe + "/"
+  try {
+    navigate = new URL(path, safe + "/").href
+  } catch {
+    return base
+  }
+  if (!navigate.startsWith(safe)) return base
+  const tag = `${payload.tag || "bb33"}-${Date.now()}`
+  return {
+    ...base,
+    web_push: 8030,
+    notification: {
+      title,
+      body,
+      lang: "fr",
+      dir: "ltr",
+      navigate,
+      silent: false,
+      tag,
+    },
+  }
+}
+
 async function sendToRows(
-  rows: { id: number; endpoint: string; p256dh: string; auth: string }[],
+  rows: { id: number; endpoint: string; p256dh: string; auth: string; origin?: string | null }[],
   payload: PushPayload,
 ) {
   if (!ensureConfigured() || rows.length === 0) return
-  const data = JSON.stringify(payload)
+  try {
+    await ensurePushOriginColumn()
+  } catch (e) {
+    console.log("[v0] push origin column:", e)
+  }
   await Promise.all(
     rows.map(async (row) => {
+      const data = JSON.stringify(encodePush(payload, row.origin ?? null))
       try {
         await Promise.race([
           webpush.sendNotification(
@@ -129,12 +198,14 @@ export async function nudgeRecentCustomerPush(customerToken: string) {
 // Notifie tous les appareils d'un client (par son token).
 export async function notifyCustomer(customerToken: string | null | undefined, payload: PushPayload) {
   if (!customerToken) return
+  await ensurePushOriginColumn().catch(() => {})
   const rows = await db
     .select({
       id: pushSubscriptions.id,
       endpoint: pushSubscriptions.endpoint,
       p256dh: pushSubscriptions.p256dh,
       auth: pushSubscriptions.auth,
+      origin: pushSubscriptions.origin,
     })
     .from(pushSubscriptions)
     .leftJoin(users, eq(users.token, pushSubscriptions.customerToken))
@@ -155,8 +226,15 @@ export async function notifyCustomer(customerToken: string | null | undefined, p
 
 // Notifie tous les appareils du vendeur (admin).
 export async function notifyVendor(payload: PushPayload) {
+  await ensurePushOriginColumn().catch(() => {})
   const rows = await db
-    .select()
+    .select({
+      id: pushSubscriptions.id,
+      endpoint: pushSubscriptions.endpoint,
+      p256dh: pushSubscriptions.p256dh,
+      auth: pushSubscriptions.auth,
+      origin: pushSubscriptions.origin,
+    })
     .from(pushSubscriptions)
     .where(inArray(pushSubscriptions.role, ["vendeur", "both"]))
   await sendToRows(rows, payload)
@@ -164,12 +242,14 @@ export async function notifyVendor(payload: PushPayload) {
 
 // Notifie tous les clients abonnés (diffusion, ex. publication d'une news).
 export async function notifyAllClients(payload: PushPayload) {
+  await ensurePushOriginColumn().catch(() => {})
   const rows = await db
     .select({
       id: pushSubscriptions.id,
       endpoint: pushSubscriptions.endpoint,
       p256dh: pushSubscriptions.p256dh,
       auth: pushSubscriptions.auth,
+      origin: pushSubscriptions.origin,
     })
     .from(pushSubscriptions)
     .leftJoin(users, eq(users.token, pushSubscriptions.customerToken))

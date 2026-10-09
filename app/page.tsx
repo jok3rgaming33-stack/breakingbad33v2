@@ -21,6 +21,7 @@ import { CheckoutCart } from "@/components/checkout-cart"
 import { Hero } from "@/components/hero"
 import { ShopSections } from "@/components/shop-sections"
 import { RecoveryBanner } from "@/components/recovery-banner"
+import { PushKeeper } from "@/components/push-keeper"
 import { AppBadgeSync } from "@/components/app-badge-sync"
 import { InstallAppPrompt } from "@/components/install-app-prompt"
 import { setAppBadgeCount } from "@/lib/app-badge"
@@ -326,6 +327,7 @@ export default function Home() {
           <LoginPage onSuccess={handleLoginSuccess} />
         ) : (
           <div className="bg-background text-foreground">
+            {isAdmin && <PushKeeper role="vendeur" />}
             {!isAdmin && (
               <RecoveryBanner
                 token={userData?.token}

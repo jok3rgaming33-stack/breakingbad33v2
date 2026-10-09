@@ -89,6 +89,7 @@ export function StaffOnboarding({
             auth: json.keys.auth,
             role: canAdmin ? "vendeur" : "client",
             customerToken: customerToken ?? null,
+            origin: window.location.origin,
           })
         }
       }

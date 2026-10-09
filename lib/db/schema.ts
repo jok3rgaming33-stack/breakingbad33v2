@@ -273,6 +273,9 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   endpoint: text("endpoint").notNull().unique(),
   p256dh: text("p256dh").notNull(),
   auth: text("auth").notNull(),
+  // Origine de l'app installée (https://www… ou apex). Sert à l'URL de la notification
+  // affichée par iOS même quand le service worker ne se réveille pas.
+  origin: text("origin"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 

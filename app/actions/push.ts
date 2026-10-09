@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { pushSubscriptions } from "@/lib/db/schema"
-import { nudgeRecentCustomerPush } from "@/lib/push"
+import { ensurePushOriginColumn, nudgeRecentCustomerPush, safePushOrigin } from "@/lib/push"
 import { eq } from "drizzle-orm"
 
 export type PushRole = "client" | "vendeur" | "both"
@@ -13,6 +13,7 @@ export type PushSubscriptionInput = {
   auth: string
   role: "client" | "vendeur"
   customerToken?: string | null
+  origin?: string | null
 }
 
 function mergePushRole(existing: string | undefined, incoming: "client" | "vendeur"): PushRole {
@@ -28,6 +29,7 @@ function mergePushRole(existing: string | undefined, incoming: "client" | "vende
 // au lieu d'écraser — sinon activer la cloche boutique retire l'admin des push.
 export async function savePushSubscription(input: PushSubscriptionInput) {
   if (!input.endpoint || !input.p256dh || !input.auth) return { ok: false as const }
+  await ensurePushOriginColumn().catch(() => {})
 
   const incomingRole = input.role === "vendeur" ? "vendeur" : "client"
   const incomingToken = input.customerToken?.trim() || null
@@ -36,6 +38,7 @@ export async function savePushSubscription(input: PushSubscriptionInput) {
     .select({
       role: pushSubscriptions.role,
       customerToken: pushSubscriptions.customerToken,
+      origin: pushSubscriptions.origin,
     })
     .from(pushSubscriptions)
     .where(eq(pushSubscriptions.endpoint, input.endpoint))
@@ -48,6 +51,7 @@ export async function savePushSubscription(input: PushSubscriptionInput) {
     incomingRole === "vendeur"
       ? existing?.customerToken || null
       : incomingToken || existing?.customerToken || null
+  const origin = safePushOrigin(input.origin) || existing?.origin || null
   const tokenJustLinked =
     incomingRole !== "vendeur" && !!incomingToken && existing?.customerToken !== incomingToken
   const isNew = !existing
@@ -60,10 +64,11 @@ export async function savePushSubscription(input: PushSubscriptionInput) {
       auth: input.auth,
       role,
       customerToken,
+      origin,
     })
     .onConflictDoUpdate({
       target: pushSubscriptions.endpoint,
-      set: { p256dh: input.p256dh, auth: input.auth, role, customerToken },
+      set: { p256dh: input.p256dh, auth: input.auth, role, customerToken, origin },
     })
 
   if ((isNew || tokenJustLinked) && customerToken) {

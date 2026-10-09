@@ -80,6 +80,7 @@ export async function syncPushSubscription(opts: {
       auth: json.keys.auth,
       role: opts.role,
       customerToken: opts.customerToken ?? null,
+      origin: window.location.origin,
     })
     return true
   } catch (e) {
@@ -135,6 +136,7 @@ export function usePushNotifications({ role, customerToken }: Options) {
         auth: json.keys.auth,
         role,
         customerToken: customerToken ?? null,
+        origin: window.location.origin,
       })
       syncedRef.current = syncKey
       setSubscribed(true)
@@ -220,6 +222,7 @@ export function usePushNotifications({ role, customerToken }: Options) {
         auth: json.keys.auth,
         role,
         customerToken: customerToken ?? null,
+        origin: window.location.origin,
       })
       syncedRef.current = `${json.endpoint}|${role}|${customerToken ?? ""}`
       setSubscribed(true)
