@@ -4,7 +4,7 @@
  * les retirer sans masquer aussi les boutons, et Spotify l'interdit.
  */
 const PLAYLIST_EMBED =
-  "https://open.spotify.com/embed/playlist/3sDxSkNG2xITKv68hucgBg?utm_source=generator&theme=0"
+  "https://open.spotify.com/embed/playlist/3sDxSkNG2xITKv68hucgBg?utm_source=generator"
 
 export function DemoSpotifyPlayer() {
   return (
