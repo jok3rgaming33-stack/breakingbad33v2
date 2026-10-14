@@ -77,12 +77,12 @@ export async function setMeetupReady(
 }
 
 /**
- * Client : « je suis à 10 min du RDV » → message + push vendeur.
+ * Client : « je suis à 5 minutes » sur un meet-up prêt → message + alerte vendeur.
  */
 export async function notifyMeetupEta(
   threadId: number,
   customerToken: string,
-  minutes = 10,
+  minutes = 5,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const token = customerToken?.trim()
   const min = Math.min(30, Math.max(1, Math.round(minutes)))
@@ -106,7 +106,7 @@ export async function notifyMeetupEta(
     return { ok: false, error: "Le rendez-vous n'est plus actif." }
   }
 
-  const body = `Je suis à ${min} min du point de rendez-vous.`
+  const body = `Je suis à ${min} minute${min > 1 ? "s" : ""} du point de rendez-vous.`
   const now = new Date()
   const arriveBy = new Date(now.getTime() + min * 60 * 1000).toISOString()
   const tracking: Tracking = {
@@ -120,9 +120,10 @@ export async function notifyMeetupEta(
     .set({ tracking, updatedAt: sql`now()` })
     .where(eq(orderThreads.id, threadId))
 
+  const place = (row.address || asTracking(row.tracking).meetup?.address || "").trim()
   await notifyVendor({
-    title: `${row.customerName} — dans ${min} min`,
-    body,
+    title: `${row.customerName} est à ${min} minute${min > 1 ? "s" : ""}`,
+    body: place ? `Meet-up : ${place}` : body,
     url: adminThreadUrl("commandes-en-cours", threadId),
     tag: `meetup-eta-${threadId}`,
     threadId,

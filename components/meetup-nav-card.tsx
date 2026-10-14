@@ -108,7 +108,7 @@ export function MeetupNavCard({ threadId, customerToken, address, lat, lng, stat
               setEtaBusy(true)
               setEtaErr(null)
               try {
-                const res = await notifyMeetupEta(threadId, customerToken, 10)
+                const res = await notifyMeetupEta(threadId, customerToken, 5)
                 if (!res.ok) {
                   setEtaErr(res.error)
                   return
@@ -118,15 +118,18 @@ export function MeetupNavCard({ threadId, customerToken, address, lat, lng, stat
                 setEtaBusy(false)
               }
             }}
-            className={`flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold uppercase tracking-wide transition-opacity ${
+            className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-bold transition-opacity ${
               etaSent
                 ? "bg-emerald-500/20 text-emerald-300"
                 : "bg-accent text-accent-foreground hover:opacity-90 disabled:opacity-50"
             }`}
           >
-            <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-            {etaSent ? "Prévenu — tu es à 10 min" : etaBusy ? "Envoi…" : "Je suis à 10 min"}
+            <Clock className="h-4 w-4" aria-hidden="true" />
+            {etaSent ? "Prévenu — tu es à 5 minutes" : etaBusy ? "Envoi…" : "Je suis à 5 minutes"}
           </button>
+          <p className="text-center text-[10px] text-muted-foreground">
+            Un appui prévient le chimiste. Pas besoin d&apos;écrire.
+          </p>
           {etaErr && <p className="text-[10px] text-destructive">{etaErr}</p>}
 
           <button
