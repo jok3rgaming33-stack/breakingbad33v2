@@ -14,7 +14,7 @@ import { createXmrPaymentForOrder } from "@/app/actions/crypto-payment"
 import { getPaysafecardConfig } from "@/app/actions/settings"
 import { PAYSAFECARD_OFFICIAL } from "@/lib/paysafecard"
 import { adminThreadUrl, clientThreadUrl, sectionForThreadStatus } from "@/lib/deep-links"
-import { ratingInviteBody, ratingInvitePushBody } from "@/lib/review-spin"
+import { orderEarnsReviewSpin, ratingInviteBody, ratingInvitePushBody } from "@/lib/review-spin"
 
 export type LockerPaymentMethod = "xmr" | "paysafecard"
 
@@ -991,11 +991,11 @@ export async function updateThreadStatus(
         await db.insert(threadMessages).values({
           threadId,
           sender: "vendeur",
-          body: ratingInviteBody(),
+          body: ratingInviteBody(orderEarnsReviewSpin(current.createdAt)),
         })
         await notifyCustomer(current.customerToken, {
           title: "Note ton expérience ⭐",
-          body: ratingInvitePushBody(),
+          body: ratingInvitePushBody(orderEarnsReviewSpin(current.createdAt)),
           url: clientThreadUrl(
             current.fulfillment === "locker" ? "locker" : "orders",
             threadId,

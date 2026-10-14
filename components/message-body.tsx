@@ -64,7 +64,7 @@ export function hasRatingInviteTag(body: string | null | undefined): boolean {
 }
 
 function stripRatingTag(body: string): string {
-  return body.replace(RATING_TAG, "").trimStart()
+  return body.replace(RATING_TAG, "").replace("[ROUE]", "").trimStart()
 }
 
 /**
@@ -76,6 +76,7 @@ function stripRatingTag(body: string): string {
 export function MessageBody({ body, onRateProducts }: { body: string; onRateProducts?: () => void }) {
   const raw = body ?? ""
   const isRatingMessage = hasRatingInviteTag(raw)
+  const showWheel = raw.includes("[ROUE]")
   const cleanBody = isRatingMessage ? stripRatingTag(raw) : raw
 
   const segments = parseMessageBody(cleanBody)
@@ -101,7 +102,7 @@ export function MessageBody({ body, onRateProducts }: { body: string; onRateProd
           Noter mes produits
         </button>
       )}
-      {isRatingMessage && (
+      {isRatingMessage && showWheel && (
         <Link
           href="/machine"
           onClick={(e) => e.stopPropagation()}

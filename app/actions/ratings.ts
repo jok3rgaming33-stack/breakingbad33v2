@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { notifyCustomer } from "@/lib/push"
 import { clientThreadUrl } from "@/lib/deep-links"
-import { ratingInviteBody, ratingInvitePushBody, REVIEW_COMMENT_MIN } from "@/lib/review-spin"
+import { orderEarnsReviewSpin, ratingInviteBody, ratingInvitePushBody, REVIEW_COMMENT_MIN } from "@/lib/review-spin"
 
 /** Tag détecté côté client pour afficher le bouton « Noter mes produits ».
  *  Non exporté : un fichier "use server" ne peut exporter que des async functions. */
@@ -24,6 +24,8 @@ export type RatableProduct = {
   alreadyRated: boolean
   /** Avis déjà laissés par ce client sur ce produit (autres commandes). */
   priorRatingCount: number
+  /** Cette commande ouvre un tour si le commentaire est assez long. */
+  reviewSpinEligible: boolean
 }
 
 export type ProductRatingSummary = {
@@ -77,11 +79,6 @@ function normalizeProductIds(raw: unknown): number[] {
   return out
 }
 
-/** Corps message invitation — tag EN PREMIER (détecté par MessageBody). */
-function buildRatingInviteBody(): string {
-  return ratingInviteBody()
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Soumission d'une note
 // ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +103,13 @@ export async function submitRating(params: {
 
   // Vérifier que le fil appartient au client et est bien "livree"
   const [thread] = await db
-    .select({ id: orderThreads.id, status: orderThreads.status, productIds: orderThreads.productIds, customerToken: orderThreads.customerToken })
+    .select({
+      id: orderThreads.id,
+      status: orderThreads.status,
+      productIds: orderThreads.productIds,
+      customerToken: orderThreads.customerToken,
+      createdAt: orderThreads.createdAt,
+    })
     .from(orderThreads)
     .where(and(eq(orderThreads.id, threadId), eq(orderThreads.customerToken, customerToken)))
     .limit(1)
@@ -134,23 +137,26 @@ export async function submitRating(params: {
 
   if (existing) return { ok: false, error: "Vous avez déjà noté ce produit pour cette commande." }
 
+  const earnsSpin = orderEarnsReviewSpin(thread.createdAt)
   const trimmedComment = comment?.trim().slice(0, 200) || ""
-  if (trimmedComment.length < REVIEW_COMMENT_MIN) {
+  if (earnsSpin && trimmedComment.length < REVIEW_COMMENT_MIN) {
     return { ok: false, error: `Le commentaire doit faire au moins ${REVIEW_COMMENT_MIN} caractères.` }
   }
 
-  const same = await db
-    .select({ id: productRatings.id })
-    .from(productRatings)
-    .where(
-      and(
-        eq(productRatings.customerToken, customerToken),
-        sql`lower(trim(${productRatings.comment})) = ${trimmedComment.toLowerCase()}`,
-      ),
-    )
-    .limit(1)
-  if (same[0]) {
-    return { ok: false, error: "Écris un commentaire différent de ceux déjà envoyés." }
+  if (earnsSpin && trimmedComment) {
+    const same = await db
+      .select({ id: productRatings.id })
+      .from(productRatings)
+      .where(
+        and(
+          eq(productRatings.customerToken, customerToken),
+          sql`lower(trim(${productRatings.comment})) = ${trimmedComment.toLowerCase()}`,
+        ),
+      )
+      .limit(1)
+    if (same[0]) {
+      return { ok: false, error: "Écris un commentaire différent de ceux déjà envoyés." }
+    }
   }
 
   const [created] = await db
@@ -163,13 +169,13 @@ export async function submitRating(params: {
       quantity,
       packaging,
       delivery,
-      comment: trimmedComment,
+      comment: trimmedComment || null,
     })
     .returning({ id: productRatings.id })
 
   let spinGranted = false
-  let spinNote = "Avis enregistré."
-  if (created?.id) {
+  let spinNote = earnsSpin ? "Avis enregistré." : undefined
+  if (earnsSpin && created?.id) {
     try {
       const { grantReviewSpin } = await import("@/lib/slot-engine")
       const spin = await grantReviewSpin({
@@ -185,6 +191,8 @@ export async function submitRating(params: {
         spinNote = "Avis enregistré. Ce produit a déjà ouvert ses 2 tours."
       } else if (spin.reason === "order") {
         spinNote = "Avis enregistré. Cette commande a déjà ouvert ses 2 tours."
+      } else if (spin.reason === "ineligible") {
+        spinNote = undefined
       } else {
         spinNote = "Avis enregistré. Le tour n'a pas pu être ajouté."
       }
@@ -208,12 +216,16 @@ export async function getRatableProducts(customerToken: string): Promise<Ratable
 
   // Commandes livrées du client — uniquement celles avec productIds non vides
   const delivered = await db
-    .select({ id: orderThreads.id, productIds: orderThreads.productIds })
+    .select({ id: orderThreads.id, productIds: orderThreads.productIds, createdAt: orderThreads.createdAt })
     .from(orderThreads)
     .where(and(eq(orderThreads.customerToken, token), eq(orderThreads.status, "livree")))
 
   const withProducts = delivered
-    .map((t) => ({ id: t.id, productIds: normalizeProductIds(t.productIds) }))
+    .map((t) => ({
+      id: t.id,
+      productIds: normalizeProductIds(t.productIds),
+      reviewSpinEligible: orderEarnsReviewSpin(t.createdAt),
+    }))
     .filter((t) => t.productIds.length > 0)
   if (!withProducts.length) return []
 
@@ -261,6 +273,7 @@ export async function getRatableProducts(customerToken: string): Promise<Ratable
         threadId: thread.id,
         alreadyRated: ratedHere,
         priorRatingCount: Math.max(0, totalOnProduct - (ratedHere ? 1 : 0)),
+        reviewSpinEligible: thread.reviewSpinEligible,
       })
     }
   }
@@ -589,6 +602,7 @@ export async function sendRatingInvites(
         status: orderThreads.status,
         productIds: orderThreads.productIds,
         fulfillment: orderThreads.fulfillment,
+        createdAt: orderThreads.createdAt,
       })
       .from(orderThreads)
       .where(inArray(orderThreads.id, ids))
@@ -613,7 +627,8 @@ export async function sendRatingInvites(
       ratedByThread.set(r.threadId, set)
     }
 
-    const body = buildRatingInviteBody()
+    const bodyFor = (createdAt: Date | string | null | undefined) =>
+      ratingInviteBody(orderEarnsReviewSpin(createdAt))
 
     let sent = 0
     let skipped = 0
@@ -656,7 +671,7 @@ export async function sendRatingInvites(
         await db.insert(threadMessages).values({
           threadId: id,
           sender: "vendeur",
-          body,
+          body: bodyFor(order.createdAt),
         })
         await db
           .update(orderThreads)
@@ -669,7 +684,7 @@ export async function sendRatingInvites(
             order.fulfillment === "locker" ? ("locker" as const) : ("orders" as const)
           await notifyCustomer(token, {
             title: "Note ton expérience ⭐",
-            body: ratingInvitePushBody(),
+            body: ratingInvitePushBody(orderEarnsReviewSpin(order.createdAt)),
             url: clientThreadUrl(open, id),
             tag: `rating-invite-${id}-${Date.now()}`,
             threadId: id,

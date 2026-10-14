@@ -14,7 +14,7 @@ import { PLATINUM_FREE_DELIVERY_MIN } from "@/lib/loyalty"
 import { computePromoDiscount } from "@/lib/promo-calc"
 import { isRateLimited } from "@/lib/rate-limit"
 import type { MachineState, MachineVoucherView, PlayResult, UltimateView } from "@/lib/slot-public"
-import { REVIEW_SPINS_PER_ORDER, REVIEW_SPINS_PER_PRODUCT } from "@/lib/review-spin"
+import { orderEarnsReviewSpin, REVIEW_SPINS_PER_ORDER, REVIEW_SPINS_PER_PRODUCT } from "@/lib/review-spin"
 import type { PoolClient } from "pg"
 
 /** 1 tour / 50€ de produits. Le client ne reçoit jamais cette table. */
@@ -1293,7 +1293,7 @@ export async function grantReviewSpin(opts: {
   ratingId: number
   productId: number
   threadId: number
-}): Promise<{ granted: true } | { granted: false; reason: "product" | "order" | "error" }> {
+}): Promise<{ granted: true } | { granted: false; reason: "product" | "order" | "ineligible" | "error" }> {
   const token = opts.userToken.trim()
   const ratingId = Math.trunc(opts.ratingId)
   const productId = Math.trunc(opts.productId)
@@ -1303,6 +1303,11 @@ export async function grantReviewSpin(opts: {
   const client = await pool.connect()
   try {
     await client.query("BEGIN")
+    const order = await client.query(`SELECT created_at FROM order_threads WHERE id = $1`, [threadId])
+    if (!orderEarnsReviewSpin(order.rows[0]?.created_at)) {
+      await client.query("COMMIT")
+      return { granted: false, reason: "ineligible" }
+    }
     await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [`review-spin:${token}`])
     const productCount = await client.query(
       `SELECT COUNT(*)::int AS n

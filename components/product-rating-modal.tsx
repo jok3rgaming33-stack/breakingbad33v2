@@ -145,12 +145,15 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
       ? Math.round(((form.quality + form.quantity + form.packaging + form.delivery) / 4) * 10) / 10
       : null
 
+  const earnsSpin = current.reviewSpinEligible
+  const commentLength = form.comment.trim().length
+
   const handleSubmit = async () => {
     if ([form.quality, form.quantity, form.packaging, form.delivery].some((v) => v === 0)) {
       setError("Merci de renseigner les 4 critères.")
       return
     }
-    if (form.comment.trim().length < REVIEW_COMMENT_MIN) {
+    if (earnsSpin && commentLength < REVIEW_COMMENT_MIN) {
       setError(`Le commentaire doit faire au moins ${REVIEW_COMMENT_MIN} caractères.`)
       return
     }
@@ -241,23 +244,29 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
 
           <div>
             <label htmlFor="rating-comment" className="mb-1 block text-xs text-muted-foreground">
-              Commentaire <span className="text-zinc-500">(obligatoire · {REVIEW_COMMENT_MIN} caractères min)</span>
+              Commentaire{" "}
+              {earnsSpin ? (
+                <span className="text-zinc-500">(obligatoire · {REVIEW_COMMENT_MIN} caractères min)</span>
+              ) : (
+                <span className="text-zinc-500">(optionnel)</span>
+              )}
             </label>
             <textarea
               id="rating-comment"
               rows={3}
               maxLength={200}
-              required
+              required={earnsSpin}
               value={form.comment}
               onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
               placeholder="Une phrase sur le produit, la quantité ou la livraison…"
               className="w-full resize-none rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-accent"
             />
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              {form.comment.trim().length < REVIEW_COMMENT_MIN
-                ? `${form.comment.trim().length}/${REVIEW_COMMENT_MIN} caractères pour ouvrir un tour.`
+              {earnsSpin
+                ? commentLength < REVIEW_COMMENT_MIN
+                  ? `${commentLength}/${REVIEW_COMMENT_MIN} caractères pour ouvrir un tour. 2 tours maximum par commande, et 2 par produit.`
+                  : `${form.comment.length}/200. 2 tours maximum par commande, et 2 par produit.`
                 : `${form.comment.length}/200`}
-              {" "}2 tours maximum par commande, et 2 par produit.
             </p>
           </div>
 
@@ -281,7 +290,7 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={submitting || form.comment.trim().length < REVIEW_COMMENT_MIN}
+            disabled={submitting || (earnsSpin && commentLength < REVIEW_COMMENT_MIN)}
             className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {submitting ? (
