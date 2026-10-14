@@ -14,6 +14,7 @@ import { PLATINUM_FREE_DELIVERY_MIN } from "@/lib/loyalty"
 import { computePromoDiscount } from "@/lib/promo-calc"
 import { isRateLimited } from "@/lib/rate-limit"
 import type { MachineState, MachineVoucherView, PlayResult, UltimateView } from "@/lib/slot-public"
+import { REVIEW_SPINS_PER_ORDER, REVIEW_SPINS_PER_PRODUCT } from "@/lib/review-spin"
 import type { PoolClient } from "pg"
 
 /** 1 tour / 50€ de produits. Le client ne reçoit jamais cette table. */
@@ -1278,6 +1279,68 @@ export async function adjustAvailableSpins(
     await client.query("ROLLBACK")
     console.error("[slot] adjust", e)
     return { ok: false, error: "Ajustement impossible." }
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Tour offert pour un avis écrit. Ne démarre pas le compteur Ultimate.
+ * Un tour annulé ensuite compte quand même dans les plafonds.
+ */
+export async function grantReviewSpin(opts: {
+  userToken: string
+  ratingId: number
+  productId: number
+  threadId: number
+}): Promise<{ granted: true } | { granted: false; reason: "product" | "order" | "error" }> {
+  const token = opts.userToken.trim()
+  const ratingId = Math.trunc(opts.ratingId)
+  const productId = Math.trunc(opts.productId)
+  const threadId = Math.trunc(opts.threadId)
+  if (!token || !ratingId || !productId || !threadId) return { granted: false, reason: "error" }
+  await ensureFeatureSchema()
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, [`review-spin:${token}`])
+    const productCount = await client.query(
+      `SELECT COUNT(*)::int AS n
+       FROM slot_grants g
+       JOIN product_ratings r ON g.source_id = ('review:' || r.id::text)
+       WHERE g.source_type = 'review' AND g.test_mode = false
+         AND r.customer_token = $1 AND r.product_id = $2`,
+      [token, productId],
+    )
+    if (Number(productCount.rows[0]?.n ?? 0) >= REVIEW_SPINS_PER_PRODUCT) {
+      await client.query("COMMIT")
+      return { granted: false, reason: "product" }
+    }
+    const orderCount = await client.query(
+      `SELECT COUNT(*)::int AS n
+       FROM slot_grants g
+       JOIN product_ratings r ON g.source_id = ('review:' || r.id::text)
+       WHERE g.source_type = 'review' AND g.test_mode = false
+         AND r.customer_token = $1 AND r.thread_id = $2`,
+      [token, threadId],
+    )
+    if (Number(orderCount.rows[0]?.n ?? 0) >= REVIEW_SPINS_PER_ORDER) {
+      await client.query("COMMIT")
+      return { granted: false, reason: "order" }
+    }
+    const ins = await client.query(
+      `INSERT INTO slot_grants (user_token, source_type, source_id, cascade_depth, status, expires_at, test_mode)
+       VALUES ($1, 'review', $2, 0, 'available', NOW() + make_interval(days => $3::int), false)
+       ON CONFLICT (source_type, source_id) DO NOTHING`,
+      [token, `review:${ratingId}`, SPIN_DAYS],
+    )
+    await client.query("COMMIT")
+    if ((ins.rowCount ?? 0) < 1) return { granted: false, reason: "error" }
+    return { granted: true }
+  } catch (e) {
+    await client.query("ROLLBACK")
+    console.error("[slot] review spin", e)
+    return { granted: false, reason: "error" }
   } finally {
     client.release()
   }

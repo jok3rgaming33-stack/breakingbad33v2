@@ -14,6 +14,7 @@ import { createXmrPaymentForOrder } from "@/app/actions/crypto-payment"
 import { getPaysafecardConfig } from "@/app/actions/settings"
 import { PAYSAFECARD_OFFICIAL } from "@/lib/paysafecard"
 import { adminThreadUrl, clientThreadUrl, sectionForThreadStatus } from "@/lib/deep-links"
+import { ratingInviteBody, ratingInvitePushBody } from "@/lib/review-spin"
 
 export type LockerPaymentMethod = "xmr" | "paysafecard"
 
@@ -986,21 +987,15 @@ export async function updateThreadStatus(
   if (nextKey !== prevKey && notifyBody) {
     // Invitation notation : reste un message (CTA), pas un statut.
     if (nextKey === "livree") {
-      const ratingBody = [
-        "[NOTER_PRODUITS]",
-        "Chaque avis compte — surtout le tien.",
-        "Même si tu as déjà noté ce produit, un nouveau retour à chaque commande montre que tu reviens, et ça rassure ceux qui découvrent encore le labo.",
-        "1 minute, et tu aides tout le monde.",
-      ].join("\n")
       try {
         await db.insert(threadMessages).values({
           threadId,
           sender: "vendeur",
-          body: ratingBody,
+          body: ratingInviteBody(),
         })
         await notifyCustomer(current.customerToken, {
           title: "Note ton expérience ⭐",
-          body: "Même si tu l'as déjà fait : un nouvel avis à chaque commande, ça compte.",
+          body: ratingInvitePushBody(),
           url: clientThreadUrl(
             current.fulfillment === "locker" ? "locker" : "orders",
             threadId,

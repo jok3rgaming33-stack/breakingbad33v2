@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { notifyCustomer } from "@/lib/push"
 import { clientThreadUrl } from "@/lib/deep-links"
+import { ratingInviteBody, ratingInvitePushBody, REVIEW_COMMENT_MIN } from "@/lib/review-spin"
 
 /** Tag détecté côté client pour afficher le bouton « Noter mes produits ».
  *  Non exporté : un fichier "use server" ne peut exporter que des async functions. */
@@ -78,12 +79,7 @@ function normalizeProductIds(raw: unknown): number[] {
 
 /** Corps message invitation — tag EN PREMIER (détecté par MessageBody). */
 function buildRatingInviteBody(): string {
-  return [
-    RATING_INVITE_TAG,
-    "Chaque avis compte — surtout le tien.",
-    "Même si tu as déjà noté ce produit, un nouveau retour à chaque commande montre que tu reviens, et ça rassure ceux qui découvrent encore le labo.",
-    "1 minute, et tu aides tout le monde.",
-  ].join("\n")
+  return ratingInviteBody()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -99,7 +95,7 @@ export async function submitRating(params: {
   packaging: number
   delivery: number
   comment?: string
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; error?: string; spinGranted?: boolean; spinNote?: string }> {
   const { customerToken, productId, threadId, quality, quantity, packaging, delivery, comment } = params
 
   // Vérifications de base
@@ -138,21 +134,68 @@ export async function submitRating(params: {
 
   if (existing) return { ok: false, error: "Vous avez déjà noté ce produit pour cette commande." }
 
-  const trimmedComment = comment?.trim().slice(0, 200) || null
+  const trimmedComment = comment?.trim().slice(0, 200) || ""
+  if (trimmedComment.length < REVIEW_COMMENT_MIN) {
+    return { ok: false, error: `Le commentaire doit faire au moins ${REVIEW_COMMENT_MIN} caractères.` }
+  }
 
-  await db.insert(productRatings).values({
-    productId,
-    customerToken,
-    threadId,
-    quality,
-    quantity,
-    packaging,
-    delivery,
-    comment: trimmedComment,
-  })
+  const same = await db
+    .select({ id: productRatings.id })
+    .from(productRatings)
+    .where(
+      and(
+        eq(productRatings.customerToken, customerToken),
+        sql`lower(trim(${productRatings.comment})) = ${trimmedComment.toLowerCase()}`,
+      ),
+    )
+    .limit(1)
+  if (same[0]) {
+    return { ok: false, error: "Écris un commentaire différent de ceux déjà envoyés." }
+  }
+
+  const [created] = await db
+    .insert(productRatings)
+    .values({
+      productId,
+      customerToken,
+      threadId,
+      quality,
+      quantity,
+      packaging,
+      delivery,
+      comment: trimmedComment,
+    })
+    .returning({ id: productRatings.id })
+
+  let spinGranted = false
+  let spinNote = "Avis enregistré."
+  if (created?.id) {
+    try {
+      const { grantReviewSpin } = await import("@/lib/slot-engine")
+      const spin = await grantReviewSpin({
+        userToken: customerToken,
+        ratingId: created.id,
+        productId,
+        threadId,
+      })
+      if (spin.granted) {
+        spinGranted = true
+        spinNote = "1 tour ajouté sur Albuquerque Luck Spin. Il est valable 7 jours."
+      } else if (spin.reason === "product") {
+        spinNote = "Avis enregistré. Ce produit a déjà ouvert ses 2 tours."
+      } else if (spin.reason === "order") {
+        spinNote = "Avis enregistré. Cette commande a déjà ouvert ses 2 tours."
+      } else {
+        spinNote = "Avis enregistré. Le tour n'a pas pu être ajouté."
+      }
+    } catch (e) {
+      console.error("[ratings] review spin", e)
+      spinNote = "Avis enregistré. Le tour n'a pas pu être ajouté."
+    }
+  }
 
   revalidatePath("/")
-  return { ok: true }
+  return { ok: true, spinGranted, spinNote }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -626,7 +669,7 @@ export async function sendRatingInvites(
             order.fulfillment === "locker" ? ("locker" as const) : ("orders" as const)
           await notifyCustomer(token, {
             title: "Note ton expérience ⭐",
-            body: "Même si tu l'as déjà fait : un nouvel avis à chaque commande, ça compte.",
+            body: ratingInvitePushBody(),
             url: clientThreadUrl(open, id),
             tag: `rating-invite-${id}-${Date.now()}`,
             threadId: id,

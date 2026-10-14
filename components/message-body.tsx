@@ -1,6 +1,7 @@
 "use client"
 
 import { Star } from "lucide-react"
+import Link from "next/link"
 import { BlobImg, BlobVideo, BlobAudio, isVideoUrl } from "@/components/blob-media"
 
 /**
@@ -99,6 +100,15 @@ export function MessageBody({ body, onRateProducts }: { body: string; onRateProd
           <Star className="h-5 w-5 shrink-0 fill-amber-400 text-amber-400" aria-hidden="true" />
           Noter mes produits
         </button>
+      )}
+      {isRatingMessage && (
+        <Link
+          href="/machine"
+          onClick={(e) => e.stopPropagation()}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#8fbc8f]/50 bg-[#3e6757]/40 px-4 py-3 text-sm font-bold text-[#e7f6ec] transition hover:bg-[#3e6757]/60"
+        >
+          Ouvrir la roue
+        </Link>
       )}
       {segments.map((seg, i) => {
         if (seg.type === "text") {

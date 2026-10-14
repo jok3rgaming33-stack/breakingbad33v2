@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Star, X, ChevronRight, ChevronLeft, Check, Loader2 } from "lucide-react"
 import { submitRating, getRatableProducts, type RatableProduct } from "@/app/actions/ratings"
+import { REVIEW_COMMENT_MIN } from "@/lib/review-spin"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sous-composant : sélecteur d'étoiles
@@ -83,6 +84,7 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
   const [done, setDone] = useState<Set<string>>(new Set()) // "productId:threadId"
+  const [spinNote, setSpinNote] = useState<string | null>(null)
 
   // Chargement initial
   useEffect(() => {
@@ -122,7 +124,8 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
           </div>
           <h3 className="mb-2 text-lg font-bold">Merci — tu fais avancer le labo</h3>
           <p className="mb-6 text-sm text-muted-foreground">
-            Tes retours à chaque commande, même sur un produit que tu connais déjà, montrent que le niveau tient dans le temps. À très vite pour le prochain.
+            {spinNote ??
+              "Tes retours à chaque commande, même sur un produit que tu connais déjà, montrent que le niveau tient dans le temps. À très vite pour le prochain."}
           </p>
           <button
             type="button"
@@ -147,6 +150,10 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
       setError("Merci de renseigner les 4 critères.")
       return
     }
+    if (form.comment.trim().length < REVIEW_COMMENT_MIN) {
+      setError(`Le commentaire doit faire au moins ${REVIEW_COMMENT_MIN} caractères.`)
+      return
+    }
     setSubmitting(true)
     setError("")
     const res = await submitRating({
@@ -165,6 +172,7 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
       return
     }
     const key = `${current.productId}:${current.threadId}`
+    if (res.spinNote) setSpinNote(res.spinNote)
     setDone((prev) => new Set([...prev, key]))
     setForm(DEFAULT_FORM)
     setStep((s) => Math.max(0, s))
@@ -204,6 +212,11 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
 
         {/* Corps */}
         <div className="flex flex-col gap-4 p-5">
+          {spinNote && (
+            <p className="rounded-2xl border border-[#3e6757]/40 bg-[#3e6757]/15 px-3 py-2.5 text-xs leading-relaxed text-[#d7efe0]">
+              {spinNote}
+            </p>
+          )}
           {current.priorRatingCount > 0 && (
             <p className="rounded-2xl border border-amber-400/25 bg-amber-400/10 px-3 py-2.5 text-xs leading-relaxed text-amber-100/90">
               Fidèle au poste : tu as déjà noté ce produit
@@ -228,19 +241,23 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
 
           <div>
             <label htmlFor="rating-comment" className="mb-1 block text-xs text-muted-foreground">
-              Commentaire <span className="text-zinc-500">(optionnel · 200 caractères max)</span>
+              Commentaire <span className="text-zinc-500">(obligatoire · {REVIEW_COMMENT_MIN} caractères min)</span>
             </label>
             <textarea
               id="rating-comment"
               rows={3}
               maxLength={200}
+              required
               value={form.comment}
               onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
-              placeholder="Ton ressenti en quelques mots…"
+              placeholder="Une phrase sur le produit, la quantité ou la livraison…"
               className="w-full resize-none rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground/50 focus:border-accent"
             />
-            <p className="mt-0.5 text-right text-[10px] tabular-nums text-muted-foreground">
-              {form.comment.length}/200
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              {form.comment.trim().length < REVIEW_COMMENT_MIN
+                ? `${form.comment.trim().length}/${REVIEW_COMMENT_MIN} caractères pour ouvrir un tour.`
+                : `${form.comment.length}/200`}
+              {" "}2 tours maximum par commande, et 2 par produit.
             </p>
           </div>
 
@@ -264,7 +281,7 @@ export function ProductRatingModal({ customerToken, threadId, onClose }: Props) 
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting || form.comment.trim().length < REVIEW_COMMENT_MIN}
             className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {submitting ? (
