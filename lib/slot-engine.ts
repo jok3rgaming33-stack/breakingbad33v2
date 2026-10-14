@@ -16,7 +16,7 @@ import { isRateLimited } from "@/lib/rate-limit"
 import type { MachineState, MachineVoucherView, PlayResult, UltimateView } from "@/lib/slot-public"
 import type { PoolClient } from "pg"
 
-/** 1 tour / 60€ de produits. Le client ne reçoit jamais cette table. */
+/** 1 tour / 50€ de produits. Le client ne reçoit jamais cette table. */
 const WEIGHT_VERSION = "2026-10-08-v3"
 const WEIGHTS: { id: string; w: number }[] = [
   { id: "miss", w: 730 },
@@ -27,7 +27,7 @@ const WEIGHTS: { id: string; w: number }[] = [
   { id: "jesse", w: 20 },
   { id: "walter", w: 12 },
 ]
-const SPIN_CENTS = 6000
+const SPIN_CENTS = 5000
 const SPIN_CAP = 10
 const SPIN_DAYS = 7
 const VOUCHER_DAYS = 30

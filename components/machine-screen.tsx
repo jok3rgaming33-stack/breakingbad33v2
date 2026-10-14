@@ -160,7 +160,7 @@ export function MachineScreen() {
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8fbc8f]">Albuquerque Luck Spin</p>
         <h1 className="mt-2 max-w-xl text-3xl font-bold tracking-tight sm:text-5xl">3 Précurseurs identiques = un lot</h1>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/70 sm:text-base">
-          Les tours viennent des commandes payées. Le palier Ultimate ouvre en plus un tour gratuit à réclamer.
+          1 tour par tranche de 50€ de produits, hors livraison. Le palier Ultimate ouvre en plus un tour gratuit à réclamer.
           Les chances ne sont pas affichées.
         </p>
 

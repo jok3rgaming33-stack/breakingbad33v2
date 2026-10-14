@@ -106,7 +106,7 @@ export type PlayResult =
 export const RULES: { title: string; body: string }[] = [
   {
     title: "Comment obtenir un tour",
-    body: "1 tour par tranche de 60€ de produits, après les remises déjà appliquées. La livraison, le pourboire et l'avoir ne comptent pas. 59,99€ = 0 tour, 60€ = 1 tour. Maximum 10 tours par commande. Uniquement sur un compte connecté, une fois le paiement confirmé (espèces : commande livrée ; Monero locker : paiement confirmé). Chaque tour expire 7 jours après son attribution. Les commandes passées avant l'ouverture d'Albuquerque Luck Spin ne donnent rien.",
+    body: "1 tour par tranche de 50€ de produits, après les remises déjà appliquées. La livraison, le pourboire et l'avoir ne comptent pas. 49,99€ = 0 tour, 50€ = 1 tour. Maximum 10 tours par commande. Uniquement sur un compte connecté, une fois le paiement confirmé (espèces : commande livrée ; Monero locker : paiement confirmé). Chaque tour expire 7 jours après son attribution. Les commandes passées avant l'ouverture d'Albuquerque Luck Spin ne donnent rien.",
   },
   {
     title: "Ce qui ne donne aucun tour",
