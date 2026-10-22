@@ -586,8 +586,9 @@ export function MessagerieModal({
               ) : (
                 <div className="flex flex-col gap-3">
                   {messages.map((m) => {
-                    const isClient = m.sender === "client"
-                    return (
+const isClient = m.sender === "client"
+  const senderLabel = m.sender === "vendeur:jesse" ? "Jesse Livreur" : m.sender === "vendeur:chimiste" || m.sender === "vendeur" ? "Le chimiste" : name
+  return (
                       <div
                         key={m.id}
                         className={`max-w-[85%] rounded-2xl p-3 text-sm ${
@@ -597,7 +598,7 @@ export function MessagerieModal({
                         }`}
                       >
                         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                          {isClient ? "Vous" : "Le chimiste"} · {formatMessageTime(m.createdAt)}
+                          {isClient ? "Vous" : senderLabel} · {formatMessageTime(m.createdAt)}
                         </div>
                         <MessageBody
                           body={m.body}

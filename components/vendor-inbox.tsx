@@ -50,6 +50,7 @@ export function VendorInbox({
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
   const [reply, setReply] = useState("")
+  const [activeProfile, setActiveProfile] = useState<"chimiste" | "jesse">("chimiste")
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isPending, startTransition] = useTransition()
@@ -440,7 +441,7 @@ export function VendorInbox({
 
     setReply("")
     startTransition(async () => {
-      await addMessage(selectedId, "vendeur", body)
+      await addMessage(selectedId, activeProfile === "chimiste" ? "vendeur:chimiste" : "vendeur:jesse", body)
       await refreshAfterSend(selectedId)
     })
   }
@@ -461,7 +462,7 @@ export function VendorInbox({
             : type === "audio"
               ? `[audio]${url}[/audio]`
               : `[image]${url}[/image]`
-        await addMessage(selectedId, "vendeur", tag)
+        await addMessage(selectedId, activeProfile === "chimiste" ? "vendeur:chimiste" : "vendeur:jesse", tag)
       }
       await refreshAfterSend(selectedId)
     } catch {
@@ -474,7 +475,7 @@ export function VendorInbox({
 
   const handleVoiceSent = async (body: string) => {
     if (selectedId == null) return
-    await addMessage(selectedId, "vendeur", body)
+    await addMessage(selectedId, activeProfile === "chimiste" ? "vendeur:chimiste" : "vendeur:jesse", body)
     await refreshAfterSend(selectedId)
   }
 
@@ -1042,7 +1043,7 @@ export function VendorInbox({
                 (() => {
                   const { recap, rest } = splitThreadForTracking(messages)
                   const renderBubble = (m: (typeof messages)[number]) => {
-                  const isVendeur = m.sender === "vendeur"
+                  const isVendeur = m.sender.startsWith("vendeur")
                   const readAt = (m as any).clientReadAt as string | null | undefined
                   const isConfirming = confirmDeleteMsgId === m.id
                   const isDeleting = deletingMsgId === m.id
@@ -1220,6 +1221,27 @@ export function VendorInbox({
                 className="hidden"
                 onChange={(e) => handleMediaUpload(e.target.files)}
               />
+              <div className="mb-2 flex items-center gap-2 rounded-xl border border-border bg-background/60 p-1.5">
+                <span className="px-2 text-[11px] font-medium text-muted-foreground">Répondre en tant que</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveProfile("chimiste")}
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${activeProfile === "chimiste" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  aria-pressed={activeProfile === "chimiste"}
+                >
+                  <img src="/profiles/le-chimiste.png" alt="" className="h-5 w-5 rounded-full object-cover" />
+                  Le chimiste
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveProfile("jesse")}
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${activeProfile === "jesse" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  aria-pressed={activeProfile === "jesse"}
+                >
+                  <img src="/profiles/jesse-livreur.png" alt="" className="h-5 w-5 rounded object-contain" />
+                  Jesse Livreur
+                </button>
+              </div>
               <div className="flex items-end gap-2">
                 <button
                   type="button"

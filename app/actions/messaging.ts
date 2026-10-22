@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { orderThreads, threadMessages, products, users } from "@/lib/db/schema"
-import { and, desc, eq, gt, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm"
+import { and, desc, eq, gt, inArray, isNull, like, ne, notInArray, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { normalizeStatus, statusMeta } from "@/lib/order-status"
 import { computeLoyaltyPoints, PLATINUM_FREE_DELIVERY_POINTS_COST } from "@/lib/loyalty"
@@ -647,7 +647,7 @@ export async function deleteMessage(messageId: number) {
 // Un message client doit toujours fournir le token du compte connecté.
 export async function addMessage(
   threadId: number,
-  sender: "client" | "vendeur",
+  sender: "client" | "vendeur" | "vendeur:chimiste" | "vendeur:jesse",
   body: string,
   customerToken?: string,
 ) {
@@ -682,7 +682,7 @@ export async function addMessage(
       .replace(/\[audio\][^\]]*\[\/audio\]/gi, "🎤 Message vocal")
       .trim()
     const preview = cleanPreview.length > 80 ? `${cleanPreview.slice(0, 77)}…` : cleanPreview
-    if (sender === "vendeur") {
+    if (sender.startsWith("vendeur")) {
       const section = sectionForThreadStatus(thread.status)
       await notifyCustomer(thread.customerToken, {
         title: "Nouveau message du vendeur",
@@ -1062,7 +1062,7 @@ export async function markThreadRead(threadId: number) {
     .where(
       and(
         eq(threadMessages.threadId, threadId),
-        eq(threadMessages.sender, "vendeur"),
+        like(threadMessages.sender, "vendeur%"),
         isNull(threadMessages.clientReadAt),
       )
     )
@@ -1089,7 +1089,7 @@ export async function markThreadReadForToken(threadId: number, customerToken: st
     .where(
       and(
         eq(threadMessages.threadId, threadId),
-        eq(threadMessages.sender, "vendeur"),
+        like(threadMessages.sender, "vendeur%"),
         isNull(threadMessages.clientReadAt),
       )
     )
@@ -1306,7 +1306,7 @@ export async function getThreadByTrackingToken(trackingToken: string) {
     .where(eq(threadMessages.threadId, thread.id))
     .orderBy(threadMessages.createdAt)
   // Ne retourner que les messages du vendeur (notifications statut) — pas ceux du client
-  const statusMessages = messages.filter((m) => m.sender === "vendeur")
+  const statusMessages = messages.filter((m) => m.sender.startsWith("vendeur"))
   return {
     id: thread.id,
     status: thread.status,
