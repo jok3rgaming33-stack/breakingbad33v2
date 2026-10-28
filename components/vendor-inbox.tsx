@@ -24,6 +24,7 @@ import { getCartConfig } from "@/app/actions/settings"
 import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
 import { compareDeliverySlots, deliverySlotIsFull } from "@/lib/delivery-slots"
 import { deliverySlotChoosable } from "@/lib/paris-clock"
+import { asStaffVoice, STAFF_VOICES, staffVoiceLabel, type StaffVoice } from "@/lib/staff-voice"
 import { FEE_LOCKER, calcDeliveryFee, matchingFreeDeliveryTier, freeDeliveryTierLabel } from "@/lib/delivery-fee"
 import { useAddressGeocode } from "@/hooks/use-address-geocode"
 import {
@@ -51,6 +52,23 @@ export function VendorInbox({
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
   const [reply, setReply] = useState("")
+  const [voice, setVoice] = useState<StaffVoice>("chimiste")
+  useEffect(() => {
+    try {
+      const saved = asStaffVoice(localStorage.getItem("admin-staff-voice"))
+      if (saved) setVoice(saved)
+    } catch {
+      /* navigation privée */
+    }
+  }, [])
+  const chooseVoice = (id: StaffVoice) => {
+    setVoice(id)
+    try {
+      localStorage.setItem("admin-staff-voice", id)
+    } catch {
+      /* navigation privée */
+    }
+  }
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isPending, startTransition] = useTransition()
@@ -441,7 +459,7 @@ export function VendorInbox({
 
     setReply("")
     startTransition(async () => {
-      await addMessage(selectedId, "vendeur", body)
+      await addMessage(selectedId, "vendeur", body, undefined, voice)
       await refreshAfterSend(selectedId)
     })
   }
@@ -462,7 +480,7 @@ export function VendorInbox({
             : type === "audio"
               ? `[audio]${url}[/audio]`
               : `[image]${url}[/image]`
-        await addMessage(selectedId, "vendeur", tag)
+        await addMessage(selectedId, "vendeur", tag, undefined, voice)
       }
       await refreshAfterSend(selectedId)
     } catch {
@@ -475,7 +493,7 @@ export function VendorInbox({
 
   const handleVoiceSent = async (body: string) => {
     if (selectedId == null) return
-    await addMessage(selectedId, "vendeur", body)
+    await addMessage(selectedId, "vendeur", body, undefined, voice)
     await refreshAfterSend(selectedId)
   }
 
@@ -1076,7 +1094,7 @@ export function VendorInbox({
 
                       {/* Méta — expéditeur, date, lu/non-lu + poubelle (mes messages uniquement) */}
                       <span className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                        {isVendeur ? "Vous" : selected.customerName} · {formatMessageTime(m.createdAt)}
+                        {isVendeur ? (staffVoiceLabel(m.staffRole) ?? "Vous") : selected.customerName} · {formatMessageTime(m.createdAt)}
                         {isVendeur && (
                           readAt
                             ? <span title={`Lu le ${formatMessageTime(readAt)}`} className="flex items-center gap-0.5 text-accent">
@@ -1213,6 +1231,24 @@ export function VendorInbox({
             )}
 
             <div className="border-t border-border p-3">
+              <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Tu écris en tant que</span>
+                {STAFF_VOICES.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => chooseVoice(v.id)}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                      voice === v.id
+                        ? "border-accent bg-accent/15 text-foreground"
+                        : "border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+                <span className="text-[10px] text-muted-foreground">Le client voit toujours Le chimiste.</span>
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"

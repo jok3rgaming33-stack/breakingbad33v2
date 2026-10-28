@@ -5,9 +5,10 @@ import type { OrderThread } from "@/lib/db/schema"
 import { deleteOrderThread, getThread } from "@/app/actions/messaging"
 import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { statusMeta } from "@/lib/order-status"
+import { staffVoiceLabel } from "@/lib/staff-voice"
 import { ListOrdered, Truck, Store, Package, Copy, Check, Search, Coins, Trash2, Loader2, AlertTriangle, Eye, X, Calendar } from "lucide-react"
 
-type ThreadMessage = { id: number; sender: string; body: string; createdAt: Date | string }
+type ThreadMessage = { id: number; sender: string; body: string; createdAt: Date | string; staffRole?: string | null }
 type ThreadDetail = { messages: ThreadMessage[] } & OrderThread
 
 function formatDate(value: Date | string) {
@@ -338,7 +339,7 @@ export function AdminOrdersRecap({ threads }: { threads: OrderThread[] }) {
                   {detailThread.messages.map((m) => (
                     <li key={m.id} className={`flex flex-col gap-1 rounded-2xl p-3 text-sm ${m.sender === "client" ? "bg-accent/15 text-foreground" : "bg-secondary text-foreground"}`}>
                       <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {m.sender === "client" ? detailThread.customerName : "Le Chimiste"} · {new Date(m.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        {m.sender === "client" ? detailThread.customerName : (staffVoiceLabel(m.staffRole) ?? "Vous")} · {new Date(m.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                       </span>
                       <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p>
                     </li>

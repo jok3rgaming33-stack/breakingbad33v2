@@ -53,6 +53,7 @@ export async function ensureFeatureSchema(): Promise<void> {
 
         // Lecture client des messages vendeur (fiche 360 + messagerie)
         await db.execute(sql`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS client_read_at TIMESTAMPTZ`)
+        await db.execute(sql`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS staff_role TEXT`)
 
         // Paliers fidélité avancés
         await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS peak_tier TEXT NOT NULL DEFAULT 'bronze'`)

@@ -251,6 +251,8 @@ export const threadMessages = pgTable("thread_messages", {
   threadId: integer("thread_id").notNull(),
   sender: text("sender").notNull(), // 'client' | 'vendeur'
   body: text("body").notNull(),
+  /** chimiste | livreur | sav. Interne admin. Null = message automatique ou ancien. */
+  staffRole: text("staff_role"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   // null = message vendeur jamais lu par le client. Visible uniquement côté admin.
   clientReadAt: timestamp("client_read_at", { withTimezone: true }),

@@ -15,6 +15,7 @@ import { getPaysafecardConfig } from "@/app/actions/settings"
 import { PAYSAFECARD_OFFICIAL } from "@/lib/paysafecard"
 import { adminThreadUrl, clientThreadUrl, sectionForThreadStatus } from "@/lib/deep-links"
 import { orderEarnsReviewSpin, ratingInviteBody, ratingInvitePushBody } from "@/lib/review-spin"
+import { asStaffVoice } from "@/lib/staff-voice"
 
 export type LockerPaymentMethod = "xmr" | "paysafecard"
 
@@ -97,6 +98,7 @@ async function ensureOrderSchema() {
         await db.execute(sql`ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS loyalty_points_awarded INTEGER`)
         // Lecture messages côté client
         await db.execute(sql`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS client_read_at TIMESTAMPTZ`)
+        await db.execute(sql`ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS staff_role TEXT`)
         // Suivi graphique (historique + ETA) + lien Mode tournée
         await db.execute(sql`
           ALTER TABLE order_threads ADD COLUMN IF NOT EXISTS tracking JSONB NOT NULL DEFAULT '{}'::jsonb
@@ -641,6 +643,7 @@ export async function getDiscussions() {
 
 // Détail d'un fil avec tous ses messages (ordre chronologique)
 export async function getThread(id: number) {
+  await ensureOrderSchema()
   const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, id))
   if (!thread) return null
   let messages: (typeof threadMessages.$inferSelect)[]
@@ -668,6 +671,7 @@ export async function getThread(id: number) {
       body: String(r.body ?? ""),
       createdAt: (r.createdAt ?? r.created_at) as Date,
       clientReadAt: null,
+      staffRole: null,
     }))
   }
   return { thread, messages }
@@ -688,7 +692,7 @@ export async function getThreadForToken(id: number, customerToken: string) {
       .from(threadMessages)
       .where(eq(threadMessages.threadId, id))
       .orderBy(threadMessages.createdAt)
-    return { thread, messages }
+    return { thread, messages: messages.map(({ staffRole: _role, ...message }) => message) }
   } catch (e) {
     console.error("[messaging] getThreadForToken messages:", e)
     const raw = await db.execute(sql`
@@ -726,6 +730,7 @@ export async function addMessage(
   sender: "client" | "vendeur",
   body: string,
   customerToken?: string,
+  staffRole?: string | null,
 ) {
   const text = body?.trim()
   if (!text) return { ok: false }
@@ -741,7 +746,14 @@ export async function addMessage(
     if (!ownedThread) return { ok: false }
   }
 
-  await db.insert(threadMessages).values({ threadId, sender, body: text })
+  await ensureOrderSchema()
+  let role: string | null = null
+  if (sender === "vendeur") {
+    const { isAdminAuthenticated } = await import("@/app/actions/admin-auth")
+    if (await isAdminAuthenticated()) role = asStaffVoice(staffRole)
+  }
+
+  await db.insert(threadMessages).values({ threadId, sender, body: text, staffRole: role })
   // Le statut reste un choix délibéré du vendeur : on ne met à jour que la date.
   await db
     .update(orderThreads)
@@ -1404,7 +1416,7 @@ export async function getThreadByTrackingToken(trackingToken: string) {
     tracking: thread.tracking ?? {},
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
-    messages: statusMessages,
+    messages: statusMessages.map(({ staffRole: _role, ...message }) => message),
   }
 }
 
