@@ -22,7 +22,7 @@ import { MessageBody } from "@/components/message-body"
 import { AdminCreateOrderModal } from "@/components/admin-create-order-modal"
 import { getCartConfig } from "@/app/actions/settings"
 import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
-import { deliverySlotIsFull, deliverySlotRemainingLabel } from "@/lib/delivery-slots"
+import { compareDeliverySlots, deliverySlotIsFull } from "@/lib/delivery-slots"
 import { deliverySlotChoosable } from "@/lib/paris-clock"
 import { FEE_LOCKER, calcDeliveryFee, matchingFreeDeliveryTier, freeDeliveryTierLabel } from "@/lib/delivery-fee"
 import { useAddressGeocode } from "@/hooks/use-address-geocode"
@@ -1962,7 +1962,10 @@ function ConvertMeetupModal({
     return () => window.clearInterval(id)
   }, [])
   const openDeliverySlots = useMemo(
-    () => deliverySlots.filter((s) => deliverySlotChoosable(s, date, new Date(nowMs))),
+    () =>
+      deliverySlots
+        .filter((s) => deliverySlotChoosable(s, date, new Date(nowMs)))
+        .sort(compareDeliverySlots),
     [deliverySlots, date, nowMs],
   )
   useEffect(() => {
@@ -2133,7 +2136,7 @@ function ConvertMeetupModal({
                     const full = deliverySlotIsFull(real)
                     return (
                       <option key={s.id} value={s.label} disabled={full}>
-                        {s.label} — {deliverySlotRemainingLabel(real)}
+                        {s.label}
                       </option>
                     )
                   })}

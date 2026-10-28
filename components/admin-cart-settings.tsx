@@ -11,6 +11,7 @@ import {
   type DeliverySlot,
   type MeetupSlot,
 } from "@/app/actions/settings"
+import { compareDeliverySlots } from "@/lib/delivery-slots"
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 const DAYS_SHORT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
@@ -144,7 +145,7 @@ function DeliverySlotPicker({
       {/* Tags existants */}
       {slots.length > 0 && (
         <div className="flex flex-wrap gap-1.5 rounded-xl border border-border bg-background/40 p-3">
-          {slots.map((s) => (
+          {[...slots].sort(compareDeliverySlots).map((s) => (
             <SlotTag key={s.id} label={s.label} onRemove={() => onRemove(s.id)} />
           ))}
         </div>
@@ -476,7 +477,12 @@ export function AdminCartSettings() {
         <div className="border-t border-border pt-5">
           <DeliverySlotPicker
             slots={form.deliverySlots}
-            onAdd={(added) => setForm({ ...form, deliverySlots: [...form.deliverySlots, ...added] })}
+            onAdd={(added) =>
+              setForm({
+                ...form,
+                deliverySlots: [...form.deliverySlots, ...added].sort(compareDeliverySlots),
+              })
+            }
             onRemove={(id) => setForm({ ...form, deliverySlots: form.deliverySlots.filter((s) => s.id !== id) })}
           />
         </div>

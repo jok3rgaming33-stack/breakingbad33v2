@@ -17,9 +17,28 @@ export function deliverySlotIsFull(realCount: number): boolean {
   return deliverySlotRemaining(realCount) <= 0
 }
 
-export function deliverySlotRemainingLabel(realCount: number): string {
-  const n = deliverySlotRemaining(realCount)
-  if (n <= 0) return "Complet"
-  if (n === 1) return "1 place restante"
-  return `${n} places restantes`
+const DAY_ORDER = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+
+/** 00h–05h continue la soirée, donc après 23h. 11h reste avant 16h. */
+export function deliverySlotRank(startHour: number): number {
+  const h = Math.trunc(Number(startHour))
+  if (!Number.isFinite(h)) return 0
+  return h < 6 ? h + 24 : h
+}
+
+function dayRank(label: string): number {
+  const first = (label.split(/\s+/)[0] ?? "").trim()
+  const i = DAY_ORDER.indexOf(first)
+  return i === -1 ? DAY_ORDER.length : i
+}
+
+export function compareDeliverySlots(
+  a: { startHour: number; label: string },
+  b: { startHour: number; label: string },
+): number {
+  return (
+    dayRank(a.label) - dayRank(b.label) ||
+    deliverySlotRank(a.startHour) - deliverySlotRank(b.startHour) ||
+    a.label.localeCompare(b.label, "fr")
+  )
 }

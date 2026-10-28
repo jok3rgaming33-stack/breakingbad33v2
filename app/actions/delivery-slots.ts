@@ -3,12 +3,7 @@
 import { db } from "@/lib/db"
 import { orderThreads } from "@/lib/db/schema"
 import { and, eq, notInArray, sql } from "drizzle-orm"
-import {
-  DELIVERY_SLOT_CAPACITY,
-  DELIVERY_SLOT_CLIENT_MAX,
-  deliverySlotIsFull,
-  deliverySlotRemaining,
-} from "@/lib/delivery-slots"
+import { deliverySlotIsFull, deliverySlotRemaining } from "@/lib/delivery-slots"
 import { deliveryStartStillAhead, frDayName, slotMatchesDay } from "@/lib/paris-clock"
 import { getCartConfig } from "@/app/actions/settings"
 
@@ -87,7 +82,7 @@ export async function assertDeliverySlotAvailable(
   if (deliverySlotIsFull(n)) {
     return {
       ok: false,
-      error: `Ce créneau est complet (${DELIVERY_SLOT_CAPACITY} places, ${DELIVERY_SLOT_CLIENT_MAX} restantes affichées). Choisis un autre horaire.`,
+      error: "Ce créneau est complet. Choisis un autre horaire.",
     }
   }
   return { ok: true }

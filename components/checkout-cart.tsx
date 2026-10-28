@@ -11,14 +11,7 @@ import { getCustomerStats } from "@/app/actions/account"
 import { consumeReservationsForOrder } from "@/app/actions/product-reservations"
 import { getCartConfig, type CartConfig, type MeetupSlot } from "@/app/actions/settings"
 import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
-import {
-  DELIVERY_SLOT_CAPACITY,
-  DELIVERY_SLOT_RESERVED,
-  deliverySlotIsFull,
-  deliverySlotRemaining,
-  deliverySlotRemainingLabel,
-  deliverySlotTakenDisplay,
-} from "@/lib/delivery-slots"
+import { compareDeliverySlots, deliverySlotIsFull, deliverySlotRemaining } from "@/lib/delivery-slots"
 import {
   FEE_LOCKER,
   calcDeliveryFee,
@@ -204,7 +197,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
   const availableDeliverySlots = useMemo(() => {
     if (!date) return []
     const at = new Date(nowMs)
-    return config.deliverySlots.filter((s) => deliverySlotChoosable(s, date, at))
+    return config.deliverySlots.filter((s) => deliverySlotChoosable(s, date, at)).sort(compareDeliverySlots)
   }, [config.deliverySlots, date, nowMs])
   const availableMeetupSlots = useMemo(() => {
     if (!date) return []
@@ -1234,8 +1227,6 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                 </div>
                 {!isMeetup && (
                   <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-                    {DELIVERY_SLOT_CAPACITY} places max par créneau — {DELIVERY_SLOT_RESERVED} déjà
-                    réservée, {DELIVERY_SLOT_CAPACITY - DELIVERY_SLOT_RESERVED} restantes à prendre.
                     Un créneau dont l&apos;heure a commencé n&apos;est plus proposé.
                   </p>
                 )}
@@ -1251,10 +1242,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                   ) : (
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       {availableDeliverySlots.map((s) => {
-                        const real = slotOccupancy[s.label] ?? 0
-                        const remaining = deliverySlotRemaining(real)
-                        const taken = deliverySlotTakenDisplay(real)
-                        const full = remaining <= 0
+                        const full = deliverySlotIsFull(slotOccupancy[s.label] ?? 0)
                         const selected = slot === s.label
                         return (
                           <button
@@ -1269,21 +1257,6 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                             }`}
                           >
                             <span className="block leading-tight">{s.label}</span>
-                            <span className="mt-1.5 flex items-center gap-1.5">
-                              <span className="flex gap-0.5" aria-hidden="true">
-                                {Array.from({ length: DELIVERY_SLOT_CAPACITY }, (_, i) => (
-                                  <span
-                                    key={i}
-                                    className={`h-1.5 w-1.5 rounded-full ${
-                                      i < taken ? "bg-accent" : "bg-border"
-                                    }`}
-                                  />
-                                ))}
-                              </span>
-                              <span className={`text-[10px] ${full ? "text-destructive" : "text-muted-foreground"}`}>
-                                {deliverySlotRemainingLabel(real)}
-                              </span>
-                            </span>
                           </button>
                         )
                       })}

@@ -6,7 +6,7 @@ import type { Product } from "@/lib/db/schema"
 import { listProducts } from "@/app/actions/products"
 import { getCartConfig } from "@/app/actions/settings"
 import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
-import { deliverySlotIsFull, deliverySlotRemainingLabel } from "@/lib/delivery-slots"
+import { compareDeliverySlots, deliverySlotIsFull } from "@/lib/delivery-slots"
 import { deliverySlotChoosable } from "@/lib/paris-clock"
 import { FEE_LOCKER, calcDeliveryFee, matchingFreeDeliveryTier, freeDeliveryTierLabel } from "@/lib/delivery-fee"
 import { listPromoCodes } from "@/app/actions/promo"
@@ -142,7 +142,10 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   const meetupSlots = config?.meetupSlots ?? []
   const deliverySlots = config?.deliverySlots ?? []
   const openDeliverySlots = useMemo(
-    () => deliverySlots.filter((s) => deliverySlotChoosable(s, deliveryDate, new Date(nowMs))),
+    () =>
+      deliverySlots
+        .filter((s) => deliverySlotChoosable(s, deliveryDate, new Date(nowMs)))
+        .sort(compareDeliverySlots),
     [deliverySlots, deliveryDate, nowMs],
   )
   useEffect(() => {
@@ -516,7 +519,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                           const full = deliverySlotIsFull(real)
                           return (
                             <option key={s.id} value={s.label} disabled={full}>
-                              {s.label} — {deliverySlotRemainingLabel(real)}
+                              {s.label}
                             </option>
                           )
                         })}

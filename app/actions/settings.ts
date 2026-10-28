@@ -5,6 +5,7 @@ import { appSettings } from "@/lib/db/schema"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { revalidatePath } from "next/cache"
 import { eq } from "drizzle-orm"
+import { compareDeliverySlots } from "@/lib/delivery-slots"
 import {
   DEFAULT_SPIN_EARN,
   normalizeSpinEarn,
@@ -127,6 +128,7 @@ export async function setCartConfig(config: CartConfig) {
       days: Array.isArray(s.days) ? s.days.filter((d) => typeof d === "string") : undefined,
     }))
     .filter((s) => s.label.length > 0)
+    .sort(compareDeliverySlots)
 
   const meetupSlots: MeetupSlot[] = (config.meetupSlots ?? [])
     .map((s, i) => ({
