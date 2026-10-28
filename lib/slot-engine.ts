@@ -15,9 +15,10 @@ import { computePromoDiscount } from "@/lib/promo-calc"
 import { isRateLimited } from "@/lib/rate-limit"
 import type { MachineState, MachineVoucherView, PlayResult, UltimateView } from "@/lib/slot-public"
 import { orderEarnsReviewSpin, REVIEW_SPINS_PER_ORDER, REVIEW_SPINS_PER_PRODUCT } from "@/lib/review-spin"
+import { countOrderSpins, DEFAULT_SPIN_EARN, normalizeSpinEarn, type SpinEarnConfig } from "@/lib/slot-earn"
 import type { PoolClient } from "pg"
 
-/** 1 tour / 50€ de produits. Le client ne reçoit jamais cette table. */
+/** Le client ne reçoit jamais cette table. */
 const WEIGHT_VERSION = "2026-10-08-v3"
 const WEIGHTS: { id: string; w: number }[] = [
   { id: "miss", w: 730 },
@@ -28,8 +29,6 @@ const WEIGHTS: { id: string; w: number }[] = [
   { id: "jesse", w: 20 },
   { id: "walter", w: 12 },
 ]
-const SPIN_CENTS = 5000
-const SPIN_CAP = 10
 const SPIN_DAYS = 7
 const VOUCHER_DAYS = 30
 const WINDOW_MS = 30 * 86400000
@@ -466,9 +465,13 @@ export async function commitMachineVoucher(opts: {
   }
 }
 
-function spinsForCents(cents: number, blocked: boolean): number {
-  if (blocked || cents < SPIN_CENTS) return 0
-  return Math.min(SPIN_CAP, Math.floor(cents / SPIN_CENTS))
+async function loadSpinEarn(client: PoolClient): Promise<SpinEarnConfig> {
+  const row = await client.query(`SELECT value FROM app_settings WHERE key = 'slot_earn'`)
+  return normalizeSpinEarn(row.rows[0]?.value ?? DEFAULT_SPIN_EARN)
+}
+
+function spinsForCents(cents: number, blocked: boolean, cfg: SpinEarnConfig): number {
+  return countOrderSpins(cents, blocked, cfg)
 }
 
 export async function creditSpinsForOrder(orderId: number): Promise<void> {
@@ -493,7 +496,7 @@ export async function creditSpinsForOrder(orderId: number): Promise<void> {
     }
     const cents = Math.max(0, Number(row.slot_products_cents) || 0)
     const blocked = row.slot_block ? String(row.slot_block) : null
-    const spins = spinsForCents(cents, !!blocked)
+    const spins = spinsForCents(cents, !!blocked, await loadSpinEarn(client))
     const ins = await client.query(
       `INSERT INTO slot_credits (order_id, user_token, products_cents, spins_granted, blocked)
        VALUES ($1, $2, $3, $4, $5)
@@ -558,7 +561,7 @@ export async function syncSlotBase(orderId: number, productsCents: number): Prom
     }
     await client.query(`UPDATE order_threads SET slot_products_cents = $1 WHERE id = $2`, [next, orderId])
     await client.query(`UPDATE slot_credits SET products_cents = $1 WHERE order_id = $2`, [next, orderId])
-    const target = spinsForCents(next, !!row.slot_block)
+    const target = spinsForCents(next, !!row.slot_block, await loadSpinEarn(client))
     const grants = await client.query(
       `SELECT id, status FROM slot_grants
        WHERE order_id = $1 AND source_type = 'order' AND test_mode = false

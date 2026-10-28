@@ -9,6 +9,8 @@ import {
   deliverySlotIsFull,
   deliverySlotRemaining,
 } from "@/lib/delivery-slots"
+import { deliveryStartStillAhead, frDayName, slotMatchesDay } from "@/lib/paris-clock"
+import { getCartConfig } from "@/app/actions/settings"
 
 /** Statuts qui libèrent le créneau (annulé / pas une commande livraison). */
 const FREE_STATUSES = [
@@ -72,6 +74,15 @@ export async function assertDeliverySlotAvailable(
   const d = date?.trim() ?? ""
   const s = slot?.trim() ?? ""
   if (!d || !s) return { ok: false, error: "Choisis une date et un créneau de livraison." }
+  const cfg = await getCartConfig()
+  const known = cfg.deliverySlots.find((slot) => slot.label === s)
+  if (known && !slotMatchesDay(known, frDayName(d))) {
+    return { ok: false, error: "Ce créneau n'est pas proposé ce jour-là." }
+  }
+  const startHour = known?.startHour ?? hourFromLabel(s)
+  if (startHour != null && !deliveryStartStillAhead(d, startHour)) {
+    return { ok: false, error: "Ce créneau a déjà commencé. Choisis une heure plus tard." }
+  }
   const n = await countDeliverySlotOrders(d, s)
   if (deliverySlotIsFull(n)) {
     return {
@@ -80,6 +91,15 @@ export async function assertDeliverySlotAvailable(
     }
   }
   return { ok: true }
+}
+
+function hourFromLabel(label: string): number | null {
+  const match = label.match(/(\d{1,2})\s*h/i)
+  if (!match) return null
+  const hour = Number(match[1])
+  if (hour === 24) return 0
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return null
+  return hour
 }
 
 export async function remainingForSlot(date: string, slot: string): Promise<number> {

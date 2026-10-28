@@ -23,6 +23,7 @@ import { AdminCreateOrderModal } from "@/components/admin-create-order-modal"
 import { getCartConfig } from "@/app/actions/settings"
 import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
 import { deliverySlotIsFull, deliverySlotRemainingLabel } from "@/lib/delivery-slots"
+import { deliverySlotChoosable } from "@/lib/paris-clock"
 import { FEE_LOCKER, calcDeliveryFee, matchingFreeDeliveryTier, freeDeliveryTierLabel } from "@/lib/delivery-fee"
 import { useAddressGeocode } from "@/hooks/use-address-geocode"
 import {
@@ -1955,6 +1956,19 @@ function ConvertMeetupModal({
   const [address, setAddress] = useState("")
   const [date, setDate] = useState(initialDate.slice(0, 10))
   const [slot, setSlot] = useState("")
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 30_000)
+    return () => window.clearInterval(id)
+  }, [])
+  const openDeliverySlots = useMemo(
+    () => deliverySlots.filter((s) => deliverySlotChoosable(s, date, new Date(nowMs))),
+    [deliverySlots, date, nowMs],
+  )
+  useEffect(() => {
+    if (!slot || !date) return
+    if (!openDeliverySlots.some((s) => s.label === slot)) setSlot("")
+  }, [slot, date, openDeliverySlots])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -2114,7 +2128,7 @@ function ConvertMeetupModal({
                   className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
                 >
                   <option value="">Choisir…</option>
-                  {deliverySlots.map((s) => {
+                  {openDeliverySlots.map((s) => {
                     const real = slotOccupancy[s.label] ?? 0
                     const full = deliverySlotIsFull(real)
                     return (

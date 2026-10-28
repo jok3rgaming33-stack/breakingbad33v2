@@ -21,6 +21,8 @@ import {
   type LoyaltyClientRow,
   type LoyaltyOverview,
 } from "@/app/actions/loyalty-admin"
+import { getSpinEarnConfig, setSpinEarnConfig } from "@/app/actions/settings"
+import { countOrderSpins, spinMultiplier, SPIN_CAP, type SpinEarnConfig } from "@/lib/slot-earn"
 
 function fmtDate(d: Date | string | null | undefined) {
   if (!d) return "—"
@@ -38,6 +40,138 @@ function fmtDate(d: Date | string | null | undefined) {
 }
 
 type InnerTab = "clients" | "codes" | "anomalies"
+
+function toLocalInput(iso: string | null): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return ""
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function SpinEarnPanel() {
+  const [cfg, setCfg] = useState<SpinEarnConfig | null>(null)
+  const [euros, setEuros] = useState("50")
+  const [doubling, setDoubling] = useState(false)
+  const [until, setUntil] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+
+  useEffect(() => {
+    getSpinEarnConfig()
+      .then((next) => {
+        setCfg(next)
+        setEuros(String(next.eurosPerSpin))
+        const on = spinMultiplier(next) === 2
+        setDoubling(on)
+        setUntil(on ? toLocalInput(next.doubleUntil) : "")
+      })
+      .catch(() => setNote("Impossible de charger le réglage des tours."))
+  }, [])
+
+  const preview = useMemo(() => {
+    const amount = Math.trunc(Number(euros))
+    if (!Number.isFinite(amount) || amount < 1) return null
+    const untilAt = doubling && until ? Date.parse(until) : NaN
+    const draft: SpinEarnConfig = {
+      eurosPerSpin: amount,
+      doubleUntil: Number.isFinite(untilAt) ? new Date(untilAt).toISOString() : null,
+    }
+    const sample = amount * 100
+    const spins = countOrderSpins(sample, false, draft)
+    const cap = SPIN_CAP * spinMultiplier(draft)
+    return `${amount}€ de produits = ${spins} tour${spins > 1 ? "s" : ""}. ${amount * 2}€ = ${countOrderSpins(sample * 2, false, draft)} tours. Plafond ${cap} par commande.`
+  }, [euros, doubling, until])
+
+  const save = async () => {
+    const untilAt = doubling ? Date.parse(until) : NaN
+    if (doubling && !Number.isFinite(untilAt)) {
+      setNote("Choisis jusqu'à quand les tours sont doublés.")
+      return
+    }
+    setSaving(true)
+    setNote(null)
+    try {
+      const res = await setSpinEarnConfig({
+        eurosPerSpin: Math.trunc(Number(euros)),
+        doubleUntil: doubling ? new Date(untilAt).toISOString() : null,
+      })
+      if (!res.ok) {
+        setNote(res.error ?? "Enregistrement impossible.")
+        return
+      }
+      setCfg(res.config)
+      setNote("Réglage enregistré. Les tours déjà donnés ne changent pas.")
+    } catch {
+      setNote("Enregistrement impossible.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4">
+      <h3 className="font-semibold">Tours de la roue</h3>
+      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+        Le seuil décide à partir de quel montant de produits un tour est donné. Le doublement est temporaire :
+        chaque tranche en donne deux, jusqu&apos;à la date choisie. Ça s&apos;applique aux commandes pas encore créditées
+        (à la livraison, ou quand le Monero est confirmé).
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="block text-xs font-medium text-muted-foreground">
+          1 tour dès (euros de produits)
+          <input
+            type="number"
+            min={1}
+            max={500}
+            value={euros}
+            onChange={(e) => setEuros(e.target.value)}
+            className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
+          />
+        </label>
+        <div className="space-y-2">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={doubling}
+            onClick={() => setDoubling((v) => !v)}
+            className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-sm font-semibold ${
+              doubling ? "border-accent/50 bg-accent/15 text-accent" : "border-border text-muted-foreground"
+            }`}
+          >
+            Doubler les tours
+            <span>{doubling ? "ON" : "OFF"}</span>
+          </button>
+          {doubling && (
+            <label className="block text-xs font-medium text-muted-foreground">
+              Jusqu&apos;au
+              <input
+                type="datetime-local"
+                value={until}
+                onChange={(e) => setUntil(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
+              />
+            </label>
+          )}
+        </div>
+      </div>
+      {preview && <p className="mt-3 text-xs text-foreground">{preview}</p>}
+      {cfg && spinMultiplier(cfg) === 2 && (
+        <p className="mt-1 text-[11px] text-accent">Un doublement est déjà en cours.</p>
+      )}
+      {note && <p className="mt-2 text-xs text-muted-foreground">{note}</p>}
+      <button
+        type="button"
+        onClick={() => void save()}
+        disabled={saving || !cfg}
+        className="mt-3 inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-50"
+      >
+        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+        Enregistrer les tours
+      </button>
+    </div>
+  )
+}
 
 export function AdminLoyalty() {
   const [data, setData] = useState<LoyaltyOverview | null>(null)
@@ -177,6 +311,8 @@ export function AdminLoyalty() {
       {msg && (
         <p className="rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-sm text-accent">{msg}</p>
       )}
+
+      <SpinEarnPanel />
 
       {/* Formule */}
       <div className="rounded-2xl border border-border bg-secondary/30 px-4 py-3 text-xs text-muted-foreground leading-relaxed">

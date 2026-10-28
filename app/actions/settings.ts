@@ -5,6 +5,12 @@ import { appSettings } from "@/lib/db/schema"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { revalidatePath } from "next/cache"
 import { eq } from "drizzle-orm"
+import {
+  DEFAULT_SPIN_EARN,
+  normalizeSpinEarn,
+  SPIN_EUROS_MAX,
+  type SpinEarnConfig,
+} from "@/lib/slot-earn"
 
 // Point de départ servant au calcul des distances de livraison.
 export type MapOrigin = { lat: number; lng: number; label?: string }
@@ -162,6 +168,36 @@ export async function setLockerEnabled(enabled: boolean) {
   revalidatePath("/")
   revalidatePath("/admin")
   return { ok: true as const, lockerEnabled }
+}
+
+export async function getSpinEarnConfig(): Promise<SpinEarnConfig> {
+  const raw = await readSetting<SpinEarnConfig>("slot_earn", DEFAULT_SPIN_EARN)
+  return normalizeSpinEarn(raw)
+}
+
+/** Seuil et doublement temporaire des tours. Ne recalcule pas les tours déjà donnés. */
+export async function setSpinEarnConfig(input: { eurosPerSpin: number; doubleUntil: string | null }) {
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "Connexion admin requise." }
+  const euros = Math.trunc(Number(input.eurosPerSpin))
+  if (!Number.isFinite(euros) || euros < 1 || euros > SPIN_EUROS_MAX) {
+    return { ok: false as const, error: `Le seuil doit être entre 1 et ${SPIN_EUROS_MAX}€.` }
+  }
+  let doubleUntil: string | null = null
+  if (input.doubleUntil) {
+    const at = Date.parse(input.doubleUntil)
+    if (!Number.isFinite(at)) return { ok: false as const, error: "Date de fin invalide." }
+    if (at <= Date.now()) return { ok: false as const, error: "La fin du doublement doit être dans le futur." }
+    if (at > Date.now() + 60 * 86400000) {
+      return { ok: false as const, error: "Le doublement dure 60 jours maximum. Tu pourras le relancer." }
+    }
+    doubleUntil = new Date(at).toISOString()
+  }
+  const config = normalizeSpinEarn({ eurosPerSpin: euros, doubleUntil })
+  await writeSetting("slot_earn", { ...config })
+  revalidatePath("/")
+  revalidatePath("/admin")
+  revalidatePath("/machine")
+  return { ok: true as const, config }
 }
 
 export async function getLogisticsContent(): Promise<LogisticsContent> {

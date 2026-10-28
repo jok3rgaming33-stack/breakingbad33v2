@@ -7,6 +7,7 @@ import { listProducts } from "@/app/actions/products"
 import { getCartConfig } from "@/app/actions/settings"
 import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
 import { deliverySlotIsFull, deliverySlotRemainingLabel } from "@/lib/delivery-slots"
+import { deliverySlotChoosable } from "@/lib/paris-clock"
 import { FEE_LOCKER, calcDeliveryFee, matchingFreeDeliveryTier, freeDeliveryTierLabel } from "@/lib/delivery-fee"
 import { listPromoCodes } from "@/app/actions/promo"
 import { adminCreateOrder, type AdminOrderItem, type AdminOrderPromo } from "@/app/actions/messaging"
@@ -57,6 +58,11 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
   }, [geo.distanceKm, geo.coords])
   const [deliveryDate, setDeliveryDate] = useState("")
   const [deliverySlot, setDeliverySlot] = useState("")
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 30_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   // Locker
   const [lockerAddress, setLockerAddress] = useState("")
@@ -135,6 +141,14 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
 
   const meetupSlots = config?.meetupSlots ?? []
   const deliverySlots = config?.deliverySlots ?? []
+  const openDeliverySlots = useMemo(
+    () => deliverySlots.filter((s) => deliverySlotChoosable(s, deliveryDate, new Date(nowMs))),
+    [deliverySlots, deliveryDate, nowMs],
+  )
+  useEffect(() => {
+    if (!deliverySlot || !deliveryDate) return
+    if (!openDeliverySlots.some((s) => s.label === deliverySlot)) setDeliverySlot("")
+  }, [deliverySlot, deliveryDate, openDeliverySlots])
   const { data: slotOccupancy = {} } = useSWR(
     fulfillment === "livraison" && deliveryDate ? `admin-delivery-slot-occ:${deliveryDate}` : null,
     () => getDeliverySlotOccupancy(deliveryDate),
@@ -497,7 +511,7 @@ export function AdminCreateOrderModal({ customerName, customerToken, onClose, on
                         className="rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
                       >
                         <option value="">Choisir…</option>
-                        {deliverySlots.map((s) => {
+                        {openDeliverySlots.map((s) => {
                           const real = slotOccupancy[s.label] ?? 0
                           const full = deliverySlotIsFull(real)
                           return (

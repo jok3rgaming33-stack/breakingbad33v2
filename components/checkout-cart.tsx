@@ -9,7 +9,7 @@ import { myMachineVouchers, previewMachineVoucher } from "@/app/actions/slot"
 import { needsVerification, submitVerification } from "@/app/actions/verification"
 import { getCustomerStats } from "@/app/actions/account"
 import { consumeReservationsForOrder } from "@/app/actions/product-reservations"
-import { getCartConfig, type CartConfig, type DeliverySlot, type MeetupSlot } from "@/app/actions/settings"
+import { getCartConfig, type CartConfig, type MeetupSlot } from "@/app/actions/settings"
 import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
 import {
   DELIVERY_SLOT_CAPACITY,
@@ -29,6 +29,7 @@ import {
 import { SelfieVerificationModal, type VerificationMetadata } from "@/components/selfie-verification-modal"
 import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus, Package, Lock, HeartPulse } from "lucide-react"
 import { backdropDismissProps } from "@/lib/backdrop-close"
+import { deliverySlotChoosable, frDayName, slotMatchesDay } from "@/lib/paris-clock"
 
 type UserData = { pseudo?: string } | null
 
@@ -107,13 +108,6 @@ function getOrderCutoff(now: Date): { minDate: string; isCutoff: boolean; cutoff
   return { minDate, isCutoff, cutoffLabel }
 }
 
-// Convertit une date yyyy-mm-dd en nom de jour français (ex. "Lundi")
-const FR_DAYS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"]
-function dateToFrDay(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number)
-  return FR_DAYS[new Date(y, (m ?? 1) - 1, d ?? 1).getDay()] ?? ""
-}
-
 // Construit un Date à partir d'une date yyyy-mm-dd et d'une heure (24h).
 // afterMidnight décale d'un jour (créneaux/heures qui basculent après minuit).
 function slotDate(dateStr: string, hour: number, afterMidnight: boolean) {
@@ -121,13 +115,6 @@ function slotDate(dateStr: string, hour: number, afterMidnight: boolean) {
   const dt = new Date(y, (m ?? 1) - 1, d ?? 1, hour, 0, 0, 0)
   if (afterMidnight) dt.setDate(dt.getDate() + 1)
   return dt
-}
-
-// Un créneau de livraison est encore proposable si sa fin n'est pas dépassée.
-function deliverySlotAvailable(dateStr: string, s: DeliverySlot, now: Date) {
-  const crosses = s.endHour <= s.startHour // passe minuit
-  const end = slotDate(dateStr, s.endHour, crosses)
-  return end.getTime() > now.getTime()
 }
 
 // Une heure de meet-up est encore proposable si elle n'est pas dépassée.
@@ -175,6 +162,11 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
   const [showVerification, setShowVerification] = useState(false)
   const [verifSubmitting, setVerifSubmitting] = useState(false)
   const [verifError, setVerifError] = useState<string | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 30_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   const name = userData?.pseudo ?? "Invité"
 
@@ -206,29 +198,17 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     if (!lockerEnabled && fulfillmentMode === "locker") setFulfillmentMode("meetup")
   }, [lockerEnabled, fulfillmentMode])
 
-  // Jour FR d'un créneau : days[] admin, sinon préfixe du label ("Lundi 14h"), sinon tous les jours
-  const slotMatchesDay = (s: { label: string; days?: string[] }, dayName: string) => {
-    if (s.days && s.days.length > 0) return s.days.includes(dayName)
-    const first = (s.label.split(/\s+/)[0] ?? "").trim()
-    if (FR_DAYS.includes(first)) return first === dayName
-    return true // ex. "14H - 17H" sans jour → disponible chaque jour
-  }
-
   // Règle de cutoff horaire (23h20 lun–jeu/dim ; ven–sam ouverts).
-  const now = new Date()
+  const now = new Date(nowMs)
   const { minDate, isCutoff, cutoffLabel } = getOrderCutoff(now)
   const availableDeliverySlots = useMemo(() => {
     if (!date) return []
-    const dayName = dateToFrDay(date)
-    return config.deliverySlots.filter((s) => {
-      if (!slotMatchesDay(s, dayName)) return false
-      return deliverySlotAvailable(date, s, now)
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.deliverySlots, date])
+    const at = new Date(nowMs)
+    return config.deliverySlots.filter((s) => deliverySlotChoosable(s, date, at))
+  }, [config.deliverySlots, date, nowMs])
   const availableMeetupSlots = useMemo(() => {
     if (!date) return []
-    const dayName = dateToFrDay(date)
+    const dayName = frDayName(date)
     return config.meetupSlots.filter((s) => {
       if (!slotMatchesDay(s, dayName)) return false
       return meetupSlotAvailable(date, s, now)
@@ -1254,8 +1234,9 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                 </div>
                 {!isMeetup && (
                   <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-                    {DELIVERY_SLOT_CAPACITY} places max par créneau de 2h — {DELIVERY_SLOT_RESERVED} déjà
+                    {DELIVERY_SLOT_CAPACITY} places max par créneau — {DELIVERY_SLOT_RESERVED} déjà
                     réservée, {DELIVERY_SLOT_CAPACITY - DELIVERY_SLOT_RESERVED} restantes à prendre.
+                    Un créneau dont l&apos;heure a commencé n&apos;est plus proposé.
                   </p>
                 )}
                 {!date ? (
@@ -1265,7 +1246,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                 ) : !isMeetup ? (
                   availableDeliverySlots.length === 0 ? (
                     <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
-                      Aucun créneau de livraison disponible le <span className="font-semibold text-foreground">{dateToFrDay(date)}</span>. Essaie un autre jour.
+                      Aucun créneau de livraison disponible le <span className="font-semibold text-foreground">{frDayName(date)}</span>. Essaie un autre jour.
                     </p>
                   ) : (
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -1310,7 +1291,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                   )
                 ) : availableMeetupSlots.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
-                    Aucun meet-up disponible le <span className="font-semibold text-foreground">{dateToFrDay(date)}</span>. Essaie un autre jour.
+                    Aucun meet-up disponible le <span className="font-semibold text-foreground">{frDayName(date)}</span>. Essaie un autre jour.
                   </p>
                 ) : (
                   <div className="grid grid-cols-4 gap-2">

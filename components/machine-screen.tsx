@@ -4,6 +4,8 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { claimFreeSpin, loadMachine, spinAdminTrial, spinMachine } from "@/app/actions/slot"
 import { PRIZE_CARDS, RULES, symbolSrc, SLOT_SYMBOLS, type MachineState } from "@/lib/slot-public"
+import { getSpinEarnConfig } from "@/app/actions/settings"
+import { DEFAULT_SPIN_EARN, spinEarnIntro, spinEarnRuleBody, type SpinEarnConfig } from "@/lib/slot-earn"
 
 const PRIZE_OUTCOMES = new Set(["walter", "jesse", "gus", "badger", "crystal"])
 
@@ -64,6 +66,11 @@ export function MachineScreen() {
   const [error, setError] = useState<string | null>(null)
   const [trial, setTrial] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [earn, setEarn] = useState<SpinEarnConfig>(DEFAULT_SPIN_EARN)
+
+  useEffect(() => {
+    getSpinEarnConfig().then(setEarn).catch(() => {})
+  }, [])
 
   const refresh = async (current = token) => {
     const res = await loadMachine(current)
@@ -160,8 +167,7 @@ export function MachineScreen() {
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#8fbc8f]">Albuquerque Luck Spin</p>
         <h1 className="mt-2 max-w-xl text-3xl font-bold tracking-tight sm:text-5xl">3 Précurseurs identiques = un lot</h1>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/70 sm:text-base">
-          1 tour par tranche de 50€ de produits, hors livraison. Le palier Ultimate ouvre en plus un tour gratuit à réclamer.
-          Les chances ne sont pas affichées.
+          {spinEarnIntro(earn)}
         </p>
 
         <section className="relative mx-auto mt-8 max-w-xl rounded-[28px] border border-[#3e6757]/70 bg-[#141414]/90 p-4 shadow-[0_30px_80px_rgba(0,0,0,0.55)] sm:p-6">
@@ -293,12 +299,15 @@ export function MachineScreen() {
 
         <section className="mt-10 space-y-4">
           <h2 className="text-2xl font-bold">Les règles</h2>
-          {RULES.map((rule) => (
-            <article key={rule.title} className="rounded-2xl border border-white/10 bg-black/55 p-4">
-              <h3 className="font-semibold">{rule.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-white/75">{rule.body}</p>
-            </article>
-          ))}
+          {RULES.map((rule) => {
+            const body = rule.title === "Comment obtenir un tour" ? spinEarnRuleBody(earn) : rule.body
+            return (
+              <article key={rule.title} className="rounded-2xl border border-white/10 bg-black/55 p-4">
+                <h3 className="font-semibold">{rule.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-white/75">{body}</p>
+              </article>
+            )
+          })}
         </section>
       </main>
     </div>

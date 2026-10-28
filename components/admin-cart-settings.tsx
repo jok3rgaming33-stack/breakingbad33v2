@@ -15,20 +15,30 @@ import {
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 const DAYS_SHORT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
 
+type SlotRange = { label: string; startHour: number; endHour: number }
+
 // Créneaux 2h pour la livraison
-const DELIVERY_RANGES: { label: string; startHour: number; endHour: number }[] = Array.from(
-  { length: 12 },
-  (_, i) => {
-    const start = i * 2
-    const end = start + 2 === 24 ? 0 : start + 2
-    const endDisplay = end === 0 ? 24 : end
-    return {
-      label: `${String(start).padStart(2, "0")}h-${String(endDisplay).padStart(2, "0")}h`,
-      startHour: start,
-      endHour: endDisplay,
-    }
-  },
-)
+const DELIVERY_RANGES: SlotRange[] = Array.from({ length: 12 }, (_, i) => {
+  const start = i * 2
+  const end = start + 2 === 24 ? 0 : start + 2
+  const endDisplay = end === 0 ? 24 : end
+  return {
+    label: `${String(start).padStart(2, "0")}h-${String(endDisplay).padStart(2, "0")}h`,
+    startHour: start,
+    endHour: endDisplay,
+  }
+})
+
+// Créneaux d'une heure : 12h-13h, 13h-14h…
+const HOURLY_RANGES: SlotRange[] = Array.from({ length: 24 }, (_, start) => {
+  const end = (start + 1) % 24
+  const endLabel = String(end).padStart(2, "0")
+  return {
+    label: `${String(start).padStart(2, "0")}h-${endLabel}h`,
+    startHour: start,
+    endHour: end,
+  }
+})
 
 // Heures individuelles pour meetup
 const MEETUP_HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -88,6 +98,8 @@ function DeliverySlotPicker({
 }) {
   const [selDays, setSelDays] = useState<string[]>([])
   const [selRanges, setSelRanges] = useState<number[]>([])
+  const [grain, setGrain] = useState<"1h" | "2h">("1h")
+  const ranges = grain === "1h" ? HOURLY_RANGES : DELIVERY_RANGES
 
   const toggleDay = (d: string) =>
     setSelDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
@@ -96,14 +108,14 @@ function DeliverySlotPicker({
     setSelRanges((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]))
 
   const allDays = selDays.length === DAYS.length
-  const allRanges = selRanges.length === DELIVERY_RANGES.length
+  const allRanges = selRanges.length === ranges.length
 
   const handleAdd = () => {
     if (!selDays.length || !selRanges.length) return
     const toAdd: DeliverySlot[] = []
     for (const day of selDays) {
       for (const ri of selRanges) {
-        const opt = DELIVERY_RANGES[ri]
+        const opt = ranges[ri]
         const label = `${day} ${opt.label}`
         if (!slots.some((s) => s.label === label)) {
           toAdd.push({
@@ -126,7 +138,7 @@ function DeliverySlotPicker({
       <legend className="flex items-center gap-2 text-sm font-bold text-accent">
         <Clock className="h-4 w-4" aria-hidden="true" />
         Créneaux de livraison
-        <span className="text-xs font-normal text-muted-foreground">(plages de 2h)</span>
+        <span className="text-xs font-normal text-muted-foreground">(1h ou 2h)</span>
       </legend>
 
       {/* Tags existants */}
@@ -157,21 +169,46 @@ function DeliverySlotPicker({
         </div>
       </div>
 
+      <div className="space-y-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Durée</span>
+        <div className="flex gap-1.5">
+          <ToggleChip
+            label="1 heure"
+            selected={grain === "1h"}
+            onClick={() => {
+              setGrain("1h")
+              setSelRanges([])
+            }}
+          />
+          <ToggleChip
+            label="2 heures"
+            selected={grain === "2h"}
+            onClick={() => {
+              setGrain("2h")
+              setSelRanges([])
+            }}
+          />
+        </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          Dès que l&apos;heure de début est passée, le client ne peut plus choisir ce créneau. À 12h01, 12h-13h est fermé : il reste 13h-14h.
+        </p>
+      </div>
+
       {/* Sélection plages */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Plages horaires</span>
           <button
             type="button"
-            onClick={() => setSelRanges(allRanges ? [] : DELIVERY_RANGES.map((_, i) => i))}
+            onClick={() => setSelRanges(allRanges ? [] : ranges.map((_, i) => i))}
             className="text-xs text-accent underline-offset-2 hover:underline"
           >
             {allRanges ? "Désélectionner tout" : "Sélectionner tout"}
           </button>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {DELIVERY_RANGES.map((opt, i) => (
-            <ToggleChip key={i} label={opt.label} selected={selRanges.includes(i)} onClick={() => toggleRange(i)} />
+          {ranges.map((opt, i) => (
+            <ToggleChip key={`${grain}-${opt.label}`} label={opt.label} selected={selRanges.includes(i)} onClick={() => toggleRange(i)} />
           ))}
         </div>
       </div>
