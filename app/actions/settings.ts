@@ -142,6 +142,28 @@ export async function setCartConfig(config: CartConfig) {
   return { ok: true as const }
 }
 
+/** Le locker peut-il être choisi pour une nouvelle commande ? */
+export async function lockerOrdersOpen(): Promise<boolean> {
+  const cfg = await getCartConfig()
+  return cfg.lockerEnabled !== false
+}
+
+/** Interrupteur admin : enregistre tout de suite, sans repasser par les créneaux. */
+export async function setLockerEnabled(enabled: boolean) {
+  if (!(await isAdminAuthenticated())) return { ok: false as const, error: "Connexion admin requise." }
+  const current = await getCartConfig()
+  const lockerEnabled = enabled === true
+  await writeSetting("cart_config", {
+    minDeliveryAmount: current.minDeliveryAmount,
+    deliverySlots: current.deliverySlots,
+    meetupSlots: current.meetupSlots,
+    lockerEnabled,
+  })
+  revalidatePath("/")
+  revalidatePath("/admin")
+  return { ok: true as const, lockerEnabled }
+}
+
 export async function getLogisticsContent(): Promise<LogisticsContent> {
   return readSetting<LogisticsContent>("logistics_content", DEFAULT_LOGISTICS)
 }

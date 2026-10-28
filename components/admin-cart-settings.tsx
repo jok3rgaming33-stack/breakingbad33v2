@@ -1,10 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { mutate } from "swr"
 import { Loader2, Save, Check, Clock, Trash2, CalendarClock, Users, Package } from "lucide-react"
 import {
   getCartConfig,
   setCartConfig,
+  setLockerEnabled,
   type CartConfig,
   type DeliverySlot,
   type MeetupSlot,
@@ -310,6 +312,7 @@ export function AdminCartSettings() {
   const [form, setForm] = useState<CartConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [lockerSaving, setLockerSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -325,6 +328,30 @@ export function AdminCartSettings() {
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
     getCartConfig().then(setForm).catch(() => {})
+    mutate("cart-config")
+  }
+
+  const toggleLocker = async () => {
+    if (!form || lockerSaving) return
+    const next = form.lockerEnabled === false
+    setForm({ ...form, lockerEnabled: next })
+    setLockerSaving(true)
+    setError(null)
+    try {
+      const res = await setLockerEnabled(next)
+      if (!res.ok) {
+        setForm((f) => (f ? { ...f, lockerEnabled: !next } : f))
+        setError(res.error ?? "Le réglage n'a pas été enregistré.")
+        return
+      }
+      setForm((f) => (f ? { ...f, lockerEnabled: res.lockerEnabled } : f))
+      mutate("cart-config")
+    } catch {
+      setForm((f) => (f ? { ...f, lockerEnabled: !next } : f))
+      setError("Le réglage n'a pas été enregistré. Réessaie.")
+    } finally {
+      setLockerSaving(false)
+    }
   }
 
   if (!form) {
@@ -356,31 +383,38 @@ export function AdminCartSettings() {
             Envoi colis (Locker)
           </legend>
           <p className="text-xs text-muted-foreground">
-            Coupe temporairement le locker au checkout et dans Livraison / Meet-up. Les commandes locker déjà passées restent visibles.
+            Coupe tout de suite le locker au checkout et dans Livraison / Meet-up. Pas besoin d&apos;enregistrer les créneaux. Les commandes locker déjà passées restent visibles.
           </p>
           <button
             type="button"
             role="switch"
             aria-checked={form.lockerEnabled !== false}
-            onClick={() => setForm({ ...form, lockerEnabled: form.lockerEnabled === false })}
-            className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors ${
+            disabled={lockerSaving}
+            onClick={() => void toggleLocker()}
+            className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors disabled:opacity-60 ${
               form.lockerEnabled !== false
                 ? "border-accent/50 bg-accent/15 text-accent"
                 : "border-border bg-background text-muted-foreground"
             }`}
           >
             <span
-              className={`relative h-6 w-11 rounded-full transition-colors ${
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
                 form.lockerEnabled !== false ? "bg-accent" : "bg-muted"
               }`}
             >
               <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                  form.lockerEnabled !== false ? "left-[22px]" : "left-0.5"
+                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  form.lockerEnabled !== false ? "translate-x-5" : "translate-x-0"
                 }`}
               />
             </span>
-            {form.lockerEnabled !== false ? "ON — locker proposé" : "OFF — locker masqué"}
+            {lockerSaving ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : form.lockerEnabled !== false ? (
+              "ON — locker proposé"
+            ) : (
+              "OFF — locker masqué"
+            )}
           </button>
         </fieldset>
 

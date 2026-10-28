@@ -181,7 +181,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
   // Config des créneaux (gérée depuis le panel admin), avec fallback pendant le chargement.
   const { data: cfg } = useSWR("cart-config", () => getCartConfig(), {
     fallbackData: FALLBACK_CONFIG,
-    revalidateOnFocus: false,
+    revalidateOnFocus: true,
   })
   const config = cfg ?? FALLBACK_CONFIG
   const lockerEnabled = config.lockerEnabled !== false

@@ -20,7 +20,7 @@ export function DeliveryInfoModal({ isOpen, onClose }: DeliveryInfoModalProps) {
     revalidateOnFocus: false,
   })
   const { data: cartCfg } = useSWR(isOpen ? "cart-config" : null, () => getCartConfig(), {
-    revalidateOnFocus: false,
+    revalidateOnFocus: true,
   })
   const lockerEnabled = cartCfg?.lockerEnabled !== false
 

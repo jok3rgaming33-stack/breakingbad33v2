@@ -187,6 +187,13 @@ export async function createOrderThread(input: NewOrderInput) {
     const loyaltyDiscount = Math.max(0, Math.trunc(Number(input.loyaltyDiscount) || 0))
     const token = input.customerToken?.trim() || null
 
+    if (isLocker) {
+      const { lockerOrdersOpen } = await import("@/app/actions/settings")
+      if (!(await lockerOrdersOpen())) {
+        return { ok: false as const, error: "Le locker est coupé pour le moment. Choisis une livraison ou un meet-up." }
+      }
+    }
+
     if (input.fulfillment === "livraison") {
       const { assertDeliverySlotAvailable } = await import("@/app/actions/delivery-slots")
       const slotOk = await assertDeliverySlotAvailable(input.scheduledDate, input.scheduledSlot)
@@ -1832,6 +1839,10 @@ export async function changeOrderFulfillment(
   let modeLine = ""
 
   if (input.fulfillment === "locker") {
+    const { lockerOrdersOpen } = await import("@/app/actions/settings")
+    if (!(await lockerOrdersOpen())) {
+      return { ok: false, error: "Le locker est coupé pour le moment." }
+    }
     fee = FEE_LOCKER
     modeLine = `Retrait en Locker Mondial Relay — ${address} (frais ${FEE_LOCKER}€)`
   } else {
@@ -2051,6 +2062,12 @@ export type AdminOrderInput = {
 
 export async function adminCreateOrder(input: AdminOrderInput) {
   if (!input.items.length) return { ok: false as const, error: "Aucun article." }
+  if (input.fulfillment === "locker") {
+    const { lockerOrdersOpen } = await import("@/app/actions/settings")
+    if (!(await lockerOrdersOpen())) {
+      return { ok: false as const, error: "Le locker est coupé pour le moment." }
+    }
+  }
 
   const { computePromoDiscount } = await import("@/lib/promo-calc")
 
