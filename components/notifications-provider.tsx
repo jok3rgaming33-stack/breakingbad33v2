@@ -4,6 +4,7 @@ import { createContext, useContext, useCallback, useEffect, useRef, useState } f
 import { getCustomerThreadsOverview } from "@/app/actions/messaging"
 import { normalizeStatus, statusMeta, type OrderStatusKey } from "@/lib/order-status"
 import { sectionForThreadStatus, type ClientOpenSection } from "@/lib/deep-links"
+import { clientVoiceLabel } from "@/lib/staff-voice"
 
 export type OrderNotification = {
   id: string
@@ -49,10 +50,10 @@ function readJSON<T>(key: string, fallback: T): T {
   }
 }
 
-function labelFor(status: string, kind: OrderNotification["kind"]): string {
+function labelFor(status: string, kind: OrderNotification["kind"], voice?: string | null): string {
   if (kind === "broadcast") return "Nouvelle notification"
   if (kind === "trk") return "Token de suivi Locker — à sauvegarder"
-  if (kind === "message") return "Nouveau message du vendeur"
+  if (kind === "message") return `Nouveau message de ${clientVoiceLabel(voice)}`
   return statusMeta(normalizeStatus(status)).label
 }
 
@@ -82,12 +83,13 @@ export function NotificationsProvider({
 
   const poll = useCallback(async () => {
     if (!pseudo || !token) return
-    let threads: Array<{ id: number; status: string; vendorCount: number }> = []
+    let threads: Array<{ id: number; status: string; vendorCount: number; lastVoice?: string | null }> = []
     try {
       threads = (await getCustomerThreadsOverview(token)) as Array<{
         id: number
         status: string
         vendorCount: number
+        lastVoice?: string | null
       }>
     } catch {
       return
@@ -144,7 +146,7 @@ export function NotificationsProvider({
             kind: "message",
             status: current,
             rawStatus,
-            label: labelFor(rawStatus, "message"),
+            label: labelFor(rawStatus, "message", t.lastVoice),
             createdAt: Date.now(),
             read: false,
             openTarget,
@@ -179,7 +181,7 @@ export function NotificationsProvider({
           label:
             rawStatus === "notification"
               ? labelFor(rawStatus, "broadcast")
-              : labelFor(rawStatus, "message"),
+              : labelFor(rawStatus, "message", t.lastVoice),
           createdAt: Date.now(),
           read: false,
           openTarget,

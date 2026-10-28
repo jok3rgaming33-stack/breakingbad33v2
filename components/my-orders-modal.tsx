@@ -17,6 +17,7 @@ import { splitThreadForTracking, type OrderTrackingState } from "@/lib/order-tim
 import { OrderTrackingCard } from "@/components/order-tracking-card"
 import { MeetupNavCard } from "@/components/meetup-nav-card"
 import { MessageBody } from "@/components/message-body"
+import { clientVoiceLabel } from "@/lib/staff-voice"
 import { BlobMedia } from "@/components/blob-media"
 import { ProductRatingModal } from "@/components/product-rating-modal"
 import {
@@ -87,6 +88,7 @@ type Message = {
   sender: string
   body: string
   createdAt: Date | string
+  staffRole?: string | null
 }
 
 // Vérifie si un fil est un message TRK à auto-supprimer après lecture
@@ -649,7 +651,7 @@ export function MyOrdersModal({
                           className={`max-w-[85%] rounded-2xl p-3 text-sm ${isClient ? "self-end bg-accent text-accent-foreground" : "self-start border border-border bg-background/60 text-foreground"}`}
                         >
                           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                            {isClient ? "Vous" : "Le Chimiste"} · {formatMessageTime(m.createdAt)}
+                            {isClient ? "Vous" : clientVoiceLabel(m.staffRole)} · {formatMessageTime(m.createdAt)}
                           </div>
                           <MessageBody
                             body={m.body}

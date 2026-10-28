@@ -15,7 +15,7 @@ import { getPaysafecardConfig } from "@/app/actions/settings"
 import { PAYSAFECARD_OFFICIAL } from "@/lib/paysafecard"
 import { adminThreadUrl, clientThreadUrl, sectionForThreadStatus } from "@/lib/deep-links"
 import { orderEarnsReviewSpin, ratingInviteBody, ratingInvitePushBody } from "@/lib/review-spin"
-import { asStaffVoice } from "@/lib/staff-voice"
+import { asStaffVoice, clientVoiceLabel } from "@/lib/staff-voice"
 
 export type LockerPaymentMethod = "xmr" | "paysafecard"
 
@@ -692,7 +692,7 @@ export async function getThreadForToken(id: number, customerToken: string) {
       .from(threadMessages)
       .where(eq(threadMessages.threadId, id))
       .orderBy(threadMessages.createdAt)
-    return { thread, messages: messages.map(({ staffRole: _role, ...message }) => message) }
+    return { thread, messages }
   } catch (e) {
     console.error("[messaging] getThreadForToken messages:", e)
     const raw = await db.execute(sql`
@@ -773,7 +773,7 @@ export async function addMessage(
     if (sender === "vendeur") {
       const section = sectionForThreadStatus(thread.status)
       await notifyCustomer(thread.customerToken, {
-        title: "Nouveau message du vendeur",
+        title: `Nouveau message de ${clientVoiceLabel(role)}`,
         body: preview,
         url: clientThreadUrl(section, threadId),
         tag: `thread-${threadId}`,
@@ -1376,11 +1376,18 @@ export async function getAdminBadgeCounts(): Promise<{
 export async function getCustomerThreadsOverview(customerToken: string) {
   const token = customerToken?.trim()
   if (!token) return []
+  await ensureOrderSchema()
   const rows = await db
     .select({
       id: orderThreads.id,
       status: orderThreads.status,
       vendorCount: sql<number>`count(*) filter (where ${threadMessages.sender} = 'vendeur')::int`,
+      lastVoice: sql<string | null>`(
+        SELECT m.staff_role FROM thread_messages m
+        WHERE m.thread_id = ${orderThreads.id} AND m.sender = 'vendeur'
+        ORDER BY m.created_at DESC
+        LIMIT 1
+      )`,
     })
     .from(orderThreads)
     .leftJoin(threadMessages, eq(threadMessages.threadId, orderThreads.id))
@@ -1416,7 +1423,7 @@ export async function getThreadByTrackingToken(trackingToken: string) {
     tracking: thread.tracking ?? {},
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
-    messages: statusMessages.map(({ staffRole: _role, ...message }) => message),
+    messages: statusMessages,
   }
 }
 

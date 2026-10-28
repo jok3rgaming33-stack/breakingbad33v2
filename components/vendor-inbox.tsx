@@ -1247,7 +1247,7 @@ export function VendorInbox({
                     {v.label}
                   </button>
                 ))}
-                <span className="text-[10px] text-muted-foreground">Le client voit toujours Le chimiste.</span>
+                <span className="text-[10px] text-muted-foreground">Le client voit ce nom.</span>
               </div>
               <input
                 ref={fileInputRef}

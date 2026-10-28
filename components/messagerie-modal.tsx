@@ -12,6 +12,7 @@ import {
 } from "@/app/actions/messaging"
 import { statusMeta, isDiscussionStatus, isMessagingThreadStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
+import { clientVoiceLabel } from "@/lib/staff-voice"
 import { ProductRatingModal } from "@/components/product-rating-modal"
 import {
   formatMessageTime,
@@ -72,6 +73,7 @@ type Message = {
   sender: string
   body: string
   createdAt: Date | string
+  staffRole?: string | null
 }
 
 export function MessagerieModal({
@@ -622,7 +624,7 @@ export function MessagerieModal({
                         }`}
                       >
                         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                          {isClient ? "Vous" : "Le chimiste"} · {formatMessageTime(m.createdAt)}
+                          {isClient ? "Vous" : clientVoiceLabel(m.staffRole)} · {formatMessageTime(m.createdAt)}
                         </div>
                         <MessageBody
                           body={m.body}
