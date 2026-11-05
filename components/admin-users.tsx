@@ -29,7 +29,6 @@ import {
   Newspaper,
 } from "lucide-react"
 import { AdminUser360 } from "@/components/admin-user-360"
-import { computeLoyaltyPoints } from "@/lib/loyalty"
 import { createGeneralInquiryThread } from "@/app/actions/messaging"
 import { grantRestoreAccess } from "@/app/actions/restore-access"
 import { validateAndPurge, adminForceValidateKyc } from "@/app/actions/verification"
@@ -356,9 +355,8 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const [spinBusyId, setSpinBusyId] = useState<number | null>(null)
   const [spinNote, setSpinNote] = useState<string | null>(null)
 
-  // Aligné sur getAccount : points = CA livré + ajustement − dépensés
-  const totalPoints = (u: AdminUserRow) =>
-    Math.max(0, computeLoyaltyPoints(u.totalSpent) + u.loyaltyAdjustment - (u.loyaltySpent ?? 0))
+  // Même solde que la connexion et l'espace fidélité.
+  const totalPoints = (u: AdminUserRow) => u.points ?? 0
 
   const copyToken = async (u: AdminUserRow) => {
     let ok = false
@@ -414,14 +412,22 @@ export function AdminUsers({ initialUsers }: { initialUsers: AdminUserRow[] }) {
   const handleSavePoints = async (u: AdminUserRow) => {
     const desired = Number.parseInt(editValue, 10)
     if (!Number.isFinite(desired) || desired < 0) return
-    // desired = CA_livré + adjustment − spent  →  adjustment = desired − CA_livré + spent
-    const adjustment = desired - computeLoyaltyPoints(u.totalSpent) + (u.loyaltySpent ?? 0)
+    // desired = base + adjustment − spent  →  adjustment = desired − base + spent
+    const adjustment = desired - (u.pointsBase ?? 0) + (u.loyaltySpent ?? 0)
     setSavingId(u.id)
     try {
       const res = await setLoyaltyAdjustment(u.id, adjustment)
       if (res.ok && "loyaltyAdjustment" in res) {
         setUsers((prev) =>
-          prev.map((x) => (x.id === u.id ? { ...x, loyaltyAdjustment: res.loyaltyAdjustment } : x)),
+          prev.map((x) =>
+            x.id === u.id
+              ? {
+                  ...x,
+                  loyaltyAdjustment: res.loyaltyAdjustment,
+                  points: Math.max(0, (x.pointsBase ?? 0) + res.loyaltyAdjustment - (x.loyaltySpent ?? 0)),
+                }
+              : x,
+          ),
         )
         setEditingId(null)
       }

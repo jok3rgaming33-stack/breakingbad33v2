@@ -25,12 +25,13 @@ export function replayLoyaltyOrders(
     loyaltyPointsAwarded?: number | null
   }[],
   peakTierId?: string | null,
-): { points: number; qualifyingSpend: number; netSpend: number } {
+): { points: number; qualifyingSpend: number; netSpend: number; perOrder: { id: number; points: number }[] } {
   const sorted = [...livreeOrders].sort((a, b) => a.id - b.id)
   let points = 0
   let qualifyingSpend = 0
   let netSpend = 0
   let runningQualifying = 0
+  const perOrder: { id: number; points: number }[] = []
   for (const o of sorted) {
     const net = Math.max(0, o.total ?? 0)
     const disc = Math.max(0, o.loyaltyDiscount ?? 0)
@@ -41,11 +42,32 @@ export function replayLoyaltyOrders(
         ? Math.max(0, o.loyaltyPointsAwarded)
         : computeTierPoints(net, before.tier.pointsMultiplier)
     points += awarded
+    perOrder.push({ id: o.id, points: awarded })
     netSpend += net
     qualifyingSpend += gross
     runningQualifying += gross
   }
-  return { points, qualifyingSpend, netSpend }
+  return { points, qualifyingSpend, netSpend, perOrder }
+}
+
+/** Solde utilisable : commandes livrées (multi) + machine + ajustement − dépensé. */
+export function spendableLoyaltyPoints(opts: {
+  replayPoints: number
+  adjustment?: number | null
+  spent?: number | null
+  machinePoints?: number | null
+}): number {
+  const replayPoints = Number.isFinite(opts.replayPoints) ? opts.replayPoints : 0
+  const adjustment = Number(opts.adjustment ?? 0)
+  const spent = Number(opts.spent ?? 0)
+  const machine = Number(opts.machinePoints ?? 0)
+  return Math.max(
+    0,
+    replayPoints +
+      (Number.isFinite(adjustment) ? adjustment : 0) -
+      (Number.isFinite(spent) ? spent : 0) +
+      (Number.isFinite(machine) ? machine : 0),
+  )
 }
 
 // ─── Récompenses (bons) ───────────────────────────────────────────────────────

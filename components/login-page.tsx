@@ -742,7 +742,7 @@ export function LoginPage({
                 <div className="text-4xl font-bold text-accent">
                   {stats ? stats.points : <Loader2 className="mx-auto h-8 w-8 animate-spin" aria-hidden="true" />}
                 </div>
-                <div className="mt-2 text-sm text-muted-foreground">Points fidélité</div>
+                <div className="mt-2 text-sm text-muted-foreground">Solde points</div>
               </div>
               <div className="rounded-2xl bg-background/40 p-6">
                 <div className="text-4xl font-bold text-primary">

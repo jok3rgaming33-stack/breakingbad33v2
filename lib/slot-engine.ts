@@ -191,6 +191,14 @@ async function verifyLines(lines: SlotLine[]): Promise<{ euros: number; ok: bool
   return { euros, ok: true }
 }
 
+/** Euros produits revérifiés, ou null si une ligne ne correspond pas au catalogue. */
+export async function basketMerchandiseEuros(
+  lines: { productId?: number; title: string; qty: number; price: number }[],
+): Promise<number | null> {
+  const verified = await verifyLines(lines)
+  return verified.ok ? verified.euros : null
+}
+
 export async function sumSlotPoints(userToken: string): Promise<number> {
   const t = userToken?.trim()
   if (!t) return 0
@@ -318,6 +326,8 @@ export async function prepareSlotSnapshot(opts: {
       convertToPoints: boolean
       voucherId: number | null
       note: string | null
+      merchandiseEuros: number | null
+      promoOff: number
     }
   | { ok: false; error: string }
 > {
@@ -335,6 +345,8 @@ export async function prepareSlotSnapshot(opts: {
       convertToPoints: false,
       voucherId: null,
       note: null,
+      merchandiseEuros: null,
+      promoOff: 0,
     }
   }
 
@@ -423,6 +435,8 @@ export async function prepareSlotSnapshot(opts: {
     convertToPoints,
     voucherId,
     note,
+    merchandiseEuros: verified.euros,
+    promoOff,
   }
 }
 

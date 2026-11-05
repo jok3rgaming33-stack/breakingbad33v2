@@ -217,7 +217,7 @@ export function UserDashboardModal({ isOpen, onClose, userData, onLogout }: User
         <div className="mb-6 grid grid-cols-3 gap-4 text-center">
           <div className="rounded-2xl bg-background/40 p-4">
             <div className="text-2xl font-bold text-accent">{stats ? stats.points : spinner}</div>
-            <div className="mt-1 text-xs text-muted-foreground">Points</div>
+            <div className="mt-1 text-xs text-muted-foreground">Solde points</div>
           </div>
           <div className="rounded-2xl bg-background/40 p-4">
             <div className="text-2xl font-bold text-primary">{stats ? stats.active : spinner}</div>

@@ -171,10 +171,16 @@ export async function getUser360(userId: number): Promise<GetUser360Result> {
       else activeOrders += 1
     }
 
-    const points = Math.max(
+    let points = Math.max(
       0,
       pointsFromOrders + (u.loyaltyAdjustment ?? 0) - (u.loyaltySpent ?? 0),
     )
+    try {
+      const { getCustomerStats } = await import("@/app/actions/account")
+      points = (await getCustomerStats(u.token)).points
+    } catch (e) {
+      console.error("[user-360] solde:", e)
+    }
     const tier = resolveEffectiveTier(totalSpentDelivered, (u.peakTier as LoyaltyTierId) || "bronze")
 
     // Secondaires : une erreur ne doit pas casser toute la fiche

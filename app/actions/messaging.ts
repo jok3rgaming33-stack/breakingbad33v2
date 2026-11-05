@@ -5,8 +5,19 @@ import { orderThreads, threadMessages, products, users } from "@/lib/db/schema"
 import { and, desc, eq, gt, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { normalizeStatus, statusMeta } from "@/lib/order-status"
-import { computeLoyaltyPoints, isPremiumTier, PLATINUM_FREE_DELIVERY_POINTS_COST } from "@/lib/loyalty"
-import { getCustomerStats } from "@/app/actions/account"
+import {
+  computeLoyaltyPoints,
+  PLATINUM_FREE_DELIVERY_MIN,
+  PLATINUM_FREE_DELIVERY_POINTS_COST,
+} from "@/lib/loyalty"
+import { debitPlatinumFreeDelivery, getCustomerStats, refundPlatinumFreeDelivery } from "@/app/actions/account"
+import { isAdminAuthenticated } from "@/app/actions/admin-auth"
+import {
+  calcDeliveryFee,
+  DELIVERY_ORIGIN,
+  haversineKm,
+  matchingFreeDeliveryTier,
+} from "@/lib/delivery-fee"
 // computeLoyaltyPoints encore utilisé ailleurs ; award multi via account
 import { notifyCustomer, notifyVendor } from "@/lib/push"
 import { adjustStock } from "@/app/actions/products"
@@ -176,6 +187,12 @@ async function sendTrkTokenMessage(opts: {
 // Crée un fil de commande + génère le token de suivi + envoie le message initial au client.
 // Ne lève plus d'exception vers le client : retourne { ok: false, error } en cas d'échec.
 export async function createOrderThread(input: NewOrderInput) {
+  let debitedUserId: number | null = null
+  const releaseDebit = async () => {
+    const id = debitedUserId
+    debitedUserId = null
+    if (id != null) await refundPlatinumFreeDelivery(id)
+  }
   try {
     await ensureOrderSchema()
 
@@ -202,29 +219,62 @@ export async function createOrderThread(input: NewOrderInput) {
       if (!slotOk.ok) return slotOk
     }
 
-    // Platine hors mois offert : débit 150 pts pour livraison gratuite
+    // Livraison client : les frais ne tombent à 0 que pour un seuil, le mois Platine,
+    // ou un débit de 150 pts dont le solde est revérifié sous verrou.
     let redeemedFreeDelivery = false
-    if (input.redeemFreeDeliveryPoints && token && input.fulfillment === "livraison") {
-      const stats = await getCustomerStats(token)
-      if (
-        isPremiumTier(stats.tierId) &&
-        !stats.freeDeliveryActive &&
-        stats.points >= PLATINUM_FREE_DELIVERY_POINTS_COST
-      ) {
-        const [u] = await db.select().from(users).where(eq(users.token, token)).limit(1)
-        if (u) {
-          await db
-            .update(users)
-            .set({ loyaltySpent: (u.loyaltySpent ?? 0) + PLATINUM_FREE_DELIVERY_POINTS_COST })
-            .where(eq(users.id, u.id))
-          redeemedFreeDelivery = true
-        }
-      } else {
-        return {
-          ok: false as const,
-          error: "Solde insuffisant ou palier Platine / mois offert non éligible pour la livraison à 150 pts.",
+    let serverDeliveryFree = false
+    let enforcedFee: number | null = null
+    const adminOrder = await isAdminAuthenticated()
+    if (input.fulfillment === "livraison" && !adminOrder) {
+      if (!input.slotLines?.length) {
+        return { ok: false as const, error: "Panier impossible à vérifier." }
+      }
+      const { basketMerchandiseEuros } = await import("@/lib/slot-engine")
+      const merchandise = await basketMerchandiseEuros(input.slotLines)
+      if (merchandise == null) {
+        return { ok: false as const, error: "Panier impossible à vérifier." }
+      }
+      const lat = Number(input.lat)
+      const lng = Number(input.lng)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return { ok: false as const, error: "Adresse de livraison incomplète." }
+      }
+      const km = haversineKm(DELIVERY_ORIGIN.lat, DELIVERY_ORIGIN.lng, lat, lng)
+      let monthFree = false
+      if (token) {
+        try {
+          const stats = await getCustomerStats(token)
+          monthFree =
+            !!stats.freeDeliveryActive &&
+            merchandise >= (stats.freeDeliveryMinOrder || PLATINUM_FREE_DELIVERY_MIN)
+        } catch {
+          monthFree = false
         }
       }
+      const thresholdFree = matchingFreeDeliveryTier(merchandise, km) != null
+      if (input.redeemFreeDeliveryPoints && !monthFree && !thresholdFree) {
+        if (!token) {
+          return { ok: false as const, error: "Connecte-toi pour utiliser tes points." }
+        }
+        const debit = await debitPlatinumFreeDelivery(token)
+        if (!debit.ok) return debit
+        debitedUserId = debit.userId
+        redeemedFreeDelivery = true
+      }
+      serverDeliveryFree = monthFree || thresholdFree || redeemedFreeDelivery
+      enforcedFee = serverDeliveryFree ? 0 : calcDeliveryFee(km)
+    } else if (input.redeemFreeDeliveryPoints) {
+      if (!token || input.fulfillment !== "livraison") {
+        return {
+          ok: false as const,
+          error: "Les points ne peuvent offrir que la livraison à domicile.",
+        }
+      }
+      const debit = await debitPlatinumFreeDelivery(token)
+      if (!debit.ok) return debit
+      debitedUserId = debit.userId
+      redeemedFreeDelivery = true
+      serverDeliveryFree = true
     }
 
     let orderTotal = Math.max(0, Math.trunc(Number(input.total) || 0))
@@ -255,9 +305,23 @@ export async function createOrderThread(input: NewOrderInput) {
         lat: input.lat,
         lng: input.lng,
         freeDeliveryActive,
-        deliveryAlreadyFree: !!input.deliveryAlreadyFree,
+        deliveryAlreadyFree: enforcedFee != null ? serverDeliveryFree : !!input.deliveryAlreadyFree,
       })
-      if (!snap.ok) return { ok: false as const, error: snap.error }
+      if (!snap.ok) {
+        await releaseDebit()
+        return { ok: false as const, error: snap.error }
+      }
+      if (enforcedFee != null) {
+        if (snap.merchandiseEuros == null) {
+          await releaseDebit()
+          return { ok: false as const, error: "Panier impossible à vérifier." }
+        }
+        const expected = Math.max(0, snap.merchandiseEuros - snap.promoOff + enforcedFee)
+        if (Math.trunc(Number(input.total) || 0) < expected) {
+          await releaseDebit()
+          return { ok: false as const, error: "Le total ne couvre pas les frais de livraison." }
+        }
+      }
       slotProductsCents = snap.productsCents
       slotBlock = snap.block
       machineDiscount = snap.discount
@@ -306,6 +370,7 @@ export async function createOrderThread(input: NewOrderInput) {
       })
       if (!committed.ok) {
         await db.delete(orderThreads).where(eq(orderThreads.id, thread.id))
+        await releaseDebit()
         return { ok: false as const, error: "Ce bon vient d'être utilisé. Retire-le et réessaie." }
       }
     }
@@ -476,6 +541,7 @@ export async function createOrderThread(input: NewOrderInput) {
       paymentMethod,
     }
   } catch (e) {
+    await releaseDebit()
     console.error("[createOrderThread] FATAL:", e)
     return {
       ok: false as const,

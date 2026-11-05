@@ -1,11 +1,11 @@
 "use server"
 
-import { db } from "@/lib/db"
+import { db, pool } from "@/lib/db"
 import { loyaltyCodes, orderThreads, users } from "@/lib/db/schema"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
-import { computeLoyaltyPoints } from "@/lib/loyalty"
+import { replayLoyaltyOrders, spendableLoyaltyPoints } from "@/lib/loyalty"
 import { normalizeStatus } from "@/lib/order-status"
-import { desc, eq, inArray, sql } from "drizzle-orm"
+import { desc, eq, inArray } from "drizzle-orm"
 
 export type LoyaltyOrderLine = {
   orderId: number
@@ -34,18 +34,20 @@ export type LoyaltyClientRow = {
   pseudo: string
   token: string
   nickname: string | null
-  /** Points gagnés sur commandes livrées (1€ = 1 pt) */
+  /** Points des commandes livrées, avec le multiplicateur de palier */
   earned: number
+  /** Points machine inclus dans le solde client */
+  machinePoints: number
   loyaltyAdjustment: number
   loyaltySpent: number
-  /** Solde affiché client : max(0, earned + adj - spent) */
+  /** Solde affiché à la connexion et dans l'espace fidélité */
   balance: number
   /** Somme des pointsCost des codes générés */
   codesPointsCost: number
   codesCount: number
   codesUsed: number
   codesUnused: number
-  /** true si loyaltySpent === somme des codes (débit OK) */
+  /** true si loyaltySpent couvre au moins la somme des codes (le surplus = livraisons 150 pts) */
   debitOk: boolean
   /** true si balance cohérent avec la formule */
   balanceOk: boolean
@@ -106,6 +108,7 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
       nickname: users.nickname,
       loyaltyAdjustment: users.loyaltyAdjustment,
       loyaltySpent: users.loyaltySpent,
+      peakTier: users.peakTier,
     })
     .from(users)
     .orderBy(desc(users.createdAt))
@@ -124,6 +127,8 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
             fulfillment: orderThreads.fulfillment,
             summary: orderThreads.summary,
             updatedAt: orderThreads.updatedAt,
+            loyaltyDiscount: orderThreads.loyaltyDiscount,
+            loyaltyPointsAwarded: orderThreads.loyaltyPointsAwarded,
           })
           .from(orderThreads)
           .where(
@@ -157,43 +162,75 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
     return line
   })
 
-  const ordersByToken = new Map<string, LoyaltyOrderLine[]>()
+  const rawByToken = new Map<string, typeof orders>()
   for (const o of orders) {
-    if (!o.customerToken) continue
-    if (normalizeStatus(o.status) !== "livree") continue
-    const pts = computeLoyaltyPoints(o.total ?? 0)
-    if (pts <= 0 && (o.total ?? 0) <= 0) continue
-    const line: LoyaltyOrderLine = {
-      orderId: o.id,
-      total: o.total ?? 0,
-      points: pts,
-      status: o.status,
-      fulfillment: o.fulfillment,
-      deliveredAt: o.updatedAt,
-      summary: o.summary,
-    }
-    const list = ordersByToken.get(o.customerToken) ?? []
-    list.push(line)
-    ordersByToken.set(o.customerToken, list)
+    if (!o.customerToken || normalizeStatus(o.status) !== "livree") continue
+    const list = rawByToken.get(o.customerToken) ?? []
+    list.push(o)
+    rawByToken.set(o.customerToken, list)
+  }
+
+  let machineByToken = new Map<string, number>()
+  try {
+    const machine = await pool.query(
+      `SELECT user_token, COALESCE(SUM(points), 0)::int AS s
+       FROM slot_point_entries WHERE test_mode = false GROUP BY user_token`,
+    )
+    machineByToken = new Map(machine.rows.map((row) => [String(row.user_token), Number(row.s ?? 0)]))
+  } catch (e) {
+    console.error("[loyalty-admin] machine points:", e)
   }
 
   const clients: LoyaltyClientRow[] = []
 
   for (const u of allUsers) {
-    const orderLines = (ordersByToken.get(u.token) ?? []).sort((a, b) => b.orderId - a.orderId)
+    const raw = rawByToken.get(u.token) ?? []
+    const replay = replayLoyaltyOrders(
+      raw.map((o) => ({
+        id: o.id,
+        total: o.total,
+        loyaltyDiscount: o.loyaltyDiscount,
+        loyaltyPointsAwarded: o.loyaltyPointsAwarded,
+      })),
+      u.peakTier,
+    )
+    const pointsById = new Map(replay.perOrder.map((p) => [p.id, p.points]))
+    const orderLines = raw
+      .map((o) => ({
+        orderId: o.id,
+        total: o.total ?? 0,
+        points: pointsById.get(o.id) ?? 0,
+        status: o.status,
+        fulfillment: o.fulfillment,
+        deliveredAt: o.updatedAt,
+        summary: o.summary,
+      }))
+      .filter((l) => l.points > 0 || l.total > 0)
+      .sort((a, b) => b.orderId - a.orderId)
     const codeLines = codesByToken.get(u.token) ?? []
-    const earned = orderLines.reduce((s, l) => s + l.points, 0)
+    const earned = replay.points
+    const machinePoints = machineByToken.get(u.token) ?? 0
     const adj = u.loyaltyAdjustment ?? 0
     const spent = u.loyaltySpent ?? 0
-    const balance = Math.max(0, earned + adj - spent)
+    const balance = spendableLoyaltyPoints({
+      replayPoints: earned,
+      adjustment: adj,
+      spent,
+      machinePoints,
+    })
     const codesPointsCost = codeLines.reduce((s, c) => s + (c.pointsCost || 0), 0)
     const codesUsed = codeLines.filter((c) => c.used).length
     const codesUnused = codeLines.length - codesUsed
-    const debitOk = spent === codesPointsCost
-    const balanceOk = balance === Math.max(0, earned + adj - spent)
+    const debitOk = spent >= codesPointsCost
+    const balanceOk = balance === spendableLoyaltyPoints({
+      replayPoints: earned,
+      adjustment: adj,
+      spent,
+      machinePoints,
+    })
 
     // N'inclure que clients avec activité fidélité (évite liste vide de bruit)
-    if (earned === 0 && adj === 0 && spent === 0 && codeLines.length === 0) continue
+    if (earned === 0 && machinePoints === 0 && adj === 0 && spent === 0 && codeLines.length === 0) continue
 
     clients.push({
       userId: u.id,
@@ -201,6 +238,7 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
       token: u.token,
       nickname: u.nickname,
       earned,
+      machinePoints,
       loyaltyAdjustment: adj,
       loyaltySpent: spent,
       balance,
@@ -252,6 +290,13 @@ export async function repairLoyaltySpent(userId: number) {
 
   const codes = await db.select().from(loyaltyCodes).where(eq(loyaltyCodes.userToken, u.token))
   const sum = codes.reduce((s, c) => s + (c.pointsCost || 0), 0)
+  const spent = u.loyaltySpent ?? 0
+  if (spent >= sum) {
+    return {
+      ok: false as const,
+      error: "Rien à réparer : les codes sont déjà couverts. Le surplus vient des livraisons à 150 pts.",
+    }
+  }
 
   await db.update(users).set({ loyaltySpent: sum }).where(eq(users.id, userId))
 

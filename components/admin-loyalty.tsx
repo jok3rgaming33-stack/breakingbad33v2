@@ -317,10 +317,11 @@ export function AdminLoyalty() {
       {/* Formule */}
       <div className="rounded-2xl border border-border bg-secondary/30 px-4 py-3 text-xs text-muted-foreground leading-relaxed">
         <strong className="text-foreground">Formule solde : </strong>
-        points commandes <span className="font-mono text-foreground">livrées</span> (1€ = 1 pt) + ajustement
-        admin − <span className="font-mono text-foreground">loyalty_spent</span>. À chaque conversion en bon
-        (BB33-…), les points sont débités immédiatement (<span className="font-mono">pointsCost</span>). Le
-        contrôle vérifie que <span className="font-mono">loyalty_spent = Σ pointsCost</span> des codes générés.
+        points des commandes <span className="font-mono text-foreground">livrées</span> (avec le multiplicateur
+        du palier) + points machine + ajustement admin −{" "}
+        <span className="font-mono text-foreground">loyalty_spent</span>. C&apos;est le solde affiché à la
+        connexion et dans l&apos;espace fidélité. Les bons et les livraisons à 150 pts augmentent le débit.
+        Le contrôle signale seulement un débit inférieur à la somme des codes.
       </div>
 
       {/* Tabs + search */}
@@ -472,15 +473,15 @@ function ClientsTable({
                 <div className="rounded-xl border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground">
                   <Coins className="mb-1 inline h-3.5 w-3.5 text-accent" />{" "}
                   <span className="font-mono text-foreground">
-                    {c.earned} + ({c.loyaltyAdjustment}) − {c.loyaltySpent} = {c.balance}
+                    {c.earned} + {c.machinePoints} + ({c.loyaltyAdjustment}) − {c.loyaltySpent} = {c.balance}
                   </span>
                   {" · "}
                   Codes : {c.codesCount} ({c.codesUsed} utilisés / {c.codesUnused} en stock) · Σ pointsCost ={" "}
                   <span className="font-mono text-foreground">{c.codesPointsCost}</span>
                   {!c.debitOk && (
                     <span className="mt-1 block text-amber-400">
-                      ⚠ loyalty_spent ({c.loyaltySpent}) ≠ somme des codes ({c.codesPointsCost}). Les points
-                      n&apos;ont peut‑être pas été débités correctement à la conversion.
+                      ⚠ Débit ({c.loyaltySpent}) inférieur à la somme des codes ({c.codesPointsCost}). Une
+                      conversion n&apos;a peut-être pas été débitée.
                     </span>
                   )}
                 </div>

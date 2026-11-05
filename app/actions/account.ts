@@ -1,6 +1,6 @@
 "use server"
 
-import { db } from "@/lib/db"
+import { db, pool } from "@/lib/db"
 import {
   users, orderThreads, threadMessages, accountCreations,
   userVerifications, loyaltyCodes, promoUsages, userNewsReads,
@@ -15,6 +15,7 @@ import {
   computeTierPoints,
   resolveEffectiveTier,
   replayLoyaltyOrders,
+  spendableLoyaltyPoints,
   maxTierId,
   buildReferralCode,
   normalizeReferralCode,
@@ -650,7 +651,12 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
   } catch {
     machinePoints = 0
   }
-  let points = Math.max(0, replay.points + (u?.loyaltyAdjustment ?? 0) - (u?.loyaltySpent ?? 0) + machinePoints)
+  const points = spendableLoyaltyPoints({
+    replayPoints: replay.points,
+    adjustment: u?.loyaltyAdjustment,
+    spent: u?.loyaltySpent,
+    machinePoints,
+  })
 
   // Code parrain : toujours généré / renvoyé
   let referralCode = u?.referralCode?.trim() || null
@@ -736,6 +742,121 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
     spentToNext: resolved.spentToNext,
     progress: resolved.progress,
     voucherPolicyHint: VOUCHER_POLICY_HINT,
+  }
+}
+
+const FREE_DELIVERY_DEBIT_ERROR =
+  "Solde insuffisant pour offrir la livraison (150 points)."
+
+/**
+ * Débite 150 pts Platine pour une livraison offerte.
+ * Le solde est recalculé sous verrou, au moment de l'écriture :
+ * une deuxième commande ne peut pas réutiliser les mêmes points.
+ */
+export async function debitPlatinumFreeDelivery(token: string): Promise<
+  { ok: true; userId: number } | { ok: false; error: string }
+> {
+  const t = token?.trim()
+  if (!t) return { ok: false, error: "Connecte-toi pour utiliser tes points." }
+  const cost = PLATINUM_FREE_DELIVERY_POINTS_COST
+  await ensureFeatureSchema()
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    const locked = await client.query(
+      `SELECT id, loyalty_adjustment, loyalty_spent, peak_tier, free_delivery_until
+       FROM users WHERE token = $1 FOR UPDATE`,
+      [t],
+    )
+    const u = locked.rows[0]
+    if (!u) {
+      await client.query("ROLLBACK")
+      return { ok: false, error: "Compte introuvable pour débiter les points." }
+    }
+
+    const orders = await client.query(
+      `SELECT id, total, status, loyalty_discount, loyalty_points_awarded
+       FROM order_threads WHERE customer_token = $1`,
+      [t],
+    )
+    const livree: {
+      id: number
+      total: number | null
+      loyaltyDiscount?: number | null
+      loyaltyPointsAwarded?: number | null
+    }[] = []
+    for (const row of orders.rows) {
+      if (normalizeStatus(row.status) !== "livree") continue
+      livree.push({
+        id: Number(row.id),
+        total: row.total == null ? 0 : Number(row.total),
+        loyaltyDiscount: Number(row.loyalty_discount ?? 0),
+        loyaltyPointsAwarded:
+          row.loyalty_points_awarded == null ? null : Number(row.loyalty_points_awarded),
+      })
+    }
+    const replay = replayLoyaltyOrders(livree, u.peak_tier)
+    const machine = await client.query(
+      `SELECT COALESCE(SUM(points), 0)::int AS s
+       FROM slot_point_entries WHERE user_token = $1 AND test_mode = false`,
+      [t],
+    )
+    const machinePoints = Number(machine.rows[0]?.s ?? 0)
+    const spent = Number(u.loyalty_spent ?? 0)
+    const adjustment = Number(u.loyalty_adjustment ?? 0)
+    const points = spendableLoyaltyPoints({
+      replayPoints: replay.points,
+      adjustment,
+      spent,
+      machinePoints,
+    })
+    const resolved = resolveEffectiveTier(replay.qualifyingSpend, String(u.peak_tier || "bronze"))
+    const freeUntil = u.free_delivery_until ? new Date(u.free_delivery_until) : null
+    const freeActive =
+      isPremiumTier(resolved.tier.id) && !!freeUntil && freeUntil.getTime() > Date.now()
+    if (!isPremiumTier(resolved.tier.id) || freeActive || points < cost) {
+      await client.query("ROLLBACK")
+      return { ok: false, error: FREE_DELIVERY_DEBIT_ERROR }
+    }
+
+    const earned = replay.points + machinePoints
+    const updated = await client.query(
+      `UPDATE users
+       SET loyalty_spent = loyalty_spent + $2
+       WHERE id = $1
+         AND ($3 + COALESCE(loyalty_adjustment, 0) - loyalty_spent) >= $2
+       RETURNING id`,
+      [u.id, cost, earned],
+    )
+    if (updated.rowCount !== 1) {
+      await client.query("ROLLBACK")
+      return { ok: false, error: FREE_DELIVERY_DEBIT_ERROR }
+    }
+    await client.query("COMMIT")
+    return { ok: true, userId: Number(u.id) }
+  } catch (e) {
+    try {
+      await client.query("ROLLBACK")
+    } catch {
+      /* ignore */
+    }
+    console.error("[loyalty] debit livraison", e)
+    return { ok: false, error: "Impossible de vérifier le solde de points. Réessaie." }
+  } finally {
+    client.release()
+  }
+}
+
+/** Rend les 150 pts si la commande n'a pas pu être enregistrée après le débit. */
+export async function refundPlatinumFreeDelivery(userId: number): Promise<void> {
+  if (!Number.isFinite(userId) || userId <= 0) return
+  try {
+    await pool.query(
+      `UPDATE users SET loyalty_spent = GREATEST(0, loyalty_spent - $2) WHERE id = $1`,
+      [userId, PLATINUM_FREE_DELIVERY_POINTS_COST],
+    )
+  } catch (e) {
+    console.error("[loyalty] refund livraison", e)
   }
 }
 
@@ -834,8 +955,12 @@ export type AdminUserRow = {
   /** CA des commandes livrées uniquement (base des points fidélité) */
   totalSpent: number
   loyaltyAdjustment: number
-  /** Points déjà échangés en codes */
+  /** Points déjà échangés (codes + livraisons à 150 pts) */
   loyaltySpent: number
+  /** Solde affiché à la connexion et dans l'espace fidélité */
+  points: number
+  /** replay + points machine, sans ajustement ni débit. Sert à réécrire l'ajustement. */
+  pointsBase: number
   flags: string[]
   // true si un rétablissement d'accès est en attente (le client doit encore définir son mdp)
   mustSetPassword: boolean
@@ -861,6 +986,7 @@ export async function listUsers(): Promise<AdminUserRow[]> {
       createdAt: users.createdAt,
       loyaltyAdjustment: users.loyaltyAdjustment,
       loyaltySpent: users.loyaltySpent,
+      peakTier: users.peakTier,
       flags: users.flags,
       mustSetPassword: users.mustSetPassword,
       // Commandes réelles uniquement (hors discussions / notifs / trk)
@@ -883,6 +1009,7 @@ export async function listUsers(): Promise<AdminUserRow[]> {
       users.createdAt,
       users.loyaltyAdjustment,
       users.loyaltySpent,
+      users.peakTier,
       users.flags,
       users.mustSetPassword,
     )
@@ -911,10 +1038,63 @@ export async function listUsers(): Promise<AdminUserRow[]> {
     console.error("[listUsers] spins:", e)
   }
 
+  const livreeByToken = new Map<
+    string,
+    { id: number; total: number | null; loyaltyDiscount: number; loyaltyPointsAwarded: number | null }[]
+  >()
+  try {
+    const delivered = await db
+      .select({
+        customerToken: orderThreads.customerToken,
+        id: orderThreads.id,
+        total: orderThreads.total,
+        status: orderThreads.status,
+        loyaltyDiscount: orderThreads.loyaltyDiscount,
+        loyaltyPointsAwarded: orderThreads.loyaltyPointsAwarded,
+      })
+      .from(orderThreads)
+    for (const o of delivered) {
+      if (!o.customerToken || normalizeStatus(o.status) !== "livree") continue
+      const list = livreeByToken.get(o.customerToken) ?? []
+      list.push({
+        id: o.id,
+        total: o.total,
+        loyaltyDiscount: o.loyaltyDiscount ?? 0,
+        loyaltyPointsAwarded: o.loyaltyPointsAwarded,
+      })
+      livreeByToken.set(o.customerToken, list)
+    }
+  } catch (e) {
+    console.error("[listUsers] loyalty replay:", e)
+  }
+
+  let machineByToken = new Map<string, number>()
+  try {
+    const machine = await pool.query(
+      `SELECT user_token, COALESCE(SUM(points), 0)::int AS s
+       FROM slot_point_entries WHERE test_mode = false GROUP BY user_token`,
+    )
+    machineByToken = new Map(
+      machine.rows.map((row) => [String(row.user_token), Number(row.s ?? 0)]),
+    )
+  } catch (e) {
+    console.error("[listUsers] machine points:", e)
+  }
+
   return rows.map((r) => {
     const kyc = kycByToken.get(r.token)
+    const replay = replayLoyaltyOrders(livreeByToken.get(r.token) ?? [], r.peakTier)
+    const machinePoints = machineByToken.get(r.token) ?? 0
+    const pointsBase = replay.points + machinePoints
     return {
       ...r,
+      points: spendableLoyaltyPoints({
+        replayPoints: replay.points,
+        adjustment: r.loyaltyAdjustment,
+        spent: r.loyaltySpent,
+        machinePoints,
+      }),
+      pointsBase,
       kycStatus: kyc?.status ?? null,
       kycId: kyc?.id ?? null,
       availableSpins: spinsByToken.get(r.token) ?? 0,

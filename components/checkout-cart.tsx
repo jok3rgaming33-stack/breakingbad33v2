@@ -581,6 +581,24 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     setSubmitError(null)
     setCryptoPayment(null)
     try {
+      if (ptsFreeApplied && token) {
+        const fresh = await getCustomerStats(token)
+        setLoyaltyPoints(fresh.points ?? 0)
+        setCanRedeemFreeDelivery(!!fresh.canRedeemFreeDelivery)
+        setFreeDeliveryActive(!!fresh.freeDeliveryActive)
+        if (fresh.freeDeliveryActive) {
+          setRedeemPtsForDelivery(false)
+          setSubmitError("Ton mois Platine offre déjà la livraison. Relance la commande, sans utiliser tes points.")
+          return
+        }
+        if (!fresh.canRedeemFreeDelivery || (fresh.points ?? 0) < freeDeliveryPointsCost) {
+          setRedeemPtsForDelivery(false)
+          setSubmitError(
+            `Solde insuffisant pour offrir la livraison. Il faut ${freeDeliveryPointsCost} points.`,
+          )
+          return
+        }
+      }
       const orderRes = await createOrderThread({
         customerName: name,
         customerToken: token,

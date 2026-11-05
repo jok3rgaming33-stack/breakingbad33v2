@@ -183,10 +183,7 @@ export function LoyaltyModal({ isOpen, onClose, userData }: LoyaltyModalProps) {
               <div className="text-2xl font-bold text-accent">
                 {stats === null ? <Loader2 className="ml-auto h-6 w-6 animate-spin" aria-hidden="true" /> : balance}
               </div>
-              <div className="text-xs text-muted-foreground">
-                points
-                {multi > 1 ? ` (base ×${multi})` : " (1€ = 1 pt)"}
-              </div>
+              <div className="text-xs text-muted-foreground">solde utilisable</div>
             </div>
           </div>
           {stats?.nextTierLabel && (
