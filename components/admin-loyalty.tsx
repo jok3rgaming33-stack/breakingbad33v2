@@ -39,7 +39,16 @@ function fmtDate(d: Date | string | null | undefined) {
   }
 }
 
-type InnerTab = "clients" | "codes" | "anomalies"
+type InnerTab = "clients" | "codes" | "stock" | "anomalies"
+
+type StockLine = {
+  key: string
+  pseudo: string
+  origin: "Code PF" | "Roue"
+  code: string
+  detail: string
+  expiresAt: string | null
+}
 
 function toLocalInput(iso: string | null): string {
   if (!iso) return ""
@@ -225,6 +234,43 @@ export function AdminLoyalty() {
     )
   }, [data, q])
 
+  const stockLines = useMemo(() => {
+    if (!data) return []
+    const needle = q.trim().toLowerCase()
+    const lines: StockLine[] = []
+    for (const c of data.clients) {
+      for (const code of c.codeLines) {
+        if (code.used) continue
+        lines.push({
+          key: `pf-${code.id}`,
+          pseudo: c.pseudo,
+          origin: "Code PF",
+          code: code.code,
+          detail: `-${code.discount}€, min. ${code.minAmount}€, coût ${code.pointsCost} PF`,
+          expiresAt: null,
+        })
+      }
+      for (const v of c.wheelStock) {
+        lines.push({
+          key: `wheel-${v.id}`,
+          pseudo: c.pseudo,
+          origin: "Roue",
+          code: v.code,
+          detail: v.label,
+          expiresAt: v.expiresAt,
+        })
+      }
+    }
+    if (!needle) return lines
+    return lines.filter(
+      (line) =>
+        line.pseudo.toLowerCase().includes(needle) ||
+        line.code.toLowerCase().includes(needle) ||
+        line.detail.toLowerCase().includes(needle) ||
+        line.origin.toLowerCase().includes(needle),
+    )
+  }, [data, q])
+
   const handleRepair = async (userId: number) => {
     setRepairing(userId)
     setMsg(null)
@@ -264,7 +310,7 @@ export function AdminLoyalty() {
           <div>
             <h2 className="text-xl font-bold">Fidélité (PF)</h2>
             <p className="text-sm text-muted-foreground">
-              Attribution des points, conversion en bons, et contrôle des débits.
+              Attribution des points, conversion en bons, stock encore utilisable, et contrôle des débits.
             </p>
           </div>
         </div>
@@ -281,7 +327,7 @@ export function AdminLoyalty() {
 
       {/* KPI */}
       {t && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
           {[
             { label: "Clients actifs PF", value: t.clients },
             { label: "Points gagnés", value: t.earned },
@@ -289,6 +335,7 @@ export function AdminLoyalty() {
             { label: "Soldes restants", value: t.balance },
             { label: "Codes générés", value: t.codesTotal },
             { label: "Codes utilisés", value: t.codesUsed },
+            { label: "En stock", value: t.stock },
             { label: "Anomalies débit", value: t.anomalies, alert: t.anomalies > 0 },
           ].map((k) => (
             <div
@@ -326,11 +373,12 @@ export function AdminLoyalty() {
 
       {/* Tabs + search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex gap-1 rounded-2xl border border-border bg-card p-1">
+        <div className="flex flex-wrap gap-1 rounded-2xl border border-border bg-card p-1">
           {(
             [
               { id: "clients" as const, label: "Clients / attribution" },
               { id: "codes" as const, label: "Codes fidélité" },
+              { id: "stock" as const, label: `Stock${t?.stock ? ` (${t.stock})` : ""}` },
               { id: "anomalies" as const, label: `Anomalies${t?.anomalies ? ` (${t.anomalies})` : ""}` },
             ] as const
           ).map((x) => (
@@ -362,6 +410,8 @@ export function AdminLoyalty() {
       {/* Contenu */}
       {tab === "codes" ? (
         <CodesTable codes={filteredCodes} />
+      ) : tab === "stock" ? (
+        <StockTable lines={stockLines} />
       ) : (
         <ClientsTable
           clients={filteredClients}
@@ -430,6 +480,12 @@ function ClientsTable({
                       <AlertTriangle className="h-3 w-3" /> Débit incohérent
                     </span>
                   )}
+                  {c.codesUnused + c.wheelStock.length > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                      <Ticket className="h-3 w-3" />
+                      {c.codesUnused + c.wheelStock.length} en stock
+                    </span>
+                  )}
                 </div>
                 <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
                   {c.token.length > 20 ? `${c.token.slice(0, 10)}…${c.token.slice(-8)}` : c.token}
@@ -478,6 +534,8 @@ function ClientsTable({
                   {" · "}
                   Codes : {c.codesCount} ({c.codesUsed} utilisés / {c.codesUnused} en stock) · Σ pointsCost ={" "}
                   <span className="font-mono text-foreground">{c.codesPointsCost}</span>
+                  {" · "}
+                  Roue en stock : <span className="font-mono text-foreground">{c.wheelStock.length}</span>
                   {!c.debitOk && (
                     <span className="mt-1 block text-amber-400">
                       ⚠ Débit ({c.loyaltySpent}) inférieur à la somme des codes ({c.codesPointsCost}). Une
@@ -537,6 +595,8 @@ function ClientsTable({
                   )}
                 </div>
 
+                <StockBlock client={c} />
+
                 {/* Codes du client */}
                 <div>
                   <h4 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -589,6 +649,95 @@ function ClientsTable({
         )
       })}
     </ul>
+  )
+}
+
+function StockBlock({ client }: { client: LoyaltyClientRow }) {
+  const unused = client.codeLines.filter((c) => !c.used)
+  const empty = unused.length === 0 && client.wheelStock.length === 0
+  return (
+    <div>
+      <h4 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <Ticket className="h-3.5 w-3.5" /> Réductions en stock
+      </h4>
+      {empty ? (
+        <p className="text-xs text-muted-foreground">Aucune réduction encore utilisable.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-border">
+          <table className="w-full min-w-[520px] text-left text-xs">
+            <thead className="bg-secondary/50 text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">Origine</th>
+                <th className="px-3 py-2 font-medium">Code</th>
+                <th className="px-3 py-2 font-medium">Détail</th>
+                <th className="px-3 py-2 font-medium">Échéance</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {unused.map((code) => (
+                <tr key={`pf-${code.id}`} className="bg-background/40">
+                  <td className="px-3 py-2">Code PF</td>
+                  <td className="px-3 py-2 font-mono font-semibold">{code.code}</td>
+                  <td className="px-3 py-2">
+                    -{code.discount}€, min. {code.minAmount}€, coût {code.pointsCost} PF
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">sans date</td>
+                </tr>
+              ))}
+              {client.wheelStock.map((v) => (
+                <tr key={`wheel-${v.id}`} className="bg-background/40">
+                  <td className="px-3 py-2">Roue</td>
+                  <td className="px-3 py-2 font-mono font-semibold">{v.code}</td>
+                  <td className="px-3 py-2">{v.label}</td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {v.expiresAt ? fmtDate(v.expiresAt) : "sans date"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StockTable({ lines }: { lines: StockLine[] }) {
+  if (lines.length === 0) {
+    return (
+      <div className="rounded-2xl border border-border bg-card py-14 text-center text-sm text-muted-foreground">
+        Aucune réduction en stock.
+      </div>
+    )
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-border bg-card">
+      <table className="w-full min-w-[720px] text-left text-sm">
+        <thead className="border-b border-border bg-secondary/40 text-xs text-muted-foreground">
+          <tr>
+            <th className="px-4 py-3 font-medium">Client</th>
+            <th className="px-4 py-3 font-medium">Origine</th>
+            <th className="px-4 py-3 font-medium">Code</th>
+            <th className="px-4 py-3 font-medium">Détail</th>
+            <th className="px-4 py-3 font-medium">Échéance</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {lines.map((line) => (
+            <tr key={line.key} className="hover:bg-secondary/20">
+              <td className="px-4 py-3 text-xs font-semibold">{line.pseudo}</td>
+              <td className="px-4 py-3 text-xs">{line.origin}</td>
+              <td className="px-4 py-3 font-mono text-xs font-semibold">{line.code}</td>
+              <td className="px-4 py-3 text-xs">{line.detail}</td>
+              <td className="px-4 py-3 text-xs text-muted-foreground">
+                {line.expiresAt ? fmtDate(line.expiresAt) : "sans date"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

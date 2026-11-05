@@ -1,7 +1,7 @@
 "use server"
 
 import { db, pool } from "@/lib/db"
-import { loyaltyCodes, orderThreads, users } from "@/lib/db/schema"
+import { loyaltyCodes, orderThreads, slotVouchers, users } from "@/lib/db/schema"
 import { isAdminAuthenticated } from "@/app/actions/admin-auth"
 import { replayLoyaltyOrders, spendableLoyaltyPoints } from "@/lib/loyalty"
 import { normalizeStatus } from "@/lib/order-status"
@@ -29,6 +29,27 @@ export type LoyaltyCodeLine = {
   pseudo: string | null
 }
 
+export type WheelStockLine = {
+  id: number
+  code: string
+  kind: string
+  label: string
+  expiresAt: string | null
+}
+
+function wheelPrizeLabel(kind: string): string {
+  if (kind === "walter") return "Walter · -20€ produits (dès 60€)"
+  if (kind === "jesse") return "Jesse · -10€ produits (dès 60€)"
+  if (kind === "gus") return "Gus · livraison offerte"
+  return kind
+}
+
+function voucherInStock(status: string, expiresAt: Date | string | null): boolean {
+  if (status !== "active") return false
+  if (!expiresAt) return true
+  return new Date(expiresAt).getTime() > Date.now()
+}
+
 export type LoyaltyClientRow = {
   userId: number
   pseudo: string
@@ -47,6 +68,8 @@ export type LoyaltyClientRow = {
   codesCount: number
   codesUsed: number
   codesUnused: number
+  /** Bons roue encore utilisables (hors test, non expirés) */
+  wheelStock: WheelStockLine[]
   /** true si loyaltySpent couvre au moins la somme des codes (le surplus = livraisons 150 pts) */
   debitOk: boolean
   /** true si balance cohérent avec la formule */
@@ -68,6 +91,8 @@ export type LoyaltyOverview = {
     codesUsed: number
     codesUnused: number
     anomalies: number
+    /** Codes PF non utilisés + bons roue encore valides */
+    stock: number
   }
 }
 
@@ -80,6 +105,7 @@ function shortToken(t: string) {
  * Vue admin fidélité :
  * - attribution points par commande livrée
  * - codes générés / utilisés
+ * - reductions encore en stock (codes PF non utilisés + bons roue actifs)
  * - contrôle solde vs loyaltySpent vs somme des codes
  */
 export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
@@ -96,6 +122,7 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
         codesUsed: 0,
         codesUnused: 0,
         anomalies: 0,
+        stock: 0,
       },
     }
   }
@@ -181,6 +208,36 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
     console.error("[loyalty-admin] machine points:", e)
   }
 
+  const wheelByToken = new Map<string, WheelStockLine[]>()
+  try {
+    const vouchers = await db
+      .select({
+        id: slotVouchers.id,
+        userToken: slotVouchers.userToken,
+        code: slotVouchers.code,
+        kind: slotVouchers.kind,
+        status: slotVouchers.status,
+        expiresAt: slotVouchers.expiresAt,
+      })
+      .from(slotVouchers)
+      .where(eq(slotVouchers.testMode, false))
+    for (const v of vouchers) {
+      if (!voucherInStock(v.status, v.expiresAt)) continue
+      const line: WheelStockLine = {
+        id: v.id,
+        code: v.code,
+        kind: v.kind,
+        label: wheelPrizeLabel(v.kind),
+        expiresAt: v.expiresAt ? new Date(v.expiresAt).toISOString() : null,
+      }
+      const list = wheelByToken.get(v.userToken) ?? []
+      list.push(line)
+      wheelByToken.set(v.userToken, list)
+    }
+  } catch (e) {
+    console.error("[loyalty-admin] vouchers:", e)
+  }
+
   const clients: LoyaltyClientRow[] = []
 
   for (const u of allUsers) {
@@ -221,6 +278,7 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
     const codesPointsCost = codeLines.reduce((s, c) => s + (c.pointsCost || 0), 0)
     const codesUsed = codeLines.filter((c) => c.used).length
     const codesUnused = codeLines.length - codesUsed
+    const wheelStock = wheelByToken.get(u.token) ?? []
     const debitOk = spent >= codesPointsCost
     const balanceOk = balance === spendableLoyaltyPoints({
       replayPoints: earned,
@@ -230,7 +288,16 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
     })
 
     // N'inclure que clients avec activité fidélité (évite liste vide de bruit)
-    if (earned === 0 && machinePoints === 0 && adj === 0 && spent === 0 && codeLines.length === 0) continue
+    if (
+      earned === 0 &&
+      machinePoints === 0 &&
+      adj === 0 &&
+      spent === 0 &&
+      codeLines.length === 0 &&
+      wheelStock.length === 0
+    ) {
+      continue
+    }
 
     clients.push({
       userId: u.id,
@@ -246,6 +313,7 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
       codesCount: codeLines.length,
       codesUsed,
       codesUnused,
+      wheelStock,
       debitOk,
       balanceOk,
       ordersDelivered: orderLines.length,
@@ -276,6 +344,7 @@ export async function getLoyaltyOverview(): Promise<LoyaltyOverview> {
       codesUsed: allCodes.filter((c) => c.used).length,
       codesUnused: allCodes.filter((c) => !c.used).length,
       anomalies,
+      stock: clients.reduce((s, c) => s + c.codesUnused + c.wheelStock.length, 0),
     },
   }
 }
