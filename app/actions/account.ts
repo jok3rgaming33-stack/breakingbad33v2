@@ -9,7 +9,7 @@ import {
 import { eq, desc, sql, and, gte, inArray } from "drizzle-orm"
 import { del } from "@vercel/blob"
 import { revalidatePath } from "next/cache"
-import { isClosedStatus, normalizeStatus } from "@/lib/order-status"
+import { isActiveOrderStatus, isClosedStatus, isRealOrderStatus, normalizeStatus } from "@/lib/order-status"
 import {
   computeLoyaltyPoints,
   computeTierPoints,
@@ -585,8 +585,9 @@ export async function getCustomerStats(token: string): Promise<CustomerStats> {
         loyaltyPointsAwarded: (row as { loyaltyPointsAwarded?: number | null }).loyaltyPointsAwarded ?? null,
       })
     }
+    if (!isRealOrderStatus(row.status)) continue
     if (isClosedStatus(row.status)) past += 1
-    else active += 1
+    else if (isActiveOrderStatus(row.status)) active += 1
   }
 
   // Select ciblé (évite plantage si une colonne optionnelle manque encore)

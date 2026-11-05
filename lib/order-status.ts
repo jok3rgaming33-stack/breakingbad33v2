@@ -149,6 +149,19 @@ export function isClosedStatus(raw: string | null | undefined): boolean {
   return CLOSED_STATUSES.includes(normalizeStatus(raw))
 }
 
+/** Vraie commande : pas une discussion, une notification, ni le message TRK. */
+export function isRealOrderStatus(raw: string | null | undefined): boolean {
+  if (!raw) return false
+  if (raw === "trk_token") return false
+  if (isMessagingThreadStatus(raw)) return false
+  return true
+}
+
+/** Commande encore ouverte (ni livrée, ni annulée, ni fil de messagerie). */
+export function isActiveOrderStatus(raw: string | null | undefined): boolean {
+  return isRealOrderStatus(raw) && !isClosedStatus(raw)
+}
+
 // Statuts discussion (fils directs entre client et admin)
 export const DISCUSSION_STATUSES: OrderStatusKey[] = ["discussion", "pris_en_charge", "ouvert", "ferme"]
 

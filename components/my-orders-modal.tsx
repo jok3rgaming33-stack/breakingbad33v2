@@ -12,7 +12,7 @@ import {
   notifyDeposit,
   markThreadReadForToken,
 } from "@/app/actions/messaging"
-import { statusMeta, isClosedStatus } from "@/lib/order-status"
+import { statusMeta, isClosedStatus, isRealOrderStatus } from "@/lib/order-status"
 import { splitThreadForTracking, type OrderTrackingState } from "@/lib/order-timeline"
 import { OrderTrackingCard } from "@/components/order-tracking-card"
 import { MeetupNavCard } from "@/components/meetup-nav-card"
@@ -153,9 +153,12 @@ export function MyOrdersModal({
       getLockerOrdersForToken(token),
     ])
     // Exclure les broadcasts admin (ils sont dans Messagerie → Discussions)
-    const ordersOnly = (list as Thread[]).filter((t) => t.status !== "notification")
-    setThreads(sortByActivityDesc(ordersOnly))
-    setLockerThreads(sortByActivityDesc(lockerList as Thread[]))
+    const main = (list as Thread[]).filter((t) => isTrkMessage(t) || isRealOrderStatus(t.status))
+    const lockerAll = (lockerList as Thread[]).filter((t) => isRealOrderStatus(t.status))
+    const seen = new Set(main.map((t) => t.id))
+    const closedLocker = lockerAll.filter((t) => isClosedStatus(t.status) && !seen.has(t.id))
+    setThreads(sortByActivityDesc([...main, ...closedLocker]))
+    setLockerThreads(sortByActivityDesc(lockerAll.filter((t) => !isClosedStatus(t.status))))
   }
 
   useEffect(() => {
@@ -555,9 +558,12 @@ export function MyOrdersModal({
                   </div>
                 ) : (
                   (() => {
-                    const list = threads.filter((t) =>
-                      tab === "past" ? isClosedStatus(t.status) : !isClosedStatus(t.status)
-                    )
+                    const list = threads.filter((t) => {
+                      if (isTrkMessage(t)) return tab === "active"
+                      if (!isRealOrderStatus(t.status)) return false
+                      if (t.fulfillment === "locker") return tab === "past" && isClosedStatus(t.status)
+                      return tab === "past" ? isClosedStatus(t.status) : !isClosedStatus(t.status)
+                    })
                     if (list.length === 0) {
                       return (
                         <div className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">

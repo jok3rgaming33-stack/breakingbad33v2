@@ -10,7 +10,7 @@ import {
   createGeneralInquiryThread,
   markThreadReadForToken,
 } from "@/app/actions/messaging"
-import { statusMeta, isDiscussionStatus, isMessagingThreadStatus } from "@/lib/order-status"
+import { statusMeta, isClosedStatus, isDiscussionStatus, isMessagingThreadStatus, isRealOrderStatus } from "@/lib/order-status"
 import { MessageBody } from "@/components/message-body"
 import { clientVoiceLabel } from "@/lib/staff-voice"
 import { ProductRatingModal } from "@/components/product-rating-modal"
@@ -182,7 +182,7 @@ export function MessagerieModal({
       return
     }
     if (pickedTab.current || selected || !threads.length) return
-    const hasOrders = threads.some((t) => !isMessagingThreadStatus(t.status))
+    const hasOrders = threads.some((t) => isRealOrderStatus(t.status))
     const hasDiscussions = threads.some((t) => isMessagingThreadStatus(t.status))
     if (!hasOrders && hasDiscussions) setTab("discussions")
     pickedTab.current = true
@@ -327,7 +327,8 @@ export function MessagerieModal({
   ) : null
 
   // Commandes réelles uniquement — les broadcasts admin vont dans Discussions
-  const orderThreads = threads.filter((t) => !isMessagingThreadStatus(t.status))
+  const orderThreads = threads.filter((t) => isRealOrderStatus(t.status))
+  const openOrderCount = orderThreads.filter((t) => !isClosedStatus(t.status)).length
   const discussionThreads = threads.filter((t) => isMessagingThreadStatus(t.status))
 
   const title =
@@ -387,8 +388,8 @@ export function MessagerieModal({
               >
                 <Package className="h-3.5 w-3.5" aria-hidden="true" />
                 Commandes
-                {orderThreads.length > 0 && (
-                  <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] font-semibold text-accent">{orderThreads.length}</span>
+                {openOrderCount > 0 && (
+                  <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] font-semibold text-accent">{openOrderCount}</span>
                 )}
               </button>
               <button
