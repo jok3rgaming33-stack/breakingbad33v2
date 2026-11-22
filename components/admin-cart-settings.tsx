@@ -41,6 +41,18 @@ const HOURLY_RANGES: SlotRange[] = Array.from({ length: 24 }, (_, start) => {
   }
 })
 
+// Tranches de 6h pour la livraison
+const SIX_HOUR_RANGES: SlotRange[] = [
+  { label: "13h-19h", startHour: 13, endHour: 19 },
+  { label: "19h-01h", startHour: 19, endHour: 1 },
+]
+
+// Tranches de 6h pour le meet-up (hour = heure de début)
+const MEETUP_RANGES = [
+  { label: "13h-19h", hour: 13 },
+  { label: "19h-01h", hour: 19 },
+]
+
 // Heures individuelles pour meetup
 const MEETUP_HOURS = Array.from({ length: 24 }, (_, i) => i)
 
@@ -99,8 +111,8 @@ function DeliverySlotPicker({
 }) {
   const [selDays, setSelDays] = useState<string[]>([])
   const [selRanges, setSelRanges] = useState<number[]>([])
-  const [grain, setGrain] = useState<"1h" | "2h">("1h")
-  const ranges = grain === "1h" ? HOURLY_RANGES : DELIVERY_RANGES
+  const [grain, setGrain] = useState<"1h" | "2h" | "6h">("1h")
+  const ranges = grain === "1h" ? HOURLY_RANGES : grain === "2h" ? DELIVERY_RANGES : SIX_HOUR_RANGES
 
   const toggleDay = (d: string) =>
     setSelDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
@@ -139,7 +151,7 @@ function DeliverySlotPicker({
       <legend className="flex items-center gap-2 text-sm font-bold text-accent">
         <Clock className="h-4 w-4" aria-hidden="true" />
         Créneaux de livraison
-        <span className="text-xs font-normal text-muted-foreground">(1h ou 2h)</span>
+        <span className="text-xs font-normal text-muted-foreground">(1h, 2h ou 6h)</span>
       </legend>
 
       {/* Tags existants */}
@@ -186,6 +198,14 @@ function DeliverySlotPicker({
             selected={grain === "2h"}
             onClick={() => {
               setGrain("2h")
+              setSelRanges([])
+            }}
+          />
+          <ToggleChip
+            label="6 heures"
+            selected={grain === "6h"}
+            onClick={() => {
+              setGrain("6h")
               setSelRanges([])
             }}
           />
@@ -240,9 +260,13 @@ function MeetupSlotPicker({
 }) {
   const [selDays, setSelDays] = useState<string[]>([])
   const [selHours, setSelHours] = useState<number[]>([])
+  const [selRanges, setSelRanges] = useState<number[]>([])
 
   const toggleDay = (d: string) =>
     setSelDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
+
+  const toggleRange = (i: number) =>
+    setSelRanges((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]))
 
   const toggleHour = (h: number) =>
     setSelHours((prev) => (prev.includes(h) ? prev.filter((x) => x !== h) : [...prev, h]))
@@ -251,7 +275,7 @@ function MeetupSlotPicker({
   const allHours = selHours.length === 24
 
   const handleAdd = () => {
-    if (!selDays.length || !selHours.length) return
+    if (!selDays.length || (!selHours.length && !selRanges.length)) return
     const toAdd: MeetupSlot[] = []
     for (const day of selDays) {
       for (const h of selHours) {
@@ -266,9 +290,24 @@ function MeetupSlotPicker({
         }
       }
     }
+    for (const day of selDays) {
+      for (const ri of selRanges) {
+        const r = MEETUP_RANGES[ri]
+        const label = `${day} ${r.label}`
+        if (!slots.some((s) => s.label === label)) {
+          toAdd.push({
+            id: `m-${crypto.randomUUID()}`,
+            label,
+            hour: r.hour,
+            days: [day],
+          })
+        }
+      }
+    }
     onAdd(toAdd)
     setSelDays([])
     setSelHours([])
+    setSelRanges([])
   }
 
   return (
@@ -331,14 +370,24 @@ function MeetupSlotPicker({
         </div>
       </div>
 
+      {/* Tranches de 6h */}
+      <div className="space-y-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tranches 6h</span>
+        <div className="flex flex-wrap gap-1.5">
+          {MEETUP_RANGES.map((r, i) => (
+            <ToggleChip key={r.label} label={r.label} selected={selRanges.includes(i)} onClick={() => toggleRange(i)} />
+          ))}
+        </div>
+      </div>
+
       <button
         type="button"
         onClick={handleAdd}
-        disabled={!selDays.length || !selHours.length}
+        disabled={!selDays.length || (!selHours.length && !selRanges.length)}
         className="rounded-xl bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        + Ajouter {selDays.length > 0 && selHours.length > 0
-          ? `(${selDays.length} jour${selDays.length > 1 ? "s" : ""} × ${selHours.length}h = ${selDays.length * selHours.length} créneaux)`
+        + Ajouter {selDays.length > 0 && (selHours.length > 0 || selRanges.length > 0)
+          ? `(${selDays.length} jour${selDays.length > 1 ? "s" : ""} × ${selHours.length + selRanges.length} = ${selDays.length * (selHours.length + selRanges.length)} créneaux)`
           : "les créneaux sélectionnés"}
       </button>
     </fieldset>
