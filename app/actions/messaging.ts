@@ -217,6 +217,10 @@ export async function createOrderThread(input: NewOrderInput) {
       const { assertDeliverySlotAvailable } = await import("@/app/actions/delivery-slots")
       const slotOk = await assertDeliverySlotAvailable(input.scheduledDate, input.scheduledSlot)
       if (!slotOk.ok) return slotOk
+    } else if (input.fulfillment === "meetup") {
+      const { assertMeetupSlotAvailable } = await import("@/app/actions/delivery-slots")
+      const slotOk = await assertMeetupSlotAvailable(input.scheduledDate, input.scheduledSlot)
+      if (!slotOk.ok) return slotOk
     }
 
     // Livraison client : les frais ne tombent à 0 que pour un seuil, le mois Platine,
@@ -2185,6 +2189,11 @@ export async function adminCreateOrder(input: AdminOrderInput) {
   if (input.fulfillment === "meetup") {
     scheduledDate = input.meetupDate ?? null
     scheduledSlot = input.meetupSlot ?? null
+    if (scheduledDate && scheduledSlot) {
+      const { assertMeetupSlotAvailable } = await import("@/app/actions/delivery-slots")
+      const slotOk = await assertMeetupSlotAvailable(scheduledDate, scheduledSlot)
+      if (!slotOk.ok) return { ok: false as const, error: slotOk.error }
+    }
     modeLine = `Retrait sur place (meet-up)${scheduledSlot ? ` à ${scheduledSlot}` : ""}`
   } else if (input.fulfillment === "locker") {
     address = input.lockerAddress ?? null
@@ -2194,6 +2203,11 @@ export async function adminCreateOrder(input: AdminOrderInput) {
     address = input.address ?? null
     scheduledDate = input.deliveryDate ?? null
     scheduledSlot = input.deliverySlot ?? null
+    if (scheduledDate && scheduledSlot) {
+      const { assertDeliverySlotAvailable } = await import("@/app/actions/delivery-slots")
+      const slotOk = await assertDeliverySlotAvailable(scheduledDate, scheduledSlot)
+      if (!slotOk.ok) return { ok: false as const, error: slotOk.error }
+    }
     modeLine = `Livraison à ${address ?? "adresse non précisée"}${
       scheduledSlot ? ` — créneau ${scheduledSlot}` : ""
     }${fee > 0 ? ` (frais ${fee}€)` : ""}`
