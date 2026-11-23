@@ -39,8 +39,16 @@ export function parisWallTime(dateStr: string, hour: number, minute = 0): Date {
 }
 
 /** Le créneau est encore choisissable seulement si son heure de début n'a pas commencé. */
+export function addDaysStr(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number)
+  if (!y || !m || !d) return dateStr
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
+}
+
 export function deliveryStartStillAhead(dateStr: string, startHour: number, now = new Date()): boolean {
-  const start = parisWallTime(dateStr, startHour, 0)
+  // 00h–05h continue la soirée : le créneau « 00h-01h » du lundi a lieu dans la nuit de lundi à mardi.
+  const day = startHour < 6 ? addDaysStr(dateStr, 1) : dateStr
+  const start = parisWallTime(day, startHour, 0)
   return Number.isFinite(start.getTime()) && start.getTime() > now.getTime()
 }
 

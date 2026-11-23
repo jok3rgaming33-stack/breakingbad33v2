@@ -1,7 +1,7 @@
-/** Capacité réelle d’un créneau livraison 2h. */
-export const DELIVERY_SLOT_CAPACITY = 3
-/** Place fantôme : toujours 1 prise pour montrer que le créneau tourne. */
-export const DELIVERY_SLOT_RESERVED = 1
+/** Capacité d'un créneau (livraison et meet-up) : 1 client par créneau d'1h. */
+export const DELIVERY_SLOT_CAPACITY = 1
+/** Plus de place fantôme : la seule place est réellement bookable. */
+export const DELIVERY_SLOT_RESERVED = 0
 /** Places vraiment bookables par les commandes. */
 export const DELIVERY_SLOT_CLIENT_MAX = DELIVERY_SLOT_CAPACITY - DELIVERY_SLOT_RESERVED
 
