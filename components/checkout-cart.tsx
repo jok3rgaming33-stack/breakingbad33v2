@@ -10,7 +10,7 @@ import { needsVerification, submitVerification } from "@/app/actions/verificatio
 import { getCustomerStats } from "@/app/actions/account"
 import { consumeReservationsForOrder } from "@/app/actions/product-reservations"
 import { getCartConfig, type CartConfig, type MeetupSlot } from "@/app/actions/settings"
-import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
+import { getDeliverySlotOccupancy, getMeetupSlotOccupancy, getNextAvailableDate } from "@/app/actions/delivery-slots"
 import { compareDeliverySlots, deliverySlotIsFull, deliverySlotRemaining } from "@/lib/delivery-slots"
 import {
   FEE_LOCKER,
@@ -178,6 +178,22 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     () => getDeliverySlotOccupancy(date),
     { revalidateOnFocus: true, refreshInterval: 20_000 },
   )
+  const meetupOccKey =
+    date && fulfillmentMode === "meetup" ? `meetup-slot-occ:${date}` : null
+  const { data: meetupOccupancy = {} } = useSWR(
+    meetupOccKey,
+    () => getMeetupSlotOccupancy(date),
+    { revalidateOnFocus: true, refreshInterval: 20_000 },
+  )
+
+  // Date par défaut : premier jour qui a encore un créneau libre (bascule J+1 quand les 12 sont pris).
+  const [dateTouched, setDateTouched] = useState(false)
+  const nextDateMode = fulfillmentMode === "meetup" ? "meetup" : fulfillmentMode === "livraison" ? "livraison" : null
+  const { data: nextFreeDate } = useSWR(
+    nextDateMode ? `next-free-date:${nextDateMode}` : null,
+    () => getNextAvailableDate(nextDateMode!),
+    { revalidateOnFocus: true, refreshInterval: 30_000 },
+  )
 
   // La livraison n'est proposée qu'au-dessus du montant minimum.
   const deliveryAllowed = subtotal >= config.minDeliveryAmount
@@ -209,6 +225,14 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.meetupSlots, date])
 
+  // Présélectionne (ou rebascule) la date sur le premier jour libre tant que le client n'a pas choisi lui-même.
+  // Si le jour choisi est devenu plein, on bascule aussi.
+  useEffect(() => {
+    if (!nextFreeDate) return
+    if (nextFreeDate < minDate || nextFreeDate > dateOffset(3)) return
+    if (!dateTouched && date !== nextFreeDate) setDate(nextFreeDate)
+  }, [nextFreeDate, dateTouched, date, minDate])
+
   // Si la date choisie est antérieure au minDate (cutoff vient de passer), on la réinitialise.
   useEffect(() => {
     if (date && date < minDate) setDate("")
@@ -222,8 +246,11 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     if (!stillListed || full) setSlot("")
   }, [availableDeliverySlots, slot, slotOccupancy])
   useEffect(() => {
-    if (meetupHour && !availableMeetupSlots.some((s) => s.label === meetupHour)) setMeetupHour("")
-  }, [availableMeetupSlots, meetupHour])
+    if (!meetupHour) return
+    const stillListed = availableMeetupSlots.some((s) => s.label === meetupHour)
+    const full = deliverySlotIsFull(meetupOccupancy[meetupHour] ?? 0)
+    if (!stillListed || full) setMeetupHour("")
+  }, [availableMeetupSlots, meetupHour, meetupOccupancy])
 
   // Avantages Platine (mois offert OU rachat 150 pts)
   const [freeDeliveryActive, setFreeDeliveryActive] = useState(false)
@@ -667,6 +694,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
     setCodeInput("")
     setCodeError(null)
     setDate("")
+    setDateTouched(false)
     setSlot("")
     setFulfillmentMode("livraison")
     setMeetupHour("")
@@ -1230,7 +1258,10 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                   value={date}
                   min={minDate}
                   max={dateOffset(3)}
-                  onChange={(e) => setDate(e.target.value)}
+                  onChange={(e) => {
+                    setDateTouched(true)
+                    setDate(e.target.value)
+                  }}
                   className="w-full rounded-2xl border border-border bg-background/60 px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent [color-scheme:dark]"
                 />
               </div>
@@ -1286,18 +1317,23 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                   </p>
                 ) : (
                   <div className="grid grid-cols-4 gap-2">
-                    {availableMeetupSlots.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => setMeetupHour(s.label)}
-                        className={`rounded-xl border p-2.5 text-xs font-medium transition-colors ${
-                          meetupHour === s.label ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
-                        }`}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
+                    {availableMeetupSlots.map((s) => {
+                      const full = deliverySlotIsFull(meetupOccupancy[s.label] ?? 0)
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          disabled={full}
+                          title={full ? "Créneau complet" : undefined}
+                          onClick={() => setMeetupHour(s.label)}
+                          className={`rounded-xl border p-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:line-through disabled:opacity-40 ${
+                            meetupHour === s.label ? "border-accent bg-accent/10 text-foreground" : "border-border text-muted-foreground"
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
               </div>
