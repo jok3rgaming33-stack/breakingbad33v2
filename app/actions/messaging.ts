@@ -2288,3 +2288,76 @@ export async function countNewThreads() {
     .where(and(eq(orderThreads.status, "en_attente")))
   return row?.c ?? 0
 }
+
+/**
+ * Admin : change la date / le créneau d'une commande livraison ou meet-up,
+ * directement depuis la discussion de la commande.
+ * L'admin garde la main : un créneau complet ou déjà commencé est accepté
+ * (on renvoie juste sharedWith pour l'avertir). Le client est prévenu dans le fil + push.
+ */
+export async function changeOrderSlot(
+  threadId: number,
+  input: { date: string; slot: string },
+): Promise<
+  | { ok: true; scheduledDate: string; scheduledSlot: string; sharedWith: number }
+  | { ok: false; error: string }
+> {
+  if (!(await isAdminAuthenticated())) return { ok: false, error: "Non autorisé." }
+
+  const date = input.date?.trim() ?? ""
+  const slot = input.slot?.trim() ?? ""
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, error: "Choisis une date valide." }
+  if (!slot) return { ok: false, error: "Choisis un créneau." }
+
+  const [thread] = await db.select().from(orderThreads).where(eq(orderThreads.id, threadId)).limit(1)
+  if (!thread) return { ok: false, error: "Commande introuvable." }
+  const mode = (thread.fulfillment || "").toLowerCase()
+  if (mode !== "livraison" && mode !== "meetup") {
+    return { ok: false, error: "Le créneau ne se change que pour une livraison ou un meet-up." }
+  }
+  const st = normalizeStatus(thread.status)
+  if (st === "livree" || st === "annulee") {
+    return { ok: false, error: "Cette commande est déjà close." }
+  }
+
+  const { countDeliverySlotOrders, countMeetupSlotOrders } = await import("@/app/actions/delivery-slots")
+  const count =
+    mode === "meetup" ? await countMeetupSlotOrders(date, slot) : await countDeliverySlotOrders(date, slot)
+  const unchanged = thread.scheduledDate === date && thread.scheduledSlot === slot
+  const sharedWith = unchanged ? Math.max(0, count - 1) : count
+
+  const { frDayName } = await import("@/lib/paris-clock")
+  const fmt = (d: string | null | undefined, s: string | null | undefined) => {
+    if (!d) return s ?? "non renseigné"
+    const [y, m, day] = String(d).slice(0, 10).split("-")
+    return `${frDayName(String(d).slice(0, 10))} ${day}/${m}/${y}${s ? ` · ${s}` : ""}`.trim()
+  }
+  const before = fmt(thread.scheduledDate, thread.scheduledSlot)
+  const after = fmt(date, slot)
+
+  await db
+    .update(orderThreads)
+    .set({ scheduledDate: date, scheduledSlot: slot, updatedAt: sql`now()` })
+    .where(eq(orderThreads.id, threadId))
+
+  await db.insert(threadMessages).values({
+    threadId,
+    sender: "vendeur",
+    body: `Ton créneau a été modifié.\n\nAvant : ${before}\nMaintenant : ${after}\n\nSi ça ne te convient pas, réponds ici.`,
+  })
+
+  if (thread.customerToken) {
+    await notifyCustomer(thread.customerToken, {
+      title: `Commande #${threadId} — nouveau créneau`,
+      body: after,
+      url: clientThreadUrl("orders", threadId),
+      tag: `order-slot-${threadId}`,
+      threadId,
+      open: "orders",
+    }).catch(() => {})
+  }
+
+  revalidatePath("/admin")
+  revalidatePath("/messagerie")
+  return { ok: true, scheduledDate: date, scheduledSlot: slot, sharedWith }
+}
