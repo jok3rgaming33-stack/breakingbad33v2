@@ -135,6 +135,8 @@ export function AdminPanel() {
   // TOUJOURS démarrer sur commandes (journée active) — pas de spinner dashboard
   const [tab, setTab] = useState<TabId>("commandes-en-cours")
   const [focusThreadId, setFocusThreadId] = useState<number | null>(null)
+  // Incrémenté à chaque deep-link : rouvre le fil même si c'est le même numéro qu'avant.
+  const [focusKey, setFocusKey] = useState(0)
   const [badges, setBadges] = useState({
     orders: 0,
     locker: 0,
@@ -180,7 +182,10 @@ export function AdminPanel() {
       const t = params.get("tab") as TabId | null
       const thread = Number(params.get("thread") || 0)
       if (t && TABS.some((x) => x.id === t)) setTab(t)
-      if (Number.isFinite(thread) && thread > 0) setFocusThreadId(thread)
+      if (Number.isFinite(thread) && thread > 0) {
+        setFocusThreadId(thread)
+        setFocusKey((k) => k + 1)
+      }
       if (t || thread) {
         window.history.replaceState({}, "", window.location.pathname)
       }
@@ -198,7 +203,10 @@ export function AdminPanel() {
         const t = u.searchParams.get("tab") as TabId | null
         const thr = Number(u.searchParams.get("thread") || 0)
         if (t && TABS.some((x) => x.id === t)) setTab(t)
-        if (Number.isFinite(thr) && thr > 0) setFocusThreadId(thr)
+        if (Number.isFinite(thr) && thr > 0) {
+          setFocusThreadId(thr)
+          setFocusKey((k) => k + 1)
+        }
       } catch {
         /* ignore */
       }
@@ -496,24 +504,28 @@ export function AdminPanel() {
             <AdminDashboard onNavigate={(t) => selectTab(t as TabId)} />
           ) : tab === "commandes-en-cours" ? (
             <VendorInbox
+              key={`inbox-${focusKey}`}
               initialThreads={[]}
               mode="orders"
               focusThreadId={focusThreadId}
             />
           ) : tab === "locker" ? (
             <VendorInbox
+              key={`inbox-${focusKey}`}
               initialThreads={[]}
               mode="locker"
               focusThreadId={focusThreadId}
             />
           ) : tab === "cloturees" ? (
             <VendorInbox
+              key={`inbox-${focusKey}`}
               initialThreads={[]}
               mode="past"
               focusThreadId={focusThreadId}
             />
           ) : tab === "messagerie" ? (
             <VendorInbox
+              key={`inbox-${focusKey}`}
               initialThreads={[]}
               mode="messages"
               focusThreadId={focusThreadId}

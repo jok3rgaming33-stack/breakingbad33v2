@@ -22,6 +22,7 @@ export function clientThreadUrl(
 export type AdminTabDeep =
   | "commandes-en-cours"
   | "locker"
+  | "cloturees"
   | "messagerie"
   | "verifications"
   | "recuperations"

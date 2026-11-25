@@ -854,11 +854,14 @@ export async function addMessage(
       const isDiscussion = ["discussion", "pris_en_charge", "ouvert", "ferme"].includes(
         thread.status || "",
       )
+      const closedOrder = ["livree", "annulee"].includes(normalizeStatus(thread.status))
       const tab = isDiscussion
         ? "messagerie"
-        : thread.fulfillment === "locker"
-          ? "locker"
-          : "commandes-en-cours"
+        : closedOrder
+          ? "cloturees"
+          : thread.fulfillment === "locker"
+            ? "locker"
+            : "commandes-en-cours"
       await notifyVendor({
         title: `Message de ${thread.customerName}`,
         body: preview,
