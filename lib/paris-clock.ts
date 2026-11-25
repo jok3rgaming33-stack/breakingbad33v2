@@ -52,6 +52,44 @@ export function deliveryStartStillAhead(dateStr: string, startHour: number, now 
   return Number.isFinite(start.getTime()) && start.getTime() > now.getTime()
 }
 
+/** Un créneau reste proposé jusqu'à cette marge (min) avant sa fin. Créneau d'1h : jusqu'à son début. */
+export const SLOT_CLOSE_BEFORE_END_MIN = 60
+
+/** "19h-01h" → 1. null si le label n'est pas une plage horaire. */
+export function slotEndHourFromLabel(label: string): number | null {
+  const m = label.match(/(\d{1,2})\s*h\s*[-–—]\s*(\d{1,2})\s*h/i)
+  if (!m) return null
+  const h = Number(m[2])
+  if (!Number.isInteger(h) || h < 0 || h > 24) return null
+  return h === 24 ? 0 : h
+}
+
+/**
+ * Le créneau est-il encore proposable ?
+ * Oui jusqu'à (fin − 1h), et au minimum jusqu'à son début.
+ * 13h-19h reste ouvert jusqu'à 18h ; 19h-01h jusqu'à minuit ; un créneau d'1h jusqu'à son début.
+ */
+export function deliverySlotStillOpen(
+  dateStr: string,
+  startHour: number,
+  endHour?: number | null,
+  now = new Date(),
+): boolean {
+  const startDay = startHour < 6 ? addDaysStr(dateStr, 1) : dateStr
+  const start = parisWallTime(startDay, startHour, 0)
+  if (!Number.isFinite(start.getTime())) return false
+  let cutoff = start.getTime()
+  if (endHour != null && Number.isFinite(endHour)) {
+    const h = ((Math.trunc(endHour) % 24) + 24) % 24
+    const endDay = h <= startHour ? addDaysStr(startDay, 1) : startDay
+    const end = parisWallTime(endDay, h, 0)
+    if (Number.isFinite(end.getTime())) {
+      cutoff = Math.max(cutoff, end.getTime() - SLOT_CLOSE_BEFORE_END_MIN * 60_000)
+    }
+  }
+  return cutoff > now.getTime()
+}
+
 const FR_DAYS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"]
 
 export function frDayName(dateStr: string): string {
@@ -70,11 +108,11 @@ export function slotMatchesDay(slot: { label: string; days?: string[] }, dayName
 }
 
 export function deliverySlotChoosable(
-  slot: { label: string; startHour: number; days?: string[] },
+  slot: { label: string; startHour: number; endHour?: number; days?: string[] },
   dateStr: string,
   now = new Date(),
 ): boolean {
   if (!dateStr) return true
   if (!slotMatchesDay(slot, frDayName(dateStr))) return false
-  return deliveryStartStillAhead(dateStr, slot.startHour, now)
+  return deliverySlotStillOpen(dateStr, slot.startHour, slot.endHour ?? slotEndHourFromLabel(slot.label), now)
 }
