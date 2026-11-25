@@ -3,7 +3,7 @@
 import { useState, useTransition, useEffect, useRef, useCallback, useMemo } from "react"
 import useSWR from "swr"
 import type { OrderThread, ThreadMessage, Product } from "@/lib/db/schema"
-import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, sendPaysafecardInstructions, confirmDeposit, updateOrderProducts, deleteMessage, notifyArrivingInMinutes, changeOrderFulfillment } from "@/app/actions/messaging"
+import { getActiveOrders, getLockerOrders, getDiscussions, getPastOrders, getThread, addMessage, updateThreadStatus, deleteOrderThread, sendXmrWallet, sendPaysafecardInstructions, confirmDeposit, updateOrderProducts, deleteMessage, notifyArrivingInMinutes, changeOrderFulfillment, changeOrderSlot } from "@/app/actions/messaging"
 import { setMeetupReady } from "@/app/actions/meetup"
 import { MeetupLivePanel } from "@/components/meetup-live-panel"
 import type { OrderProductItem, AdminOrderPromo } from "@/app/actions/messaging"
@@ -21,9 +21,9 @@ import { OrderTrackingCard } from "@/components/order-tracking-card"
 import { MessageBody } from "@/components/message-body"
 import { AdminCreateOrderModal } from "@/components/admin-create-order-modal"
 import { getCartConfig } from "@/app/actions/settings"
-import { getDeliverySlotOccupancy } from "@/app/actions/delivery-slots"
-import { compareDeliverySlots, deliverySlotIsFull } from "@/lib/delivery-slots"
-import { deliverySlotChoosable } from "@/lib/paris-clock"
+import { getDeliverySlotOccupancy, getMeetupSlotOccupancy } from "@/app/actions/delivery-slots"
+import { compareDeliverySlots, deliverySlotIsFull, DELIVERY_SLOT_CAPACITY } from "@/lib/delivery-slots"
+import { deliverySlotChoosable, frDayName, slotMatchesDay } from "@/lib/paris-clock"
 import { asStaffVoice, STAFF_VOICES, staffVoiceLabel, type StaffVoice } from "@/lib/staff-voice"
 import { FEE_LOCKER, calcDeliveryFee, matchingFreeDeliveryTier, freeDeliveryTierLabel } from "@/lib/delivery-fee"
 import { useAddressGeocode } from "@/hooks/use-address-geocode"
@@ -86,6 +86,7 @@ export function VendorInbox({
   const [meetupSaving, setMeetupSaving] = useState(false)
   const [meetupError, setMeetupError] = useState<string | null>(null)
   const [convertOpen, setConvertOpen] = useState(false)
+  const [slotOpen, setSlotOpen] = useState(false)
   const [etaPreview, setEtaPreview] = useState<{ etaMin: number; driveMin: number } | null>(null)
   const [etaLoading, setEtaLoading] = useState(false)
   const [runCopied, setRunCopied] = useState(false)
@@ -935,6 +936,20 @@ export function VendorInbox({
                         {restoreOk ? "Notification envoyée" : "Rétablir l'accès"}
                       </button>
                     </>
+                  )}
+                  {mode !== "messages" &&
+                    ["livraison", "meetup"].includes((selected.fulfillment || "").toLowerCase()) &&
+                    normalizeStatus(selected.status) !== "livree" &&
+                    normalizeStatus(selected.status) !== "annulee" && (
+                    <button
+                      type="button"
+                      onClick={() => setSlotOpen(true)}
+                      className="flex items-center gap-1.5 rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-2.5 py-1.5 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-400/20"
+                      title="Changer la date ou le créneau de cette commande"
+                    >
+                      <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                      Changer le créneau
+                    </button>
                   )}
                   {mode !== "messages" && (
                     <button
@@ -1927,6 +1942,28 @@ export function VendorInbox({
         </div>
       )}
 
+      {slotOpen && selected && (
+        <ChangeSlotModal
+          threadId={selected.id}
+          fulfillment={(selected.fulfillment || "").toLowerCase() === "meetup" ? "meetup" : "livraison"}
+          initialDate={(selected.scheduledDate ?? "").slice(0, 10)}
+          initialSlot={selected.scheduledSlot ?? ""}
+          onClose={() => setSlotOpen(false)}
+          onDone={async (patch) => {
+            setThreads((prev) =>
+              prev.map((t) =>
+                t.id === selected.id
+                  ? { ...t, scheduledDate: patch.scheduledDate, scheduledSlot: patch.scheduledSlot }
+                  : t,
+              ),
+            )
+            const data = await getThread(selected.id)
+            setMessages(data?.messages ?? [])
+            setSlotOpen(false)
+          }}
+        />
+      )}
+
       {convertOpen && selected && (
         <ConvertMeetupModal
           threadId={selected.id}
@@ -2220,6 +2257,161 @@ function ConvertMeetupModal({
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
             Confirmer le changement
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+/**
+ * Changer la date / le créneau d'une commande depuis sa discussion.
+ * L'admin garde le choix : tous les créneaux du jour sont proposés, même complets
+ * ou déjà commencés (ils sont juste signalés). Le client est prévenu dans le fil.
+ */
+function ChangeSlotModal({
+  threadId,
+  fulfillment,
+  initialDate,
+  initialSlot,
+  onClose,
+  onDone,
+}: {
+  threadId: number
+  fulfillment: "livraison" | "meetup"
+  initialDate: string
+  initialSlot: string
+  onClose: () => void
+  onDone: (patch: { scheduledDate: string; scheduledSlot: string }) => void | Promise<void>
+}) {
+  const { data: config } = useSWR("cart-config", getCartConfig)
+  const [date, setDate] = useState(initialDate)
+  const [slot, setSlot] = useState(initialSlot)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const occKey = date ? `change-slot-occ:${fulfillment}:${date}` : null
+  const { data: occupancy = {} } = useSWR(occKey, () =>
+    fulfillment === "meetup" ? getMeetupSlotOccupancy(date) : getDeliverySlotOccupancy(date),
+  )
+
+  const options = useMemo(() => {
+    if (!date) return [] as { label: string }[]
+    const day = frDayName(date)
+    if (fulfillment === "meetup") {
+      return (config?.meetupSlots ?? []).filter((s) => slotMatchesDay(s, day)).map((s) => ({ label: s.label }))
+    }
+    return (config?.deliverySlots ?? [])
+      .filter((s) => slotMatchesDay(s, day))
+      .sort(compareDeliverySlots)
+      .map((s) => ({ label: s.label }))
+  }, [config, date, fulfillment])
+
+  const submit = async () => {
+    if (!date || !slot.trim() || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await changeOrderSlot(threadId, { date, slot })
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      await onDone({ scheduledDate: res.scheduledDate, scheduledSlot: res.scheduledSlot })
+    } catch {
+      setError("Impossible de modifier le créneau.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const taken = slot ? (occupancy[slot] ?? 0) : 0
+  const sameAsCurrent = date === initialDate && slot === initialSlot
+  const otherOrders = sameAsCurrent ? Math.max(0, taken - 1) : taken
+
+  return (
+    <div
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4"
+      {...backdropDismissProps(() => { if (!saving) onClose() })}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold">Changer le créneau</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Le client est prévenu dans la discussion et par notification.
+        </p>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Créneau</label>
+            {options.length > 0 ? (
+              <select
+                value={slot}
+                onChange={(e) => setSlot(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              >
+                <option value="">Choisir…</option>
+                {slot && !options.some((o) => o.label === slot) && <option value={slot}>{slot}</option>}
+                {options.map((o) => {
+                  const n = occupancy[o.label] ?? 0
+                  const mine = date === initialDate && o.label === initialSlot
+                  const full = deliverySlotIsFull(mine ? n - 1 : n)
+                  return (
+                    <option key={o.label} value={o.label}>
+                      {o.label} ({n}/{DELIVERY_SLOT_CAPACITY})
+                      {mine ? " — actuel" : full ? " — complet" : ""}
+                    </option>
+                  )
+                })}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={slot}
+                onChange={(e) => setSlot(e.target.value)}
+                placeholder="ex: 18h-19h"
+                className="mt-1 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+            )}
+          </div>
+        </div>
+
+        {deliverySlotIsFull(otherOrders) && (
+          <p className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+            Ce créneau est complet ({otherOrders}/{DELIVERY_SLOT_CAPACITY} commandes). Tu peux quand même le choisir.
+          </p>
+        )}
+        {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-lg border border-input px-4 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-50"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!date || !slot.trim() || sameAsCurrent || saving}
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-50"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+            Confirmer le créneau
           </button>
         </div>
       </div>
