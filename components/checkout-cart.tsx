@@ -22,7 +22,7 @@ import {
 import { SelfieVerificationModal, type VerificationMetadata } from "@/components/selfie-verification-modal"
 import { X, Trash2, MapPin, Ticket, CalendarDays, Clock, Truck, Store, Check, Loader2, Minus, Plus, Package, Lock, HeartPulse } from "lucide-react"
 import { backdropDismissProps } from "@/lib/backdrop-close"
-import { deliverySlotChoosable, frDayName, slotMatchesDay } from "@/lib/paris-clock"
+import { deliverySlotChoosable, deliverySlotStillOpen, frDayName, slotEndHourFromLabel, slotMatchesDay } from "@/lib/paris-clock"
 
 type UserData = { pseudo?: string } | null
 
@@ -112,9 +112,8 @@ function slotDate(dateStr: string, hour: number, afterMidnight: boolean) {
 
 // Une heure de meet-up est encore proposable si elle n'est pas dépassée.
 function meetupSlotAvailable(dateStr: string, s: MeetupSlot, now: Date) {
-  const afterMidnight = s.hour < 12 // ex. 00H = lendemain matin dans le cycle de soirée
-  const t = slotDate(dateStr, s.hour, afterMidnight)
-  return t.getTime() > now.getTime()
+  // Ouvert jusqu'à 1h avant la fin (tranche 13h-19h → jusqu'à 18h) ; 00h-05h = nuit suivante.
+  return deliverySlotStillOpen(dateStr, s.hour, slotEndHourFromLabel(s.label), now)
 }
 
 export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: CheckoutCartProps) {
@@ -1276,7 +1275,7 @@ export function CheckoutCart({ userData, onOrderPlaced, onOpenHarmReduction }: C
                 </div>
                 {!isMeetup && (
                   <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-                    Un créneau dont l&apos;heure a commencé n&apos;est plus proposé.
+                    Un créneau reste proposé jusqu&apos;à 1h avant sa fin.
                   </p>
                 )}
                 {!date ? (

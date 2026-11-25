@@ -1,5 +1,5 @@
-/** Capacité d'un créneau (livraison et meet-up) : 1 client par créneau d'1h. */
-export const DELIVERY_SLOT_CAPACITY = 1
+/** Capacité d'un créneau (livraison et meet-up) : 6 clients par créneau (tranche de 6h). */
+export const DELIVERY_SLOT_CAPACITY = 6
 /** Plus de place fantôme : la seule place est réellement bookable. */
 export const DELIVERY_SLOT_RESERVED = 0
 /** Places vraiment bookables par les commandes. */

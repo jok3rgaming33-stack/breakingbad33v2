@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import { orderThreads } from "@/lib/db/schema"
 import { and, eq, notInArray, sql } from "drizzle-orm"
 import { deliverySlotIsFull, deliverySlotRemaining } from "@/lib/delivery-slots"
-import { addDaysStr, deliveryStartStillAhead, frDayName, parisParts, slotMatchesDay } from "@/lib/paris-clock"
+import { addDaysStr, deliverySlotStillOpen, frDayName, parisParts, slotEndHourFromLabel, slotMatchesDay } from "@/lib/paris-clock"
 import { getCartConfig } from "@/app/actions/settings"
 
 /** Statuts qui libèrent le créneau (annulé / pas une commande livraison). */
@@ -87,8 +87,9 @@ export async function assertDeliverySlotAvailable(
     return { ok: false, error: "Ce créneau n'est pas proposé ce jour-là." }
   }
   const startHour = known?.startHour ?? hourFromLabel(s)
-  if (startHour != null && !deliveryStartStillAhead(d, startHour)) {
-    return { ok: false, error: "Ce créneau a déjà commencé. Choisis une heure plus tard." }
+  const endHour = known?.endHour ?? slotEndHourFromLabel(s)
+  if (startHour != null && !deliverySlotStillOpen(d, startHour, endHour)) {
+    return { ok: false, error: "Ce créneau est fermé (trop tard). Choisis un autre horaire." }
   }
   const n = await countDeliverySlotOrders(d, s)
   if (deliverySlotIsFull(n)) {
@@ -124,8 +125,8 @@ export async function assertMeetupSlotAvailable(
     return { ok: false, error: "Ce créneau n'est pas proposé ce jour-là." }
   }
   const startHour = known?.hour ?? hourFromLabel(s)
-  if (startHour != null && !deliveryStartStillAhead(d, startHour)) {
-    return { ok: false, error: "Ce créneau a déjà commencé. Choisis une heure plus tard." }
+  if (startHour != null && !deliverySlotStillOpen(d, startHour, slotEndHourFromLabel(s))) {
+    return { ok: false, error: "Ce créneau est fermé (trop tard). Choisis un autre horaire." }
   }
   const n = await countMeetupSlotOrders(d, s)
   if (deliverySlotIsFull(n)) {
@@ -143,10 +144,20 @@ export async function assertMeetupSlotAvailable(
  */
 export async function getNextAvailableDate(mode: Mode, maxDays = 30): Promise<string | null> {
   const cfg = await getCartConfig()
-  const slots: { label: string; startHour: number; days?: string[] }[] =
+  const slots: { label: string; startHour: number; endHour?: number | null; days?: string[] }[] =
     mode === "livraison"
-      ? cfg.deliverySlots
-      : cfg.meetupSlots.map((s) => ({ label: s.label, startHour: s.hour, days: s.days }))
+      ? cfg.deliverySlots.map((s) => ({
+          label: s.label,
+          startHour: s.startHour,
+          endHour: s.endHour ?? slotEndHourFromLabel(s.label),
+          days: s.days,
+        }))
+      : cfg.meetupSlots.map((s) => ({
+          label: s.label,
+          startHour: s.hour,
+          endHour: slotEndHourFromLabel(s.label),
+          days: s.days,
+        }))
   if (slots.length === 0) return null
 
   const p = parisParts(new Date())
@@ -160,7 +171,7 @@ export async function getNextAvailableDate(mode: Mode, maxDays = 30): Promise<st
     const hasFree = slots.some(
       (s) =>
         slotMatchesDay(s, dayName) &&
-        deliveryStartStillAhead(date, s.startHour) &&
+        deliverySlotStillOpen(date, s.startHour, s.endHour) &&
         !deliverySlotIsFull(occ[s.label] ?? 0),
     )
     if (hasFree) return date
